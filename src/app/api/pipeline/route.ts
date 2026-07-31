@@ -79,9 +79,12 @@ export async function POST(request: Request) {
   const branch = config.branch || BRANCH;
   const commitMessage = config.message || "🚀 Pipeline automatique: déploiement GitHub";
   const token = config.token || process.env.GITHUB_TOKEN;
-  const pushUrl = token
-    ? GITHUB_REPO_URL.replace("https://", `https://x-access-token:${token}@`)
-    : GITHUB_REPO_URL;
+  const pushGitConfig: GitConfig = {};
+  let pushUrl = GITHUB_REPO_URL;
+  if (token) {
+    pushUrl = GITHUB_REPO_URL.replace("https://", `https://x-access-token:${token}@`);
+    pushGitConfig["http.extraHeader"] = `Authorization: token ${token}`;
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -110,7 +113,7 @@ export async function POST(request: Request) {
       };
 
       try {
-        sse(controller, "start", { message: "Pipeline démarré", repoUrl: GITHUB_REPO_URL });
+        sse(controller, "start", { message: "Pipeline démarré", repoUrl: GITHUB_REPO_URL, hasToken: !!token });
 
         const emitLog = (message: string) =>
           sse(controller, "log", { step: "init", message });
@@ -118,7 +121,7 @@ export async function POST(request: Request) {
         emitLog(`Début du pipeline de déploiement vers GitHub`);
         emitLog(`Repository cible : ${GITHUB_REPO_URL}`);
         emitLog(`Branche : ${branch}`);
-        emitLog(token ? "🔐 Authentification GitHub configurée" : "⚠️ Pas de token GitHub — push sans authentification");
+        emitLog(token ? `🔐 Token GitHub configuré (longueur: ${token.length})` : "⚠️ Pas de token GitHub — push sans authentification");
         updateProgress("init", 0);
 
         // ── Step 1: Verify git repo ──
@@ -177,11 +180,12 @@ export async function POST(request: Request) {
 
         // ── Step 5: Push ──
         sse(controller, "step", { id: "push", label: "Push to GitHub", index: 5 });
-        sse(controller, "log", { step: "push", message: `Publication sur ${GITHUB_REPO_URL} (branche: ${branch})` });
+        sse(controller, "log", { step: "push", message: `Publication sur ${GITHUB_REPO_URL} (branche: ${branch})`, hasToken: !!token, pushUrlHasToken: pushUrl.includes("x-access-token") });
         const pushResult = await runGit(
           ["push", pushUrl, branch, "--force-with-lease"],
           controller,
-          "push"
+          "push",
+          pushGitConfig
         );
         if (pushResult.success) {
           sse(controller, "log", { step: "push", message: "✅ Publication réussie !" });
