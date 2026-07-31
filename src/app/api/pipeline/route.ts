@@ -79,11 +79,13 @@ export async function POST(request: Request) {
   const branch = config.branch || BRANCH;
   const commitMessage = config.message || "🚀 Pipeline automatique: déploiement GitHub";
   const token = config.token || process.env.GITHUB_TOKEN;
-  const pushGitConfig: GitConfig = {};
+  const pushGitConfig: GitConfig = {
+    "credential.helper": "",
+  };
   let pushUrl = GITHUB_REPO_URL;
   if (token) {
-    pushUrl = GITHUB_REPO_URL.replace("https://", `https://x-access-token:${token}@`);
-    pushGitConfig["http.extraHeader"] = `Authorization: token ${token}`;
+    pushUrl = GITHUB_REPO_URL.replace("https://", `https://${token}@`);
+    pushGitConfig["http.extraHeader"] = `Authorization: bearer ${token}`;
   }
 
   const stream = new ReadableStream({
@@ -121,7 +123,7 @@ export async function POST(request: Request) {
         emitLog(`Début du pipeline de déploiement vers GitHub`);
         emitLog(`Repository cible : ${GITHUB_REPO_URL}`);
         emitLog(`Branche : ${branch}`);
-        emitLog(token ? `🔐 Token GitHub configuré (longueur: ${token.length})` : "⚠️ Pas de token GitHub — push sans authentification");
+        emitLog(token ? "🔐 Authentification GitHub configurée" : "⚠️ Pas de token GitHub — push sans authentification");
         updateProgress("init", 0);
 
         // ── Step 1: Verify git repo ──
@@ -180,7 +182,7 @@ export async function POST(request: Request) {
 
         // ── Step 5: Push ──
         sse(controller, "step", { id: "push", label: "Push to GitHub", index: 5 });
-        sse(controller, "log", { step: "push", message: `Publication sur ${GITHUB_REPO_URL} (branche: ${branch})`, hasToken: !!token, pushUrlHasToken: pushUrl.includes("x-access-token") });
+        sse(controller, "log", { step: "push", message: `Publication sur ${GITHUB_REPO_URL} (branche: ${branch})` });
         const pushResult = await runGit(
           ["push", pushUrl, branch, "--force-with-lease"],
           controller,
