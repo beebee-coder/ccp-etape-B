@@ -93,7 +93,7 @@ export async function POST(request: Request) {
   };
   let pushUrl = GITHUB_REPO_URL;
   if (token) {
-    pushUrl = GITHUB_REPO_URL.replace("https://", `https://${token}@github.com/`);
+    pushUrl = GITHUB_REPO_URL.replace("https://", `https://${token}@`);
   }
 
   const stream = new ReadableStream({
