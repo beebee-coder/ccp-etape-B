@@ -1,0 +1,478 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { GitBranch, Play, Square, Download, Terminal, CheckCircle2, Key } from "lucide-react";
+
+type PipelineStatus = "idle" | "running" | "success" | "error";
+
+interface LogEntry {
+  id: number;
+  step: string;
+  message: string;
+  timestamp: Date;
+}
+
+interface ProgressData {
+  step: string;
+  stepIndex: number;
+  totalSteps: number;
+  progress: number;
+  label: string;
+}
+
+const STEP_LABELS: Record<string, string> = {
+  init: "Initialisation",
+  remote: "Configuration du remote Git",
+  status: "Analyse du statut",
+  add: "Indexation des fichiers",
+  commit: "Création du commit",
+  push: "Publication sur GitHub",
+};
+
+export default function AdminPipelinePage() {
+  const [status, setStatus] = useState<PipelineStatus>("idle");
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [progress, setProgress] = useState<ProgressData>({
+    step: "idle",
+    stepIndex: 0,
+    totalSteps: 6,
+    progress: 0,
+    label: "Prêt à démarrer",
+  });
+  const [repoUrl] = useState("https://github.com/beebee-coder/ccp-etape-B.git");
+  const [githubToken, setGithubToken] = useState("");
+  const [hasEnvToken, setHasEnvToken] = useState<boolean | null>(null);
+  const logEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const logIdRef = useRef(0);
+
+  const addLog = (step: string, message: string) => {
+    logIdRef.current += 1;
+    setLogs((prev) => [
+      ...prev,
+      { id: logIdRef.current, step, message, timestamp: new Date() },
+    ]);
+  };
+
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+  };
+
+  const clearLogs = () => {
+    setLogs([]);
+    setProgress({
+      step: "idle",
+      stepIndex: 0,
+      totalSteps: 6,
+      progress: 0,
+      label: "Prêt à démarrer",
+    });
+  };
+
+  const formatTime = (date: Date) =>
+    date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  const parseSSELine = (line: string): { event: string; data: string } | null => {
+    if (!line.trim()) return null;
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) return null;
+    const field = line.substring(0, colonIdx).trim();
+    const value = line.substring(colonIdx + 1).trim();
+    if (field === "event" || field === "data") {
+      return { event: field, data: value };
+    }
+    return null;
+  };
+
+  const startPipeline = async () => {
+    clearLogs();
+    setStatus("running");
+    addLog("system", `🚀 Démarrage du pipeline de déploiement vers GitHub`);
+    addLog("system", `Repository cible : ${repoUrl}`);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const response = await fetch("/api/pipeline", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token: githubToken, branch: "main" }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("Impossible de lire le flux de réponse");
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let currentEvent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith(":")) continue;
+          if (line.trim() === "") {
+            if (currentEvent && buffer) {
+              handleSSEEvent(currentEvent, buffer);
+              currentEvent = "";
+              buffer = "";
+            }
+            continue;
+          }
+
+          const parsed = parseSSELine(line);
+          if (parsed?.event === "event") {
+            currentEvent = parsed.data;
+          } else if (parsed?.event === "data") {
+            if (currentEvent) {
+              handleSSEEvent(currentEvent, parsed.data);
+              currentEvent = "";
+            } else {
+              buffer = parsed.data;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        addLog("system", "🛑 Flux interrompu");
+      } else {
+        setStatus("error");
+        addLog("system", `⚡ Erreur : ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } finally {
+      abortControllerRef.current = null;
+    }
+  };
+
+  function handleSSEEvent(event: string, data: string) {
+    try {
+      const parsed = JSON.parse(data);
+      switch (event) {
+        case "start":
+          addLog("system", `✅ ${parsed.message}`);
+          break;
+        case "step":
+          addLog(parsed.id, `▶️ Étape : ${STEP_LABELS[parsed.id] ?? parsed.id}`);
+          break;
+        case "log":
+          addLog(parsed.step, parsed.message);
+          break;
+        case "progress":
+          setProgress(parsed as ProgressData);
+          addLog("progress", `📊 Avancement : ${parsed.progress}% — ${parsed.label}`);
+          break;
+        case "error":
+          addLog("error", `❌ ${parsed.message}`);
+          break;
+        case "complete":
+          setStatus("success");
+          addLog("system", `✅ ${parsed.message}`);
+          setProgress((p) => ({ ...p, progress: 100, step: "complete" }));
+          break;
+        case "fail":
+          setStatus("error");
+          addLog("system", `⚡ ${parsed.message}`);
+          break;
+        default:
+          addLog("system", `[${event}] ${JSON.stringify(parsed)}`);
+      }
+    } catch {
+      addLog("system", `[${event}] ${data}`);
+    }
+  }
+
+  const stopPipeline = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setStatus("idle");
+    addLog("system", "🛑 Pipeline interrompu par l'utilisateur");
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [logs]);
+
+  useEffect(() => {
+    fetch("/api/pipeline")
+      .then((res) => res.json())
+      .then((data) => setHasEnvToken(data.hasToken ?? false))
+      .catch(() => setHasEnvToken(false));
+  }, []);
+
+  const exportLogs = () => {
+    const logText = logs
+      .map((l) => `[${formatTime(l.timestamp)}] [${l.step}] ${l.message}`)
+      .join("\n");
+    const blob = new Blob([logText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pipeline-${new Date().toISOString().slice(0, 10)}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const statusColors = {
+    idle: "bg-muted",
+    running: "bg-blue-500",
+    success: "bg-emerald-500",
+    error: "bg-rose-500",
+  };
+
+  const currentStepLabel =
+    STEP_LABELS[progress.step] ?? progress.label ?? "Prêt à démarrer";
+
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-8 flex items-center gap-4 animate-slide-in-3d">
+        <div className="icon-glow">
+          <div className="icon-inner">
+            <GitBranch className="h-5 w-5 text-primary" />
+          </div>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight gradient-text">
+            Pipeline de déploiement
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Automatisation de l&apos;upload de l&apos;application vers GitHub.
+          </p>
+        </div>
+      </div>
+
+      <Card className="dashboard-card mb-6 overflow-hidden">
+        <div className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Badge
+                variant={
+                  status === "running"
+                    ? "default"
+                    : status === "success"
+                      ? "default"
+                      : status === "error"
+                        ? "destructive"
+                        : "secondary"
+                }
+                className="rounded-lg"
+              >
+                <span className="flex items-center gap-1.5">
+                  <span className={cn("h-2 w-2 rounded-full", statusColors[status])} />
+                  {status === "idle" && "Prêt"}
+                  {status === "running" && "En cours"}
+                  {status === "success" && "Terminé"}
+                  {status === "error" && "Échec"}
+                </span>
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                Repo : {repoUrl}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {logs.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={exportLogs}
+                  className="gap-1.5 rounded-xl border-border/60 bg-card/60 backdrop-blur-sm hover:bg-primary/8 hover:border-primary/30 hover:text-primary transition-all duration-200"
+                >
+                  <Download className="h-4 w-4" />
+                  Exporter les logs
+                </Button>
+              )}
+              {status === "running" ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={stopPipeline}
+                  className="gap-1.5 rounded-xl"
+                >
+                  <Square className="h-4 w-4" />
+                  Arrêter
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={startPipeline}
+                  className={cn(
+                    "gap-1.5 rounded-xl text-base font-medium",
+                    "btn-primary-gradient shadow-primary-glow",
+                    "hover:-translate-y-0.5 active:translate-y-0",
+                    "transition-all duration-200"
+                  )}
+                >
+                  <Play className="h-4 w-4" />
+                  Démarrer le pipeline
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {status === "idle" && (
+        <Card className="dashboard-card mb-6 overflow-hidden">
+          <div className="p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <Key className="h-5 w-5 text-primary" />
+              <h2 className="text-lg font-semibold text-foreground">
+                Authentification GitHub
+              </h2>
+            </div>
+            {hasEnvToken ? (
+              <p className="text-sm text-emerald-600 dark:text-emerald-400">
+                <span className="font-medium">Token configuré via variable d&apos;environnement.</span> Le push sera authentifié automatiquement.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Pour pousser vers GitHub, un token d&apos;accès personnel est requis. Saisissez-le ci-dessous ou définissez la variable d&apos;environnement <code className="rounded bg-muted px-1.5 py-0.5 text-xs">GITHUB_TOKEN</code>.
+                </p>
+                <Input
+                  type="password"
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  className="rounded-xl border-border/60 bg-background/60 focus:border-primary/50 font-mono text-xs"
+                />
+              </>
+            )}
+          </div>
+        </Card>
+      )}
+
+      <Card className="dashboard-card mb-6 overflow-hidden">
+        <div className="p-6 pb-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-foreground">
+              Avancement du pipeline
+            </h2>
+            <span className="text-sm font-medium text-muted-foreground">
+              Étape : {currentStepLabel}
+            </span>
+          </div>
+        </div>
+        <div className="px-6 pb-6">
+          <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+            <span>{progress.progress}%</span>
+            <span>
+              Étape {progress.stepIndex + 1} sur {progress.totalSteps}
+            </span>
+          </div>
+          <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted/30">
+            <div
+              className={cn(
+                "h-full w-full rounded-full transition-all duration-500 ease-out",
+                status === "success"
+                  ? "bg-gradient-to-r from-emerald-500 to-emerald-400"
+                  : status === "error"
+                    ? "bg-gradient-to-r from-rose-500 to-rose-400"
+                    : "bg-gradient-to-r from-primary to-purple-600"
+              )}
+              style={{ width: `${progress.progress}%` }}
+            />
+            <div className="absolute inset-0 rounded-full bg-white/10" />
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="dashboard-card lg:col-span-1 overflow-hidden">
+          <div className="p-6 pb-4">
+            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Terminal className="h-5 w-5 text-primary" />
+              Journal d&apos;exécution
+            </h2>
+          </div>
+          <div className="px-6 pb-6">
+            <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+              <span>{logs.length} lignes</span>
+              <span>
+                {logs.length > 0
+                  ? formatTime(logs[logs.length - 1].timestamp)
+                  : "--:--:--"}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {Object.entries(STEP_LABELS).map(([key, label], idx) => (
+                <Badge
+                  key={key}
+                  variant="outline"
+                  className={cn(
+                    "rounded-lg text-xs",
+                    progress.step === key
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-border/40 text-muted-foreground"
+                  )}
+                >
+                  {idx + 1}. {label}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <Card className="dashboard-card lg:col-span-2 overflow-hidden">
+          <div className="p-6 pb-0">
+            <Textarea
+              value={logs
+                .map(
+                  (l) =>
+                    `[${formatTime(l.timestamp)}] [${l.step}] ${l.message}`
+                )
+                .join("\n")}
+              readOnly
+              placeholder="Les journaux du pipeline apparaîtront ici..."
+              className="h-[420px] w-full resize-none rounded-xl border-border/60 bg-background/60 font-mono text-xs focus:border-primary/50 focus:ring-primary/50"
+            />
+            <div ref={logEndRef} />
+          </div>
+        </Card>
+      </div>
+
+      {status === "success" && (
+        <div className="mt-6 flex items-center gap-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3">
+          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+            Déploiement publié avec succès sur GitHub.
+          </span>
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="mt-6 flex items-center gap-3 rounded-xl bg-rose-500/10 border border-rose-500/20 px-4 py-3">
+          <Terminal className="h-5 w-5 text-rose-500" />
+          <span className="text-sm font-medium text-rose-700 dark:text-rose-400">
+            Une erreur est survenue. Consultez les journaux ci-dessus pour plus de détails.
+          </span>
+        </div>
+      )}
+    </section>
+  );
+}
