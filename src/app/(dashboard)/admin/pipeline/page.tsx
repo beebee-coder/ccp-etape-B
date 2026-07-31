@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -49,6 +48,7 @@ export default function AdminPipelinePage() {
   const [githubToken, setGithubToken] = useState("");
   const [hasEnvToken, setHasEnvToken] = useState<boolean | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const logIdRef = useRef(0);
 
@@ -61,9 +61,15 @@ export default function AdminPipelinePage() {
   };
 
   const scrollToBottom = () => {
-    setTimeout(() => {
-      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 50);
+    const container = logContainerRef.current;
+    const endEl = logEndRef.current;
+    if (endEl) {
+      try {
+        endEl.scrollIntoView({ behavior: "smooth", block: "end" });
+      } catch {}
+    } else if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   };
 
   const clearLogs = () => {
@@ -440,18 +446,27 @@ export default function AdminPipelinePage() {
 
         <Card className="dashboard-card lg:col-span-2 overflow-hidden">
           <div className="p-6 pb-0">
-            <Textarea
-              value={logs
-                .map(
-                  (l) =>
-                    `[${formatTime(l.timestamp)}] [${l.step}] ${l.message}`
-                )
-                .join("\n")}
-              readOnly
-              placeholder="Les journaux du pipeline apparaîtront ici..."
-              className="h-[420px] w-full resize-none rounded-xl border-border/60 bg-background/60 font-mono text-xs focus:border-primary/50 focus:ring-primary/50"
-            />
-            <div ref={logEndRef} />
+            <div
+              ref={logContainerRef}
+              className="h-[420px] w-full overflow-y-auto rounded-xl border border-border/60 bg-background/60 font-mono text-xs"
+            >
+              <div className="p-3 space-y-0.5">
+                {logs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/50">
+                    Les journaux du pipeline apparaîtront ici...
+                  </p>
+                ) : (
+                  logs.map((l) => (
+                    <div key={l.id} className="whitespace-nowrap break-all">
+                      <span className="text-muted-foreground/60">[{formatTime(l.timestamp)}]</span>{" "}
+                      <span className="text-muted-foreground/60">[{l.step}]</span>{" "}
+                      <span className="text-foreground">{l.message}</span>
+                    </div>
+                  ))
+                )}
+                <div ref={logEndRef} />
+              </div>
+            </div>
           </div>
         </Card>
       </div>
