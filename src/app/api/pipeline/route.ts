@@ -79,10 +79,9 @@ export async function POST(request: Request) {
   const branch = config.branch || BRANCH;
   const commitMessage = config.message || "🚀 Pipeline automatique: déploiement GitHub";
   const token = config.token || process.env.GITHUB_TOKEN;
-  const pushGitConfig: GitConfig = {};
-  if (token) {
-    pushGitConfig["http.extraHeader"] = `Authorization: token ${token}`;
-  }
+  const pushUrl = token
+    ? GITHUB_REPO_URL.replace("https://", `https://x-access-token:${token}@`)
+    : GITHUB_REPO_URL;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -180,10 +179,9 @@ export async function POST(request: Request) {
         sse(controller, "step", { id: "push", label: "Push to GitHub", index: 5 });
         sse(controller, "log", { step: "push", message: `Publication sur ${GITHUB_REPO_URL} (branche: ${branch})` });
         const pushResult = await runGit(
-          ["push", REMOTE_NAME, branch, "--force-with-lease"],
+          ["push", pushUrl, branch, "--force-with-lease"],
           controller,
-          "push",
-          pushGitConfig
+          "push"
         );
         if (pushResult.success) {
           sse(controller, "log", { step: "push", message: "✅ Publication réussie !" });
