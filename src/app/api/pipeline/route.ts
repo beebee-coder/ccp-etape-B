@@ -16,6 +16,10 @@ interface PipelineConfig {
 type SSEController = ReadableStreamDefaultController<Uint8Array>;
 type GitConfig = Record<string, string>;
 
+const GIT_ENV: Record<string, string> = {
+  GIT_TERMINAL_PROMPT: "0",
+};
+
 function sse(controller: SSEController, event: string, data: unknown) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   controller.enqueue(new TextEncoder().encode(payload));
@@ -32,7 +36,11 @@ async function runGit(
       ...Object.entries(gitConfig).flatMap(([k, v]) => ["-c", `${k}=${v}`]),
       ...args,
     ];
-    const child = spawn("git", fullArgs, { cwd: PROJECT_ROOT, shell: false });
+    const child = spawn("git", fullArgs, {
+      cwd: PROJECT_ROOT,
+      shell: false,
+      env: { ...process.env, ...GIT_ENV },
+    });
     let output = "";
 
     child.stdout.on("data", (data: Buffer) => {
@@ -79,13 +87,13 @@ export async function POST(request: Request) {
   const branch = config.branch || BRANCH;
   const commitMessage = config.message || "🚀 Pipeline automatique: déploiement GitHub";
   const token = config.token || process.env.GITHUB_TOKEN;
+
   const pushGitConfig: GitConfig = {
     "credential.helper": "",
   };
   let pushUrl = GITHUB_REPO_URL;
   if (token) {
-    pushUrl = GITHUB_REPO_URL.replace("https://", `https://${token}@`);
-    pushGitConfig["http.extraHeader"] = `Authorization: bearer ${token}`;
+    pushUrl = GITHUB_REPO_URL.replace("https://", `https://${token}@github.com/`);
   }
 
   const stream = new ReadableStream({
@@ -115,7 +123,11 @@ export async function POST(request: Request) {
       };
 
       try {
-        sse(controller, "start", { message: "Pipeline démarré", repoUrl: GITHUB_REPO_URL, hasToken: !!token });
+        sse(controller, "start", {
+          message: "Pipeline démarré",
+          repoUrl: GITHUB_REPO_URL,
+          hasToken: !!token,
+        });
 
         const emitLog = (message: string) =>
           sse(controller, "log", { step: "init", message });
@@ -161,7 +173,7 @@ export async function POST(request: Request) {
 
         // ── Step 3: Stage files ──
         sse(controller, "step", { id: "add", label: "Stage files", index: 3 });
-        sse(controller, "log", { step: "add", message: "Indexation de tous les fichiers..." });
+        sse(controller, "log", { step: "add", message: "Indexation de tous des fichiers..." });
         await runGit(["add", "-A"], controller, "add");
         updateProgress("add", 3);
 
