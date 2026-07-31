@@ -192,11 +192,13 @@ export async function POST(request: Request) {
         }
         updateProgress("commit", 4);
 
-        // ── Step 5: Push ──
+        // ── Step 5: Fetch & Push ──
         sse(controller, "step", { id: "push", label: "Push to GitHub", index: 5 });
         sse(controller, "log", { step: "push", message: `Publication sur ${GITHUB_REPO_URL} (branche: ${branch})` });
+        sse(controller, "log", { step: "push", message: "Synchronisation avec le remote..." });
+        await runGit(["fetch", REMOTE_NAME, branch], controller, "fetch", pushGitConfig);
         const pushResult = await runGit(
-          ["push", pushUrl, branch, "--force-with-lease"],
+          ["push", pushUrl, branch, "--force"],
           controller,
           "push",
           pushGitConfig
