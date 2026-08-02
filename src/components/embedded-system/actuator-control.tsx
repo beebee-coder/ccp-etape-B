@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Power, Activity, AlertTriangle, Loader2, Settings2 } from "lucide-react";
+import { DeviceService } from "@/lib/embedded/device-service";
 
 interface ActuatorConfig {
   id: string;
@@ -54,19 +55,28 @@ export function ActuatorControl({ deviceName, actuators: initialActuators }: Act
   const [actuators, setActuators] = useState<ActuatorConfig[]>(initialActuators ?? defaultActuators);
   const [activating, setActivating] = useState<string | null>(null);
 
-  const handleToggle = (id: string) => {
-    setActivating(id);
+  const handleToggle = async (id: string) => {
     const actuator = actuators.find((a) => a.id === id);
     if (!actuator) return;
 
     const newState = actuator.state === "active" ? "idle" : "active";
+    const newEnabled = newState === "active";
 
-    setTimeout(() => {
+    setActivating(id);
+
+    try {
+      const service = new DeviceService("embarque-01");
+      const updated = await service.toggleActuator(id, newState, newEnabled);
       setActuators((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, state: newState, enabled: newState === "active" } : a))
+        prev.map((a) => (a.id === id ? { ...a, state: updated.state, enabled: updated.enabled } : a))
       );
+    } catch {
+      setActuators((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, state: "error", enabled: false } : a))
+      );
+    } finally {
       setActivating(null);
-    }, 800);
+    }
   };
 
   const activeCount = actuators.filter((a) => a.state === "active").length;

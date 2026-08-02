@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,22 +11,73 @@ import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") ?? "/admin";
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const email = (form.querySelector("#email") as HTMLInputElement)?.value || "";
-    const lower = email.toLowerCase();
-    const role = lower.includes("admin")
-      ? "admin"
-      : lower.includes("chef-de-quart")
-        ? "chef-de-quart"
-        : lower.includes("chef-de-bloc")
-          ? "chef-de-bloc"
-          : "rondier";
-    const route = role === "admin" ? "/admin" : `/${role}`;
-    router.push(route);
-  };
+   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+     e.preventDefault();
+     const form = e.currentTarget;
+     const username =
+       (form.querySelector("#username") as HTMLInputElement)?.value || "";
+     const password =
+       (form.querySelector("#password") as HTMLInputElement)?.value || "";
+ 
+     console.log("[login] DEBUG - callbackUrl from searchParams:", callbackUrl);
+     console.log("[login] DEBUG - username length:", username.length, "password length:", password.length);
+     console.log("[login] DEBUG - request body:", JSON.stringify({ username, password, callbackUrl }));
+ 
+     setIsSubmitting(true);
+     setError("");
+ 
+     let res: Response;
+     try {
+       console.log("[login] DEBUG - sending fetch to /api/auth/login");
+       res = await fetch("/api/auth/login", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ username, password, callbackUrl }),
+       });
+       console.log("[login] DEBUG - response status:", res.status);
+       console.log("[login] DEBUG - response headers:", Object.fromEntries(res.headers.entries()));
+     } catch (fetchError) {
+       console.error("[login] DEBUG - fetch error:", fetchError);
+       setError("Erreur réseau. Veuillez réessayer.");
+       setIsSubmitting(false);
+       return;
+     }
+ 
+     let data: unknown;
+     try {
+       data = await res.json();
+       console.log("[login] DEBUG - response body:", JSON.stringify(data));
+     } catch (parseError) {
+       console.error("[login] DEBUG - failed to parse response JSON:", parseError);
+       setError("Réponse invalide du serveur");
+       setIsSubmitting(false);
+       return;
+     }
+ 
+     if (!res.ok) {
+       console.log("[login] DEBUG - auth failed, error data:", data);
+       setError((data as { error?: string }).error ?? "Échec de la connexion");
+       setIsSubmitting(false);
+       return;
+     }
+ 
+     console.log("[login] DEBUG - login successful, data keys:", Object.keys(data as object));
+     try {
+       localStorage.setItem("auth_token", (data as { token: string }).token);
+       if ((data as { csrfToken?: string }).csrfToken) {
+         localStorage.setItem("csrf_token", (data as { csrfToken: string }).csrfToken);
+       }
+       console.log("[login] DEBUG - tokens stored in localStorage");
+     } catch (storageError) {
+       console.error("[login] DEBUG - localStorage error:", storageError);
+     }
+     router.push((data as { callbackUrl?: string }).callbackUrl ?? callbackUrl);
+   };
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -49,16 +101,25 @@ export default function LoginPage() {
               </p>
             </div>
 
+            {error && (
+              <div className="mt-4 rounded-xl bg-rose-500/10 border border-rose-500/20 px-4 py-3">
+                <p className="text-sm font-medium text-rose-700 dark:text-rose-400">
+                  {error}
+                </p>
+              </div>
+            )}
+
             <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-foreground" htmlFor="email">
-                  Email
+                <label className="text-sm font-semibold text-foreground" htmlFor="username">
+                  Identifiant
                 </label>
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="vous@exemple.com"
-                  autoComplete="email"
+                  id="username"
+                  type="text"
+                  placeholder="admin"
+                  autoComplete="username"
+                  disabled={isSubmitting}
                   className={cn(
                     "h-11 rounded-xl bg-background/60 border-border/60",
                     "focus:border-primary/50 focus:shadow-primary-glow",
@@ -76,6 +137,7 @@ export default function LoginPage() {
                   type="password"
                   placeholder="••••••••"
                   autoComplete="current-password"
+                  disabled={isSubmitting}
                   className={cn(
                     "h-11 rounded-xl bg-background/60 border-border/60",
                     "focus:border-primary/50 focus:shadow-primary-glow",
@@ -96,6 +158,7 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
+                disabled={isSubmitting}
                 className={cn(
                   "w-full h-11 rounded-xl text-base font-medium",
                   "btn-primary-gradient shadow-primary-glow",
@@ -103,7 +166,7 @@ export default function LoginPage() {
                   "transition-all duration-200"
                 )}
               >
-                Se connecter
+                {isSubmitting ? "Connexion..." : "Se connecter"}
               </Button>
 
               <div className="relative py-2">
@@ -119,6 +182,7 @@ export default function LoginPage() {
                 <Button
                   variant="outline"
                   type="button"
+                  disabled={isSubmitting}
                   className={cn(
                     "w-full text-sm h-11 rounded-xl",
                     "border-border/60 bg-card/60 backdrop-blur-sm",
@@ -132,6 +196,7 @@ export default function LoginPage() {
                 <Button
                   variant="outline"
                   type="button"
+                  disabled={isSubmitting}
                   className={cn(
                     "w-full text-sm h-11 rounded-xl",
                     "border-border/60 bg-card/60 backdrop-blur-sm",

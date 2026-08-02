@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Plus, Save, Download, RotateCcw, Upload, CheckCircle2, AlertCircle } from "lucide-react";
 import { proceduresFR } from "@/lib/i18n/procedures";
+import { apiClient } from "@/lib/api/client";
 import {
   createEmptyProcedure,
   addStep,
@@ -17,9 +18,11 @@ import {
   reorderSteps,
   updateStep,
   updateMetadata,
-  saveProcedure,
   downloadJson,
-  getProcedures,
+  saveDraft,
+  loadDraft,
+  clearDraft,
+  autoSync,
 } from "@/lib/procedures/services/procedure-manager.service";
 import {
   hasCircularDependencies,
@@ -42,11 +45,32 @@ export function DynamicProcedureForm() {
   const [formKey, setFormKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [autoSaveReady, setAutoSaveReady] = useState(false);
+
   useEffect(() => {
-    const existing = getProcedures();
-    if (existing.length > 0) {
-      setProcedure(existing[existing.length - 1]);
-    }
+    const load = async () => {
+      const draft = loadDraft();
+      if (draft) {
+        try {
+          setProcedure(draft);
+        } catch {
+          // invalid draft, ignore
+        }
+      }
+
+      try {
+        const existing = await apiClient.get<TProcedure[]>("/api/procedures");
+        if (existing.length > 0) {
+          setProcedure(existing[existing.length - 1]);
+          clearDraft();
+        }
+      } catch {
+        // no procedures yet on server, keep local draft
+      }
+
+      setAutoSaveReady(true);
+    };
+    load();
   }, []);
 
   const handleMetadataChange = useCallback((metadata: TProcedure["metadata"]) => {
@@ -86,12 +110,15 @@ export function DynamicProcedureForm() {
     setActiveStepId(stepId);
   }, []);
 
-  const handleSaveDraft = useCallback(async () => {
+   const handleSaveDraft = useCallback(async () => {
     setIsSaving(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      saveProcedure(procedure);
-      toast.success(proceduresFR.actions.successSaved);
+      const success = await autoSync(procedure);
+      if (success) {
+        toast.success(proceduresFR.actions.successSaved);
+      } else {
+        toast.warning("Brouillon synchronisé localement. Il sera poussé au serveur quand la connexion sera rétablie.");
+      }
     } catch {
       toast.error("Erreur lors de la sauvegarde");
     } finally {
@@ -118,6 +145,7 @@ export function DynamicProcedureForm() {
     setActiveStepId(null);
     setErrors([]);
     setFormKey((k) => k + 1);
+    clearDraft();
     toast.success("Formulaire réinitialisé");
   }, []);
 
@@ -178,6 +206,12 @@ export function DynamicProcedureForm() {
   }, [validate, handleExportJson]);
 
   const completeness = getCompleteness(procedure.steps);
+
+  useEffect(() => {
+    if (autoSaveReady) {
+      saveDraft(procedure);
+    }
+  }, [procedure, autoSaveReady]);
 
   return (
     <div className="flex flex-col h-full">

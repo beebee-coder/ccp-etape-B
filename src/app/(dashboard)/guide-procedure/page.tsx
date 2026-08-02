@@ -9,10 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import {
-  getProcedures,
-  importProcedure,
-} from "@/lib/procedures/services/procedure-manager.service";
+import { apiClient } from "@/lib/api/client";
 import { TProcedure } from "@/lib/procedures/services/validator.service";
 import {
   FileText,
@@ -50,7 +47,15 @@ export default function GuideProcedurePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setProcedures(getProcedures());
+    const load = async () => {
+      try {
+        const data = await apiClient.get<TProcedure[]>("/api/procedures");
+        setProcedures(data);
+      } catch {
+        toast.error("Erreur lors du chargement des procédures");
+      }
+    };
+    load();
   }, []);
 
   const handleImport = useCallback(async () => {
@@ -61,8 +66,9 @@ export default function GuideProcedurePage() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      importProcedure(parsed);
-      setProcedures(getProcedures());
+      await apiClient.post("/api/procedures", parsed);
+      const data = await apiClient.get<TProcedure[]>("/api/procedures");
+      setProcedures(data);
       toast.success("Procédure importée avec succès");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "JSON invalide");
@@ -77,11 +83,11 @@ export default function GuideProcedurePage() {
   }, [router]);
 
   const handleDeleteProcedure = useCallback(
-    (code: string) => {
+    async (code: string) => {
       try {
-        const stored = getProcedures().filter((p) => p.metadata.code !== code);
-        localStorage.setItem("nexaflow_procedures", JSON.stringify(stored));
-        setProcedures(stored);
+        await apiClient.delete(`/api/procedures/${encodeURIComponent(code)}`);
+        const data = await apiClient.get<TProcedure[]>("/api/procedures");
+        setProcedures(data);
         toast.success("Procédure supprimée");
       } catch {
         toast.error("Erreur lors de la suppression de la procédure");

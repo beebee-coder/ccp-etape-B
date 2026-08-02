@@ -1,21 +1,36 @@
 import { NextResponse } from "next/server";
-import { offlineRepo } from "@/lib/procedures/offline-repo";
+import { getProcedureById, deleteProcedure } from "@/lib/procedures/server-store";
+import { validateApiRequest } from "@/lib/api/handlers";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
-  const procedure = await offlineRepo.getById(params.id);
-  if (!procedure) {
-    return NextResponse.json({ message: "Procedure not found" }, { status: 404 });
+  const result = await validateApiRequest(request);
+  if (!result.ok) return result.response;
+
+  try {
+    const procedure = await getProcedureById(params.id);
+    if (!procedure) {
+      return NextResponse.json({ error: "Procedure not found" }, { status: 404 });
+    }
+    return NextResponse.json({ data: procedure });
+  } catch {
+    return NextResponse.json({ error: "Failed to fetch procedure" }, { status: 500 });
   }
-  return NextResponse.json(procedure);
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
-  await offlineRepo.delete(params.id);
-  return NextResponse.json({ success: true }, { status: 200 });
+  const result = await validateApiRequest(request);
+  if (!result.ok) return result.response;
+
+  try {
+    await deleteProcedure(params.id);
+    return NextResponse.json({ data: { success: true } }, { status: 200 });
+  } catch {
+    return NextResponse.json({ error: "Failed to delete procedure" }, { status: 500 });
+  }
 }

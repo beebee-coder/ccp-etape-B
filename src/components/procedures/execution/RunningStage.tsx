@@ -19,7 +19,7 @@ interface RunningStageProps {
   onPrevious: () => void;
   onNext: () => void;
   onToggleComplete: (stepId: string) => void;
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string) => Promise<string>;
   isSpeaking: boolean;
   isAutoRead: boolean;
   onToggleAutoRead: () => void;
@@ -65,7 +65,7 @@ export function RunningStage({
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed) return;
     const userMsg: ChatMessage = {
@@ -75,7 +75,22 @@ export function RunningStage({
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    onSendMessage(trimmed);
+    try {
+      const response = await onSendMessage(trimmed);
+      const assistantMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: response,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch {
+      const errorMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: "Erreur lors de la génération de la réponse. Veuillez réessayer.",
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    }
   };
 
   return (

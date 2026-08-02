@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiClient } from "@/lib/api/client";
 import { TProcedure } from "@/lib/procedures/services/validator.service";
 import { ProcedureGuide } from "@/components/procedures/execution/ProcedureGuide";
 import { AlertTriangle, FileText } from "lucide-react";
@@ -20,14 +21,7 @@ export function ProcedureGuidePageClient({ id }: ProcedureGuidePageClientProps) 
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/procedures/guide/${encodeURIComponent(id)}`);
-      if (!res.ok) {
-        if (res.status === 404) {
-          throw new Error("Procédure introuvable.");
-        }
-        throw new Error("Erreur lors du chargement de la procédure.");
-      }
-      const data = (await res.json()) as TProcedure;
+      const data = await apiClient.get<TProcedure>(`/api/procedures/guide/${encodeURIComponent(id)}`);
       setProcedure(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur inconnue.");

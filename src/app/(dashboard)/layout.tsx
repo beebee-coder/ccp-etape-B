@@ -5,6 +5,7 @@ import { useLayoutEffect, useEffect, useState } from "react";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardTopNav } from "@/components/dashboard/top-nav";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 type Role = "admin" | "chef-de-quart" | "chef-de-bloc" | "rondier";
 
@@ -55,15 +56,17 @@ export default function DashboardLayout({
 
   return (
     <ThemeProvider>
-      <div className="flex h-screen overflow-hidden">
-        {!hideSidebar && <DashboardSidebar role={role} />}
-        <main className={`flex flex-1 flex-col overflow-hidden ${hideSidebar ? "w-full" : ""}`}>
-          <DashboardTopNav showBackButton={hideSidebar} />
-          <div className="flex-1 overflow-y-auto">
-            {children}
-          </div>
-        </main>
-      </div>
+      <ErrorBoundary>
+        <div className="flex h-screen overflow-hidden">
+          {!hideSidebar && <DashboardSidebar role={role} />}
+          <main className={`flex flex-1 flex-col overflow-hidden ${hideSidebar ? "w-full" : ""}`}>
+            <DashboardTopNav showBackButton={hideSidebar} />
+            <div className="flex-1 overflow-y-auto">
+              {children}
+            </div>
+          </main>
+        </div>
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }

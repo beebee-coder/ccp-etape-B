@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Volume2, VolumeX, Play, Square, MessageSquare, Clock, AlertTriangle, CheckCircle2, Mic, MicOff } from "lucide-react";
 import { useSpeech } from "@/lib/speech/use-speech";
+import { DeviceService } from "@/lib/embedded/device-service";
 
 interface VoiceOutputEntry {
   id: string;
@@ -41,6 +42,43 @@ export function VoiceOutput({ deviceName, autoReadResults = true }: VoiceOutputP
     },
     [speak, autoReadResults]
   );
+
+  useEffect(() => {
+    const service = new DeviceService("embarque-01");
+    const unsub = service.onEvent((event) => {
+      if (event.type === "sensor") {
+        const { camera, microphone, temperature } = event.data;
+        if (camera.motionDetected) {
+          addEntry("Mouvement détecté sur la caméra.", "alert");
+        }
+        if (microphone.noiseDetected) {
+          addEntry("Bruit anormal détecté par le microphone.", "alert");
+        }
+        if (temperature.alert) {
+          addEntry(`Alerte température : seuil dépassé — ${temperature.current}°C détecté.`, "alert");
+        }
+      }
+      if (event.type === "status") {
+        addEntry(
+          event.data.connected ? "Connexion rétablie avec le dispositif embarqué." : "Connexion perdue avec le dispositif.",
+          "status"
+        );
+      }
+      if (event.type === "actuator") {
+        addEntry(
+          `Actionneur ${event.data.name} : ${event.data.state === "active" ? "activé" : event.data.state === "error" ? "erreur" : "désactivé"}.`,
+          "result"
+        );
+      }
+    });
+
+    service.connect();
+
+    return () => {
+      unsub();
+      service.disconnect();
+    };
+  }, [addEntry]);
 
   const handleSimulateResult = useCallback(() => {
     addEntry("Résultat de la caméra : aucune anomalie détectée.", "result");
@@ -153,7 +191,7 @@ export function VoiceOutput({ deviceName, autoReadResults = true }: VoiceOutputP
                 <MessageSquare className="h-6 w-6 text-muted-foreground/40" />
               </div>
               <p className="text-xs text-muted-foreground font-medium">Aucune sortie vocale</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-1">Utilisez les boutons ou la reconnaissance vocale</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1">Les alarmes et événements apparaîtront ici en temps réel</p>
             </div>
           ) : (
             <div className="p-3 space-y-2.5">

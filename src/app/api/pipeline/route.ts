@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { resolve } from "path";
+import { PipelineConfigSchema, type PipelineConfig } from "@/lib/pipeline/pipeline-schema";
+import { validateApiRequest } from "@/lib/api/handlers";
 
 const PROJECT_ROOT = resolve(process.cwd());
 const GITHUB_REPO_URL = "https://github.com/beebee-coder/ccp-etape-B.git";
 const REMOTE_NAME = "origin";
 const BRANCH = "main";
 
-interface PipelineConfig {
-  branch?: string;
-  message?: string;
-  token?: string;
-}
+const SAFE_BRANCH_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/;
+const DISALLOWED_MESSAGE_CHARS_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+const GITHUB_TOKEN_RE = /^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_-]+)$/;
 
 type SSEController = ReadableStreamDefaultController<Uint8Array>;
 type GitConfig = Record<string, string>;
@@ -23,6 +23,30 @@ const GIT_ENV: Record<string, string> = {
 function sse(controller: SSEController, event: string, data: unknown) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   controller.enqueue(new TextEncoder().encode(payload));
+}
+
+function validateBranchName(branch: string): { valid: boolean; error?: string } {
+  if (!branch || branch.length > 128) {
+    return { valid: false, error: "Nom de branche invalide" };
+  }
+  if (!SAFE_BRANCH_RE.test(branch)) {
+    return { valid: false, error: "Le nom de branche contient des caractères non autorisés" };
+  }
+  return { valid: true };
+}
+
+function validateCommitMessage(message: string): { valid: boolean; error?: string } {
+  if (!message || message.length > 2048) {
+    return { valid: false, error: "Message de commit invalide" };
+  }
+  if (DISALLOWED_MESSAGE_CHARS_RE.test(message)) {
+    return { valid: false, error: "Le message de commit contient des caractères non autorisés" };
+  }
+  return { valid: true };
+}
+
+function isValidGitHubToken(token: string): boolean {
+  return GITHUB_TOKEN_RE.test(token);
 }
 
 async function runGit(
@@ -76,24 +100,78 @@ async function runGit(
   });
 }
 
+export async function GET(request: Request) {
+  const result = await validateApiRequest(request, {
+    allowedContentTypes: ["application/json"],
+  });
+  if (!result.ok) return result.response;
+
+  return NextResponse.json({
+    data: {
+      status: "ready",
+      repoUrl: GITHUB_REPO_URL,
+      hasToken: !!process.env.GITHUB_TOKEN,
+    },
+  });
+}
+
 export async function POST(request: Request) {
-  let config: PipelineConfig = {};
-  try {
-    config = await request.json();
-  } catch {
-    config = {};
-  }
+  console.log("[pipeline] DEBUG - POST request received");
+  console.log("[pipeline] DEBUG - content-type:", request.headers.get("content-type"));
+  console.log("[pipeline] DEBUG - x-csrf-token present:", !!request.headers.get("x-csrf-token"));
+  console.log("[pipeline] DEBUG - accept header:", request.headers.get("accept"));
+ 
+   try {
+     const bodyText = await request.clone().text();
+     console.log("[pipeline] DEBUG - request body:", bodyText);
+   } catch {
+     console.log("[pipeline] DEBUG - could not read body for debug");
+   }
+ 
+   const result = await validateApiRequest(request, {
+     allowedContentTypes: ["application/json"],
+     rateLimiter: "pipeline",
+     schema: PipelineConfigSchema,
+   });
+ 
+   console.log("[pipeline] DEBUG - validateApiRequest result.ok:", result.ok);
+   if (!result.ok) {
+     console.log("[pipeline] DEBUG - validation failed, status:", result.response.status);
+     try {
+       const errorBody = await result.response.clone().json();
+       console.log("[pipeline] DEBUG - validation error body:", JSON.stringify(errorBody));
+      } catch {
+        console.log("[pipeline] DEBUG - could not parse error body");
+      }
+     return result.response;
+   }
+
+  const config = result.ctx.body as PipelineConfig;
 
   const branch = config.branch || BRANCH;
   const commitMessage = config.message || "🚀 Pipeline automatique: déploiement GitHub";
-  const token = config.token || process.env.GITHUB_TOKEN;
+  const token = process.env.GITHUB_TOKEN;
+
+  const branchValidation = validateBranchName(branch);
+  if (!branchValidation.valid) {
+    return NextResponse.json({ error: branchValidation.error }, { status: 400 });
+  }
+
+  const messageValidation = validateCommitMessage(commitMessage);
+  if (!messageValidation.valid) {
+    return NextResponse.json({ error: messageValidation.error }, { status: 400 });
+  }
 
   const pushGitConfig: GitConfig = {
     "credential.helper": "",
   };
   let pushUrl = GITHUB_REPO_URL;
   if (token) {
-    pushUrl = GITHUB_REPO_URL.replace("https://", `https://${token}@`);
+    if (!isValidGitHubToken(token)) {
+      console.log("[pipeline] DEBUG - GitHub token configured but invalid format, proceeding without authentication");
+    } else {
+      pushUrl = GITHUB_REPO_URL.replace("https://", `https://${token}@`);
+    }
   }
 
   const stream = new ReadableStream({
@@ -135,10 +213,9 @@ export async function POST(request: Request) {
         emitLog(`Début du pipeline de déploiement vers GitHub`);
         emitLog(`Repository cible : ${GITHUB_REPO_URL}`);
         emitLog(`Branche : ${branch}`);
-        emitLog(token ? "🔐 Authentification GitHub configurée" : "⚠️ Pas de token GitHub — push sans authentification");
+        emitLog(token ? "🔐 Authentification GitHub configurée (backend)" : "⚠️ Pas de token GitHub — push sans authentification");
         updateProgress("init", 0);
 
-        // ── Step 1: Verify git repo ──
         sse(controller, "step", { id: "status", label: "Initialization", index: 2 });
         const statusResult = await runGit(["status", "--short"], controller, "status");
         if (!statusResult.success && !statusResult.output) {
@@ -155,7 +232,6 @@ export async function POST(request: Request) {
         }
         updateProgress("status", 2);
 
-        // ── Step 2: Configure remote ──
         sse(controller, "step", { id: "remote", label: "Configure remote", index: 1 });
         const remoteResult = await runGit(["remote", "get-url", REMOTE_NAME], controller, "remote");
         if (remoteResult.success && remoteResult.output.trim()) {
@@ -171,13 +247,11 @@ export async function POST(request: Request) {
         }
         updateProgress("remote", 1);
 
-        // ── Step 3: Stage files ──
         sse(controller, "step", { id: "add", label: "Stage files", index: 3 });
         sse(controller, "log", { step: "add", message: "Indexation de tous des fichiers..." });
         await runGit(["add", "-A"], controller, "add");
         updateProgress("add", 3);
 
-        // ── Step 4: Commit ──
         sse(controller, "step", { id: "commit", label: "Create commit", index: 4 });
         sse(controller, "log", { step: "commit", message: `Création du commit : "${commitMessage}"` });
         const commitResult = await runGit(
@@ -192,13 +266,12 @@ export async function POST(request: Request) {
         }
         updateProgress("commit", 4);
 
-        // ── Step 5: Fetch & Push ──
         sse(controller, "step", { id: "push", label: "Push to GitHub", index: 5 });
         sse(controller, "log", { step: "push", message: `Publication sur ${GITHUB_REPO_URL} (branche: ${branch})` });
         sse(controller, "log", { step: "push", message: "Synchronisation avec le remote..." });
         await runGit(["fetch", REMOTE_NAME, branch], controller, "fetch", pushGitConfig);
         const pushResult = await runGit(
-          ["push", pushUrl, branch, "--force"],
+          ["push", pushUrl, branch],
           controller,
           "push",
           pushGitConfig
@@ -227,13 +300,5 @@ export async function POST(request: Request) {
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
     },
-  });
-}
-
-export async function GET() {
-  return NextResponse.json({
-    status: "ready",
-    repoUrl: GITHUB_REPO_URL,
-    hasToken: !!process.env.GITHUB_TOKEN,
   });
 }

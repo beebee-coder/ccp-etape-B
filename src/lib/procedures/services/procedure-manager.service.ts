@@ -1,53 +1,6 @@
 import { ProcedureSchema, TProcedure, TStep } from "@/lib/procedures/services/validator.service";
 
-const STORAGE_KEY = "nexaflow_procedures";
-
-function loadFromStorage(): TProcedure[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveToStorage(procedures: TProcedure[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(procedures));
-  } catch {
-    // Storage full or unavailable
-  }
-}
-
-let cachedProcedures = loadFromStorage();
-
-export function getProcedures(): TProcedure[] {
-  return [...cachedProcedures];
-}
-
-export function getProcedureById(id: string): TProcedure | null {
-  return cachedProcedures.find((p) => p.metadata.code === id) ?? null;
-}
-
-export function saveProcedure(procedure: TProcedure): void {
-  const validated = ProcedureSchema.parse(procedure);
-  const idx = cachedProcedures.findIndex((p) => p.metadata.code === validated.metadata.code);
-  if (idx >= 0) {
-    cachedProcedures[idx] = validated;
-  } else {
-    cachedProcedures.push(validated);
-  }
-  saveToStorage(cachedProcedures);
-}
-
-export function deleteProcedure(code: string): void {
-  cachedProcedures = cachedProcedures.filter((p) => p.metadata.code !== code);
-  saveToStorage(cachedProcedures);
-}
+const DRAFT_STORAGE_KEY = "nexaflow-procedure-draft";
 
 export function createEmptyProcedure(): TProcedure {
   return {
@@ -138,17 +91,6 @@ export function updateMetadata(procedure: TProcedure, metadata: Partial<TProcedu
   };
 }
 
-export function importProcedure(procedure: TProcedure): void {
-  const validated = ProcedureSchema.parse(procedure);
-  const idx = cachedProcedures.findIndex((p) => p.metadata.code === validated.metadata.code);
-  if (idx >= 0) {
-    cachedProcedures[idx] = validated;
-  } else {
-    cachedProcedures.push(validated);
-  }
-  saveToStorage(cachedProcedures);
-}
-
 export function exportToJson(procedure: TProcedure): string {
   return JSON.stringify(ProcedureSchema.parse(procedure), null, 2);
 }
@@ -164,4 +106,63 @@ export function downloadJson(procedure: TProcedure, filename?: string): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+function isBrowser(): boolean {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+export function saveDraft(procedure: TProcedure): void {
+  if (!isBrowser()) return;
+  try {
+    const serialized = JSON.stringify(procedure);
+    window.localStorage.setItem(DRAFT_STORAGE_KEY, serialized);
+  } catch {
+    // localStorage unavailable or quota exceeded
+  }
+}
+
+export function loadDraft(): TProcedure | null {
+  if (!isBrowser()) return null;
+  try {
+    const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return ProcedureSchema.parse(parsed);
+  } catch {
+    return null;
+  }
+}
+
+export function clearDraft(): void {
+  if (!isBrowser()) return;
+  try {
+    window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export async function syncWithServer(procedure: TProcedure): Promise<boolean> {
+  try {
+    const { apiClient } = await import("@/lib/api/client");
+    await apiClient.post("/api/procedures", procedure);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function loadFromServer(): Promise<TProcedure[]> {
+  try {
+    const { apiClient } = await import("@/lib/api/client");
+    return await apiClient.get<TProcedure[]>("/api/procedures");
+  } catch {
+    return [];
+  }
+}
+
+export async function autoSync(procedure: TProcedure): Promise<boolean> {
+  saveDraft(procedure);
+  return syncWithServer(procedure);
 }

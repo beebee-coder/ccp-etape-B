@@ -22,7 +22,7 @@ import {
   Plus,
   FileUp,
 } from "lucide-react";
-import { etatDesLieuxService } from "@/lib/etat-des-lieux/mock-service";
+import { etatDesLieuxService } from "@/lib/etat-des-lieux/etat-des-lieux-service";
 import type { MediaAttachment, EtatDesLieuxReport } from "@/lib/etat-des-lieux/server-store";
 import { SpeechControls } from "@/components/ui/speech-controls";
 import type { ChangeEvent } from "react";

@@ -45,7 +45,7 @@ import {
   CheckCircle2,
   Clock,
 } from "lucide-react";
-import { MediaItem, MediaKind, imageService } from "@/lib/images/mock-service";
+import { MediaItem, MediaKind, imageService } from "@/lib/images/image-service";
 import type { ChangeEvent } from "react";
 
 type FormData = {

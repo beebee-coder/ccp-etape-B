@@ -3,10 +3,10 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { GitBranch, Play, Square, Download, Terminal, CheckCircle2, Key } from "lucide-react";
+import { GitBranch, Play, Square, Download, Terminal, CheckCircle2 } from "lucide-react";
+import { getCsrfTokenClient } from "@/lib/auth/cookies";
 
 type PipelineStatus = "idle" | "running" | "success" | "error";
 
@@ -45,8 +45,6 @@ export default function AdminPipelinePage() {
     label: "Prêt à démarrer",
   });
   const [repoUrl] = useState("https://github.com/beebee-coder/ccp-etape-B.git");
-  const [githubToken, setGithubToken] = useState("");
-  const [hasEnvToken, setHasEnvToken] = useState<boolean | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -108,18 +106,30 @@ export default function AdminPipelinePage() {
     abortControllerRef.current = controller;
 
     try {
-      const response = await fetch("/api/pipeline", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token: githubToken, branch: "main" }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+       const csrfToken = getCsrfTokenClient();
+       console.log("[pipeline] DEBUG - CSRF token available:", !!csrfToken);
+       const headers: Record<string, string> = {
+         "Content-Type": "application/json",
+       };
+       if (csrfToken) {
+         headers["x-csrf-token"] = csrfToken;
+       }
+ 
+        const response = await fetch("/api/pipeline", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ branch: "main" }),
+          signal: controller.signal,
+        });
+ 
+       console.log("[pipeline] DEBUG - response status:", response.status);
+       console.log("[pipeline] DEBUG - response headers:", Object.fromEntries(response.headers.entries()));
+ 
+       if (!response.ok) {
+         const errorBody = await response.text();
+         console.log("[pipeline] DEBUG - error response body:", errorBody);
+         throw new Error(`HTTP ${response.status}: ${errorBody}`);
+       }
 
       const reader = response.body?.getReader();
       if (!reader) {
@@ -224,13 +234,6 @@ export default function AdminPipelinePage() {
     scrollToBottom();
   }, [logs]);
 
-  useEffect(() => {
-    fetch("/api/pipeline")
-      .then((res) => res.json())
-      .then((data) => setHasEnvToken(data.hasToken ?? false))
-      .catch(() => setHasEnvToken(false));
-  }, []);
-
   const exportLogs = () => {
     const logText = logs
       .map((l) => `[${formatTime(l.timestamp)}] [${l.step}] ${l.message}`)
@@ -288,13 +291,10 @@ export default function AdminPipelinePage() {
                 }
                 className="rounded-lg"
               >
-                <span className="flex items-center gap-1.5">
-                  <span className={cn("h-2 w-2 rounded-full", statusColors[status])} />
-                  {status === "idle" && "Prêt"}
-                  {status === "running" && "En cours"}
-                  {status === "success" && "Terminé"}
-                  {status === "error" && "Échec"}
-                </span>
+                 <span className="flex items-center gap-1.5">
+                   <span className={cn("h-2 w-2 rounded-full", statusColors[status])} />
+                   {status === "idle" ? "Prêt" : status === "running" ? "En cours" : status === "success" ? "Terminé" : "Échec"}
+                 </span>
               </Badge>
               <span className="text-sm text-muted-foreground">
                 Repo : {repoUrl}
@@ -341,37 +341,6 @@ export default function AdminPipelinePage() {
           </div>
         </div>
       </Card>
-
-      {status === "idle" && (
-        <Card className="dashboard-card mb-6 overflow-hidden">
-          <div className="p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <Key className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-semibold text-foreground">
-                Authentification GitHub
-              </h2>
-            </div>
-            {hasEnvToken ? (
-              <p className="text-sm text-emerald-600 dark:text-emerald-400">
-                <span className="font-medium">Token configuré via variable d&apos;environnement.</span> Le push sera authentifié automatiquement.
-              </p>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Pour pousser vers GitHub, un token d&apos;accès personnel est requis. Saisissez-le ci-dessous ou définissez la variable d&apos;environnement <code className="rounded bg-muted px-1.5 py-0.5 text-xs">GITHUB_TOKEN</code>.
-                </p>
-                <Input
-                  type="password"
-                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                  value={githubToken}
-                  onChange={(e) => setGithubToken(e.target.value)}
-                  className="rounded-xl border-border/60 bg-background/60 focus:border-primary/50 font-mono text-xs"
-                />
-              </>
-            )}
-          </div>
-        </Card>
-      )}
 
       <Card className="dashboard-card mb-6 overflow-hidden">
         <div className="p-6 pb-4">

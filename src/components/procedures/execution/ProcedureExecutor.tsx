@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { TProcedure } from "@/lib/procedures/services/validator.service";
 import { GuidePhase } from "@/lib/procedures/types";
 import { useProcedureExecution } from "@/lib/procedures/hooks/useProcedureExecution";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
-import { generateAssistantAdvice } from "@/lib/procedures/assistants/mock-assistant";
+import { generateAssistantAdvice } from "@/lib/procedures/assistants/assistant-service";
+import { apiClient } from "@/lib/api/client";
 import { BriefingStage } from "./BriefingStage";
 import { PrerequisitesStage } from "./PrerequisitesStage";
 import { RunningStage } from "./RunningStage";
@@ -43,6 +44,13 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
     onReadEnd: () => {},
   });
 
+  const isMock =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("mock") === "true";
+
+  const [currentAdvice, setCurrentAdvice] = useState("");
+  const [adviceLoading, setAdviceLoading] = useState(false);
+
   const handleReadAloud = useCallback(() => {
     if (voice.isSpeaking) {
       voice.stopReading();
@@ -51,29 +59,97 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
     }
   }, [voice, currentStep, currentStepIndex, totalSteps, phase]);
 
-  const handleSendMessage = useCallback(
-    (message: string): string => {
-      if (!currentStep) return "";
-      return generateAssistantAdvice({
+  useEffect(() => {
+    if (!currentStep) {
+      setCurrentAdvice("");
+      return;
+    }
+
+    if (isMock) {
+      setCurrentAdvice(
+        generateAssistantAdvice({
+          step: currentStep,
+          stepIndex: currentStepIndex,
+          totalSteps,
+          phase,
+        })
+      );
+      return;
+    }
+
+    let cancelled = false;
+    setAdviceLoading(true);
+
+    apiClient
+      .post<{ message: string }>("/api/ai/advice", {
         step: currentStep,
         stepIndex: currentStepIndex,
         totalSteps,
         phase,
-        userMessage: message,
+      })
+      .then((result) => {
+        if (!cancelled) {
+          setCurrentAdvice(result.message);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCurrentAdvice(
+            generateAssistantAdvice({
+              step: currentStep,
+              stepIndex: currentStepIndex,
+              totalSteps,
+              phase,
+            })
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAdviceLoading(false);
+        }
       });
-    },
-    [currentStep, currentStepIndex, totalSteps, phase]
-  );
 
-  const currentAdvice = useMemo(() => {
-    if (!currentStep) return "";
-    return generateAssistantAdvice({
-      step: currentStep,
-      stepIndex: currentStepIndex,
-      totalSteps,
-      phase,
-    });
-  }, [currentStep, currentStepIndex, totalSteps, phase]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStep, currentStepIndex, totalSteps, phase, isMock]);
+
+  const handleSendMessage = useCallback(
+    async (message: string): Promise<string> => {
+      if (!currentStep) return "";
+
+      if (isMock) {
+        return generateAssistantAdvice({
+          step: currentStep,
+          stepIndex: currentStepIndex,
+          totalSteps,
+          phase,
+          userMessage: message,
+        });
+      }
+
+      try {
+        const result = await apiClient.post<{ message: string }>("/api/ai/advice", {
+          step: currentStep,
+          stepIndex: currentStepIndex,
+          totalSteps,
+          phase,
+          userMessage: message,
+        });
+        return result.message;
+      } catch {
+        return generateAssistantAdvice({
+          step: currentStep,
+          stepIndex: currentStepIndex,
+          totalSteps,
+          phase,
+          userMessage: message,
+        });
+      }
+    },
+    [currentStep, currentStepIndex, totalSteps, phase, isMock]
+  );
 
   const progress =
     totalSteps > 0 ? Math.round(((currentStepIndex + (phase === "completed" ? 1 : 0)) / totalSteps) * 100) : 0;
@@ -135,7 +211,7 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
       steps={[...procedure.steps].sort((a, b) => a.order - b.order)}
       currentStepIndex={currentStepIndex}
       completedSteps={completedSteps}
-      advice={currentAdvice}
+      advice={adviceLoading ? "Chargement du conseil..." : currentAdvice}
       onPrevious={actions.previousStep}
       onNext={actions.nextStep}
       onToggleComplete={actions.completeStep}

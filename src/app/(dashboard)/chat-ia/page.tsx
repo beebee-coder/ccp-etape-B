@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NexaFlowLogo } from "@/components/brand/nexaflow-logo";
 import { useSpeech } from "@/lib/speech/use-speech";
 import { cn } from "@/lib/utils";
+import { getCsrfTokenClient } from "@/lib/auth/cookies";
 import {
   Send,
   Mic,
@@ -99,6 +100,137 @@ export default function ChatIAPage() {
     }
   }, [transcript, voiceMode]);
 
+  const isMock =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("mock") === "true";
+
+  const fetchAIResponse = useCallback(
+    async (userMessage: string): Promise<void> => {
+      try {
+        const csrfToken = getCsrfTokenClient();
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (csrfToken) {
+          headers["x-csrf-token"] = csrfToken;
+        }
+ 
+        const res = await fetch("/api/ai/chat/stream", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ message: userMessage }),
+        });
+
+        if (res.ok && res.body) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          const assistantId = `${Date.now()}-stream`;
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: assistantId,
+              role: "assistant",
+              content: "",
+              timestamp: new Date(),
+            },
+          ]);
+
+          let buffer = "";
+          let fullText = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith(":")) continue;
+
+              if (trimmed.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(trimmed.slice(6));
+                  if (typeof data.text === "string") {
+                    fullText += data.text;
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantId ? { ...m, content: fullText } : m
+                      )
+                    );
+                  }
+                } catch {
+                  // ignore malformed SSE data
+                }
+              }
+            }
+          }
+
+          if (voiceMode && fullText) {
+            speak(fullText);
+          }
+          return;
+        }
+      } catch {
+        // fallback to JSON below
+      }
+
+       setIsTyping(true);
+       try {
+         const csrfToken = getCsrfTokenClient();
+         const headers: Record<string, string> = { "Content-Type": "application/json" };
+         if (csrfToken) {
+           headers["x-csrf-token"] = csrfToken;
+         }
+ 
+         const res = await fetch("/api/ai/chat", {
+           method: "POST",
+           headers,
+           body: JSON.stringify({ message: userMessage }),
+         });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Erreur lors de la génération de la réponse");
+        }
+
+        const data = await res.json();
+        const response = data.data?.response || "Désolé, je n'ai pas pu générer de réponse.";
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: response,
+            timestamp: new Date(),
+          },
+        ]);
+
+        if (voiceMode) {
+          speak(response);
+        }
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Une erreur est survenue. Veuillez réessayer.";
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: errorMessage,
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        setIsTyping(false);
+      }
+    },
+    [voiceMode, speak]
+  );
+
   const simulateResponse = useCallback(
     (userMessage: string) => {
       setIsTyping(true);
@@ -174,8 +306,13 @@ export default function ChatIAPage() {
     setInput("");
     setVoiceMode(false);
     stopListening();
-    simulateResponse(trimmed);
-  }, [input, simulateResponse, stopListening]);
+
+    if (isMock) {
+      simulateResponse(trimmed);
+    } else {
+      fetchAIResponse(trimmed);
+    }
+  }, [input, fetchAIResponse, simulateResponse, stopListening, isMock]);
 
   useEffect(() => {
     sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
