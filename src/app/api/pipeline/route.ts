@@ -249,7 +249,7 @@ export async function POST(request: Request) {
 
         sse(controller, "step", { id: "add", label: "Stage files", index: 3 });
         sse(controller, "log", { step: "add", message: "Indexation de tous des fichiers..." });
-        await runGit(["add", "-A"], controller, "add");
+        await runGit(["add", "-A", "--", ".", ":!.env*", ":!.env"], controller, "add");
         updateProgress("add", 3);
 
         sse(controller, "step", { id: "commit", label: "Create commit", index: 4 });
