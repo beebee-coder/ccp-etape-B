@@ -96,10 +96,15 @@ export function getCsrfTokenClient(): string | null {
   if (typeof document === "undefined") return null;
   const match = document.cookie.match(new RegExp("(?:^|; )" + CSRF_COOKIE_NAME + "=([^;]*)"));
   const token = match ? decodeURIComponent(match[1]) : null;
-  if (!token) {
-    log.debug("No CSRF token found in document.cookie");
+  if (token) return token;
+  try {
+    const fromStorage = localStorage.getItem("csrf_token");
+    if (fromStorage) return fromStorage;
+  } catch {
+    // localStorage unavailable
   }
-  return token;
+  log.debug("No CSRF token found in document.cookie or localStorage");
+  return null;
 }
 
 export function getCookies(request: Request): Record<string, string> {

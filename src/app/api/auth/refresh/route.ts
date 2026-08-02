@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth/jwt";
-import { getCookies, AUTH_COOKIE_REFRESH, AUTH_COOKIE_ACCESS } from "@/lib/auth/cookies";
+import { getCookies, AUTH_COOKIE_REFRESH, AUTH_COOKIE_ACCESS, generateCsrfToken, setCsrfCookie } from "@/lib/auth/cookies";
 import { ACCESS_TOKEN_MAX_AGE } from "@/lib/auth/config";
 import { signAccessToken } from "@/lib/auth/jwt";
 import { validateApiRequest } from "@/lib/api/handlers";
@@ -66,7 +66,8 @@ export async function POST(request: Request) {
     lastName: payload.lastName,
   });
 
-  const response = NextResponse.json({ token: newAccessToken });
+  const newCsrfToken = generateCsrfToken();
+  const response = NextResponse.json({ token: newAccessToken, csrfToken: newCsrfToken });
   response.cookies.set(AUTH_COOKIE_ACCESS, newAccessToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -74,6 +75,7 @@ export async function POST(request: Request) {
     path: "/",
     maxAge: ACCESS_TOKEN_MAX_AGE,
   });
+  setCsrfCookie(response, newCsrfToken);
 
   log.info("Access token refreshed successfully", { userId: payload.sub, clientIp });
 

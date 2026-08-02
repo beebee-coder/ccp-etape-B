@@ -96,6 +96,26 @@ export default function AdminPipelinePage() {
     return null;
   };
 
+  const refreshSession = async (): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data.csrfToken) {
+        try {
+          localStorage.setItem("csrf_token", data.csrfToken);
+        } catch {}
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const startPipeline = async () => {
     clearLogs();
     setStatus("running");
@@ -106,15 +126,23 @@ export default function AdminPipelinePage() {
     abortControllerRef.current = controller;
 
     try {
-       const csrfToken = getCsrfTokenClient();
-       console.log("[pipeline] DEBUG - CSRF token available:", !!csrfToken);
-       const headers: Record<string, string> = {
-         "Content-Type": "application/json",
-       };
-       if (csrfToken) {
-         headers["x-csrf-token"] = csrfToken;
-       }
- 
+      const refreshed = await refreshSession();
+      if (!refreshed) {
+        console.log("[pipeline] DEBUG - refresh failed, redirecting to login");
+        window.location.href = "/login?callbackUrl=/admin/pipeline";
+        return;
+      }
+      console.log("[pipeline] DEBUG - session refreshed");
+
+      const csrfToken = getCsrfTokenClient();
+      console.log("[pipeline] DEBUG - CSRF token available:", !!csrfToken);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (csrfToken) {
+        headers["x-csrf-token"] = csrfToken;
+      }
+
         const response = await fetch("/api/pipeline", {
           method: "POST",
           headers,
