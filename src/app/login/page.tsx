@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { NexaFlowLogo } from "@/components/brand/nexaflow-logo";
 import { cn } from "@/lib/utils";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/admin";
@@ -23,14 +23,14 @@ export default function LoginPage() {
        (form.querySelector("#username") as HTMLInputElement)?.value || "";
      const password =
        (form.querySelector("#password") as HTMLInputElement)?.value || "";
- 
+   
      console.log("[login] DEBUG - callbackUrl from searchParams:", callbackUrl);
      console.log("[login] DEBUG - username length:", username.length, "password length:", password.length);
      console.log("[login] DEBUG - request body:", JSON.stringify({ username, password, callbackUrl }));
- 
+   
      setIsSubmitting(true);
      setError("");
- 
+   
      let res: Response;
      try {
        console.log("[login] DEBUG - sending fetch to /api/auth/login");
@@ -47,7 +47,7 @@ export default function LoginPage() {
        setIsSubmitting(false);
        return;
      }
- 
+   
      let data: unknown;
      try {
        data = await res.json();
@@ -58,14 +58,14 @@ export default function LoginPage() {
        setIsSubmitting(false);
        return;
      }
- 
+   
      if (!res.ok) {
        console.log("[login] DEBUG - auth failed, error data:", data);
        setError((data as { error?: string }).error ?? "Échec de la connexion");
        setIsSubmitting(false);
        return;
      }
- 
+   
      console.log("[login] DEBUG - login successful, data keys:", Object.keys(data as object));
      try {
        localStorage.setItem("auth_token", (data as { token: string }).token);
@@ -220,5 +220,13 @@ export default function LoginPage() {
         </Card>
       </section>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Chargement...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }
