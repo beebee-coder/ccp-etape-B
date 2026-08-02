@@ -51,10 +51,10 @@ export default function AdminPipelinePage() {
   const logIdRef = useRef(0);
 
   const addLog = (step: string, message: string) => {
-    logIdRef.current += 1;
+    const id = ++logIdRef.current;
     setLogs((prev) => [
       ...prev,
-      { id: logIdRef.current, step, message, timestamp: new Date() },
+      { id, step, message, timestamp: new Date() },
     ]);
   };
 
