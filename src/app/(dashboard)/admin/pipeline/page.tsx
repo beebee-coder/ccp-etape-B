@@ -122,14 +122,20 @@ export default function AdminPipelinePage() {
           signal: controller.signal,
         });
  
-       console.log("[pipeline] DEBUG - response status:", response.status);
-       console.log("[pipeline] DEBUG - response headers:", Object.fromEntries(response.headers.entries()));
+        console.log("[pipeline] DEBUG - response status:", response.status);
+        console.log("[pipeline] DEBUG - response headers:", Object.fromEntries(response.headers.entries()));
  
-       if (!response.ok) {
-         const errorBody = await response.text();
-         console.log("[pipeline] DEBUG - error response body:", errorBody);
-         throw new Error(`HTTP ${response.status}: ${errorBody}`);
-       }
+        if (response.status === 401) {
+          console.log("[pipeline] DEBUG - session expired, redirecting to login");
+          window.location.href = "/login?callbackUrl=/admin/pipeline";
+          return;
+        }
+ 
+        if (!response.ok) {
+          const errorBody = await response.text();
+          console.log("[pipeline] DEBUG - error response body:", errorBody);
+          throw new Error(`HTTP ${response.status}: ${errorBody}`);
+        }
 
       const reader = response.body?.getReader();
       if (!reader) {

@@ -119,6 +119,11 @@ export default function ChatIAPage() {
           body: JSON.stringify({ message: userMessage }),
         });
 
+        if (res.status === 401) {
+          window.location.href = "/login?callbackUrl=/chat-ia";
+          return;
+        }
+ 
         if (res.ok && res.body) {
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
@@ -190,7 +195,12 @@ export default function ChatIAPage() {
            body: JSON.stringify({ message: userMessage }),
          });
 
-        if (!res.ok) {
+         if (res.status === 401) {
+           window.location.href = "/login?callbackUrl=/chat-ia";
+           return;
+         }
+ 
+         if (!res.ok) {
           const error = await res.json();
           throw new Error(error.error || "Erreur lors de la génération de la réponse");
         }
