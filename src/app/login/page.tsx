@@ -117,7 +117,6 @@ function LoginForm() {
                 <Input
                   id="username"
                   type="text"
-                  placeholder="admin"
                   autoComplete="username"
                   disabled={isSubmitting}
                   className={cn(
@@ -135,7 +134,6 @@ function LoginForm() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="••••••••"
                   autoComplete="current-password"
                   disabled={isSubmitting}
                   className={cn(
