@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET, POST } from "./route";
+import type { EtatDesLieuxReport } from "@/lib/etat-des-lieux/server-store";
 
 vi.mock("@/lib/etat-des-lieux/server-store", () => ({
   getAll: vi.fn(),
@@ -26,7 +27,7 @@ beforeEach(() => {
 
 describe("GET /api/etat-des-lieux", () => {
   it("returns reports on success", async () => {
-    const mockReports = [
+    const mockReports: EtatDesLieuxReport[] = [
       {
         id: "report_1",
         title: "Report 1",
@@ -70,7 +71,7 @@ describe("GET /api/etat-des-lieux", () => {
 
 describe("POST /api/etat-des-lieux", () => {
   it("creates a report and returns 201", async () => {
-    const mockReport = {
+    const mockReport: EtatDesLieuxReport = {
       id: "report_1",
       title: "New Report",
       description: "New Description",

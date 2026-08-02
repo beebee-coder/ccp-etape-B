@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET, POST } from "./route";
+import type { MediaItem } from "@/lib/images/server-store";
 
 vi.mock("@/lib/images/server-store", () => ({
   getAll: vi.fn(),
@@ -28,7 +29,7 @@ beforeEach(() => {
 
 describe("GET /api/images", () => {
   it("returns items and categories on success", async () => {
-    const mockItems = [
+    const mockItems: MediaItem[] = [
       {
         id: "img_1",
         title: "Image 1",
@@ -86,9 +87,16 @@ describe("POST /api/images", () => {
       size: 1024,
       dataUrl: "data:image/png;base64,abc",
     };
-    const mockItem = {
+    const mockItem: MediaItem = {
       id: "img_1",
-      ...mockBody,
+      title: "New Image",
+      category: "production",
+      description: "New desc",
+      tags: ["tag1"],
+      kind: "image",
+      mimeType: "image/png",
+      size: 1024,
+      dataUrl: "data:image/png;base64,abc",
       createdAt: "2024-01-01T00:00:00Z",
       updatedAt: "2024-01-01T00:00:00Z",
     };

@@ -9,9 +9,6 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/lib/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
-    environmentMatchGlobs: [
-      ["src/app/api/**/route.test.ts", "node"],
-    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary", "lcov"],

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET, POST } from "./route";
+import type { TProcedure } from "@/lib/procedures/services/validator.service";
 
 vi.mock("@/lib/procedures/server-store", () => ({
   getAllProcedures: vi.fn(),
@@ -25,11 +26,12 @@ beforeEach(() => {
 
 describe("GET /api/procedures", () => {
   it("returns procedures on success", async () => {
-    const mockProcedures = [
+    const mockProcedures: TProcedure[] = [
       {
         metadata: {
           title: "Procedure 1",
           code: "PROC-001",
+          description: "Procedure description",
           category: "production",
           priority: "haute",
           estimatedTimeMinutes: 30,
@@ -43,6 +45,13 @@ describe("GET /api/procedures", () => {
             instructions: "Do step 1",
             type: "consigne_simple",
             order: 0,
+            isMandatory: false,
+            dependencies: [],
+            mediaRequirements: [],
+            alarms: [],
+            attachments: [],
+            timerEnabled: false,
+            timerSeconds: 0,
           },
         ],
       },
@@ -77,10 +86,11 @@ describe("GET /api/procedures", () => {
 
 describe("POST /api/procedures", () => {
   it("saves a procedure and returns 201", async () => {
-    const mockBody = {
+    const mockBody: TProcedure = {
       metadata: {
         title: "New Procedure",
         code: "NEW-PROC",
+        description: "New procedure description",
         category: "production",
         priority: "haute",
         estimatedTimeMinutes: 30,
@@ -94,6 +104,13 @@ describe("POST /api/procedures", () => {
           instructions: "Do step 1",
           type: "consigne_simple",
           order: 0,
+          isMandatory: false,
+          dependencies: [],
+          mediaRequirements: [],
+          alarms: [],
+          attachments: [],
+          timerEnabled: false,
+          timerSeconds: 0,
         },
       ],
     };

@@ -4,15 +4,28 @@ import {
   validateStep,
   hasCircularDependencies,
   getCompleteness,
-  ProcedureSchema,
-  StepSchema,
   PrioritySchema,
   StepTypeSchema,
   MediaTypeSchema,
   AlarmTypeSchema,
-  type TProcedure,
   type TStep,
 } from "../validator.service";
+
+const baseStep = (overrides: Partial<TStep> = {}): TStep => ({
+  id: "a",
+  title: "A",
+  instructions: "Do A",
+  type: "consigne_simple",
+  order: 0,
+  isMandatory: false,
+  dependencies: [],
+  mediaRequirements: [],
+  alarms: [],
+  attachments: [],
+  timerEnabled: false,
+  timerSeconds: 0,
+  ...overrides,
+});
 
 describe("validateProcedure", () => {
   it("parses a valid procedure", () => {
@@ -125,44 +138,55 @@ describe("validateStep", () => {
 });
 
 describe("hasCircularDependencies", () => {
+  const baseStep = (overrides: Partial<TStep> = {}): TStep => ({
+    id: "a",
+    title: "A",
+    instructions: "Do A",
+    type: "consigne_simple",
+    order: 0,
+    isMandatory: false,
+    dependencies: [],
+    mediaRequirements: [],
+    alarms: [],
+    attachments: [],
+    timerEnabled: false,
+    timerSeconds: 0,
+    ...overrides,
+  });
+
   it("returns false when there are no dependencies", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "A", instructions: "Do A", type: "consigne_simple", order: 0 },
-      { id: "b", title: "B", instructions: "Do B", type: "consigne_simple", order: 1 },
-    ];
+    const steps = [baseStep(), baseStep({ id: "b", title: "B", order: 1 })];
     expect(hasCircularDependencies(steps)).toBe(false);
   });
 
   it("returns false for a simple linear dependency chain", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "A", instructions: "Do A", type: "consigne_simple", order: 0, dependencies: [] },
-      { id: "b", title: "B", instructions: "Do B", type: "consigne_simple", order: 1, dependencies: ["a"] },
-      { id: "c", title: "C", instructions: "Do C", type: "consigne_simple", order: 2, dependencies: ["b"] },
+    const steps = [
+      baseStep({ dependencies: [] }),
+      baseStep({ id: "b", title: "B", order: 1, dependencies: ["a"] }),
+      baseStep({ id: "c", title: "C", order: 2, dependencies: ["b"] }),
     ];
     expect(hasCircularDependencies(steps)).toBe(false);
   });
 
   it("returns true for a direct circular dependency", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "A", instructions: "Do A", type: "consigne_simple", order: 0, dependencies: ["b"] },
-      { id: "b", title: "B", instructions: "Do B", type: "consigne_simple", order: 1, dependencies: ["a"] },
+    const steps = [
+      baseStep({ dependencies: ["b"] }),
+      baseStep({ id: "b", title: "B", order: 1, dependencies: ["a"] }),
     ];
     expect(hasCircularDependencies(steps)).toBe(true);
   });
 
   it("returns true for an indirect circular dependency", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "A", instructions: "Do A", type: "consigne_simple", order: 0, dependencies: ["b"] },
-      { id: "b", title: "B", instructions: "Do B", type: "consigne_simple", order: 1, dependencies: ["c"] },
-      { id: "c", title: "C", instructions: "Do C", type: "consigne_simple", order: 2, dependencies: ["a"] },
+    const steps = [
+      baseStep({ dependencies: ["b"] }),
+      baseStep({ id: "b", title: "B", order: 1, dependencies: ["c"] }),
+      baseStep({ id: "c", title: "C", order: 2, dependencies: ["a"] }),
     ];
     expect(hasCircularDependencies(steps)).toBe(true);
   });
 
   it("returns false when a step depends on a non-existent step (no cycle)", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "A", instructions: "Do A", type: "consigne_simple", order: 0, dependencies: ["nonexistent"] },
-    ];
+    const steps = [baseStep({ dependencies: ["nonexistent"] })];
     expect(hasCircularDependencies(steps)).toBe(false);
   });
 
@@ -171,9 +195,7 @@ describe("hasCircularDependencies", () => {
   });
 
   it("returns false for a self-dependency", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "A", instructions: "Do A", type: "consigne_simple", order: 0, dependencies: ["a"] },
-    ];
+    const steps = [baseStep({ dependencies: ["a"] })];
     expect(hasCircularDependencies(steps)).toBe(true);
   });
 });
@@ -184,25 +206,25 @@ describe("getCompleteness", () => {
   });
 
   it("returns 100 when all steps are fully filled", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "A", instructions: "Do A", type: "consigne_simple", order: 0 },
-      { id: "b", title: "B", instructions: "Do B", type: "validation_securite", order: 1 },
+    const steps = [
+      baseStep(),
+      baseStep({ id: "b", title: "B", type: "validation_securite", order: 1 }),
     ];
     expect(getCompleteness(steps)).toBe(100);
   });
 
   it("returns 50 when half the steps are incomplete", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "A", instructions: "Do A", type: "consigne_simple", order: 0 },
-      { id: "b", title: "", instructions: "", type: "", order: 1 },
+    const steps = [
+      baseStep(),
+      baseStep({ id: "b", title: "", instructions: "", order: 1 }),
     ];
     expect(getCompleteness(steps)).toBe(50);
   });
 
   it("returns 0 when no steps have required fields", () => {
-    const steps: TStep[] = [
-      { id: "a", title: "", instructions: "", type: "", order: 0 },
-      { id: "b", title: "", instructions: "", type: "", order: 1 },
+    const steps = [
+      baseStep({ title: "", instructions: "" }),
+      baseStep({ id: "b", title: "", instructions: "", order: 1 }),
     ];
     expect(getCompleteness(steps)).toBe(0);
   });

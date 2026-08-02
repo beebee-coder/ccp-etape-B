@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useProcedureExecution } from "../useProcedureExecution";
-import { TProcedure } from "../services/validator.service";
+import type { TProcedure } from "../../services/validator.service";
 
 const procedure: TProcedure = {
   metadata: {
@@ -22,6 +22,11 @@ const procedure: TProcedure = {
       order: 0,
       timerEnabled: true,
       timerSeconds: 10,
+      isMandatory: false,
+      dependencies: [],
+      mediaRequirements: [],
+      alarms: [],
+      attachments: [],
     },
     {
       id: "step_2",
@@ -31,6 +36,11 @@ const procedure: TProcedure = {
       order: 1,
       timerEnabled: false,
       timerSeconds: 0,
+      isMandatory: false,
+      dependencies: [],
+      mediaRequirements: [],
+      alarms: [],
+      attachments: [],
     },
   ],
 };

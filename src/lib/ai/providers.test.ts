@@ -40,16 +40,6 @@ import {
 const MockedGroq = vi.mocked(Groq);
 const MockedGenAI = vi.mocked(GoogleGenerativeAI);
 
-function makeGroqCompletion(text: string = "groq response") {
-  return {
-    choices: [{ message: { content: text } }],
-  };
-}
-
-async function* makeGroqStream(text: string = "groq stream response") {
-  yield { choices: [{ delta: { content: text } }] };
-}
-
 function makeGenAIContentResponse(text: string = "gemini response") {
   return {
     response: Promise.resolve({
@@ -79,22 +69,6 @@ type MockGenAI = {
   getGenerativeModel: ReturnType<typeof vi.fn>;
 };
 
-function makeMockGroq(apiKey: string): MockGroq {
-  return {
-    _apiKey: apiKey,
-    chat: {
-      completions: {
-        create: vi.fn().mockImplementation(function (config?: { stream?: boolean }) {
-          if (config?.stream) {
-            return Promise.resolve(makeGroqStream());
-          }
-          return Promise.resolve(makeGroqCompletion());
-        }),
-      },
-    },
-  };
-}
-
 function makeMockGenAI(apiKey: string): MockGenAI {
   const generateContent = vi.fn().mockResolvedValue(makeGenAIContentResponse());
   const generateContentStream = vi.fn().mockResolvedValue({
@@ -117,18 +91,6 @@ function makeFailingGroq(apiKey: string): MockGroq {
         create: vi.fn().mockRejectedValue(new Error("Groq API error")),
       },
     },
-  };
-}
-
-function makeFailingGenAI(apiKey: string): MockGenAI {
-  const generateContent = vi.fn().mockRejectedValue(new Error("Gemini API error"));
-  const generateContentStream = vi.fn().mockRejectedValue(new Error("Gemini stream error"));
-  return {
-    _apiKey: apiKey,
-    getGenerativeModel: vi.fn().mockReturnValue({
-      generateContent,
-      generateContentStream,
-    }),
   };
 }
 
