@@ -7,6 +7,7 @@ import { DashboardTopNav } from "@/components/dashboard/top-nav";
 import { SidebarProvider } from "@/components/dashboard/sidebar-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { Toaster } from "sonner";
 
 type Role = "admin" | "chef-de-quart" | "chef-de-bloc" | "rondier";
 
@@ -85,6 +86,7 @@ export default function DashboardLayout({
               <div className="flex-1 overflow-y-auto">{children}</div>
             </main>
           </div>
+          <Toaster position="bottom-right" richColors />
         </ErrorBoundary>
       </SidebarProvider>
     </ThemeProvider>

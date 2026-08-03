@@ -1,71 +1,187 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Search, Database, GitMerge, BarChart3, Layers } from "lucide-react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import {
+  Search,
+  Database,
+  GitMerge,
+  BarChart3,
+  Layers,
+  Plus,
+  FileText,
+  X,
+  Wand2,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import type {
   DatabaseStructure,
   DatabaseTreeNode,
   SyncState,
 } from "@/lib/types/structure-bdd";
 import {
-  buildLocalStructure,
-  buildWebStructure,
-} from "@/lib/data/structure-bdd";
-import {
   findMatches,
   matchingAncestors,
   aggregateStats,
 } from "@/lib/structure-bdd/tree-utils";
 import { TreeNode } from "./tree-node";
-import { SyncDot } from "./sync-dot";
-
-type ViewMode = "tree" | "diff";
 
 const ACCENTS = {
-  web: {
+  schema: {
     color: "hsl(210 90% 60%)",
     bg: "hsl(210 90% 64% / 0.12)",
   },
-  local: {
-    color: "hsl(40 90% 60%)",
-    bg: "hsl(40 90% 64% / 0.12)",
+  indexed: {
+    color: "hsl(150 80% 50%)",
+    bg: "hsl(150 80% 64% / 0.12)",
   },
 };
 
-export function HolographicDatabaseExplorer() {
-  const webStructure = useMemo(() => buildWebStructure(), []);
-  const localStructure = useMemo(() => buildLocalStructure(), []);
+interface ApiTreeNode {
+  name: string;
+  path: string;
+  kind: string;
+  children?: ApiTreeNode[];
+  stats?: { sizeBytes: number };
+  vectorized?: boolean;
+}
 
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    const init = new Set<string>();
-    init.add("nexaflow_web");
-    init.add("INDEX_CHROMA");
-    return init;
-  });
+async function buildStructure(children: ApiTreeNode[]): Promise<DatabaseTreeNode[]> {
+  const nodes: DatabaseTreeNode[] = [];
+  for (const child of children) {
+    const childPath = child.path;
+    const node: DatabaseTreeNode = {
+      id: childPath,
+      name: child.name,
+      kind: child.kind as DatabaseTreeNode["kind"],
+      path: childPath,
+      indexed: child.vectorized ?? false,
+      vectorized: child.vectorized ?? false,
+      children: child.kind === "directory" ? await buildStructure(child.children || []) : undefined,
+    };
+    nodes.push(node);
+  }
+  return nodes;
+}
+
+type ModalMode = "create" | "rename" | null;
+
+export function HolographicDatabaseExplorer() {
+  const [schemaStructure, setSchemaStructure] = useState<DatabaseStructure | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [preview, setPreview] = useState<{ path: string; content: string; name: string } | null>(null);
+  const [modal, setModal] = useState<{ mode: ModalMode; parentPath?: string; targetPath?: string; defaultName?: string } | null>(null);
+  const [modalName, setModalName] = useState("");
+  const [modalKind, setModalKind] = useState<"file" | "directory">("file");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [vectorizedFiles, setVectorizedFiles] = useState<Set<string>>(() => new Set());
+
+  const loadStructure = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/local-db/fs?t=${Date.now()}`);
+      const data = (await res.json()) as { children?: ApiTreeNode[]; vectorizedPaths?: string[] };
+      const nodes = await buildStructure(data.children || []);
+      setSchemaStructure({
+        id: ".local-db",
+        name: ".local-db",
+        kind: "database",
+        path: ".local-db",
+        indexed: false,
+        vectorized: false,
+        children: nodes,
+      });
+      if (data.vectorizedPaths) {
+        setVectorizedFiles(new Set(data.vectorizedPaths));
+      }
+    } catch {
+      toast.error("Erreur lors du chargement de .local-db");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStructure();
+  }, [loadStructure]);
+
+  const indexedStructure = useMemo<DatabaseStructure>(() => {
+    if (!schemaStructure) {
+      return {
+        id: ".local-db-indexed",
+        name: ".local-db",
+        kind: "database",
+        path: ".local-db-indexed",
+        indexed: false,
+        vectorized: false,
+        children: [],
+      };
+    }
+    const clone = JSON.parse(JSON.stringify(schemaStructure)) as DatabaseStructure;
+
+    const filterVectorized = (node: DatabaseTreeNode): DatabaseTreeNode => {
+      if (node.kind === "document") {
+        if (vectorizedFiles.has(node.path)) {
+          node.indexed = true;
+          node.vectorized = true;
+          node.stats = node.stats || { vectors: 1, chunks: 1, dimension: 384, sizeBytes: 1024 };
+        } else {
+          node.indexed = false;
+          node.vectorized = false;
+          node.stats = undefined;
+        }
+        return node;
+      }
+
+      if (node.children) {
+        const filteredChildren = node.children.map(filterVectorized);
+        const hasVectorized = filteredChildren.some(
+          (c) => c.kind === "document" && c.vectorized
+        );
+        return {
+          ...node,
+          indexed: hasVectorized,
+          vectorized: hasVectorized,
+          children: filteredChildren,
+        };
+      }
+
+      return node;
+    };
+
+    const filteredRoot = filterVectorized(clone);
+    return {
+      ...filteredRoot,
+      kind: "database",
+      id: ".local-db-indexed",
+      path: ".local-db-indexed",
+    } as DatabaseStructure;
+  }, [schemaStructure, vectorizedFiles]);
+
+  const vectorizationState = useMemo<"complete" | "pending" | "in-progress">(() => {
+    if (!schemaStructure) return "pending";
+
+    const allFiles: string[] = [];
+    const walk = (node: DatabaseTreeNode) => {
+      if (node.kind === "document") allFiles.push(node.path);
+      node.children?.forEach(walk);
+    };
+    walk(schemaStructure);
+
+    if (allFiles.length === 0) return "pending";
+    if (vectorizedFiles.size === 0) return "pending";
+    if (vectorizedFiles.size === allFiles.length) return "complete";
+    return "in-progress";
+  }, [schemaStructure, vectorizedFiles]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([".local-db"]));
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("tree");
-
-  const matchIds = useMemo<string[]>(() => {
-    const set = new Set<string>();
-    findMatches(webStructure, searchTerm).forEach((id) => set.add(id));
-    findMatches(localStructure, searchTerm).forEach((id) => set.add(id));
-    return Array.from(set);
-  }, [webStructure, localStructure, searchTerm]);
-
-  const highlightAncestors = useMemo<string[]>(() => {
-    const set = new Set<string>();
-    matchingAncestors(webStructure, searchTerm).forEach((id) => set.add(id));
-    matchingAncestors(localStructure, searchTerm).forEach((id) => set.add(id));
-    return Array.from(set);
-  }, [webStructure, localStructure, searchTerm]);
 
   const toggleNode = (id: string) => {
     setExpanded((prev) => {
@@ -81,44 +197,242 @@ export function HolographicDatabaseExplorer() {
     if (node.children && node.children.length > 0) toggleNode(node.id);
   };
 
-  useEffect(() => {
-    if (searchTerm && matchIds.length > 0) {
-      setExpanded((prev) => {
+  const refreshNode = async (nodeId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(nodeId);
+      return next;
+    });
+    await loadStructure();
+  };
+
+  const handleCreate = async () => {
+    if (!modal || !modal.parentPath) return;
+    try {
+      if (modalKind === "file") {
+        if (!selectedFile) {
+          toast.error("Veuillez sélectionner un fichier à uploader");
+          return;
+        }
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("path", modal.parentPath);
+
+        const res = await fetch(`/api/local-db/fs?t=${Date.now()}`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Erreur upload" }));
+          throw new Error(err.error || "Erreur upload");
+        }
+        toast.success("Fichier uploadé");
+      } else {
+        if (!modalName.trim()) {
+          toast.error("Veuillez saisir un nom de dossier");
+          return;
+        }
+        const res = await fetch(`/api/local-db/fs?t=${Date.now()}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: modal.parentPath,
+            name: modalName.trim(),
+            kind: modalKind,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Erreur création" }));
+          throw new Error(err.error || "Erreur création");
+        }
+        toast.success("Dossier créé");
+      }
+      setModal(null);
+      setModalName("");
+      setSelectedFile(null);
+      await refreshNode(modal.parentPath);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur lors de la création";
+      toast.error(message);
+    }
+  };
+
+  const handleDelete = async (nodePath: string) => {
+    if (!confirm("Supprimer ce fichier/dossier ?")) return;
+    try {
+      const res = await fetch(`/api/local-db/fs?path=${encodeURIComponent(nodePath)}&t=${Date.now()}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur suppression" }));
+        throw new Error(err.error || "Erreur suppression");
+      }
+      toast.success("Élément supprimé");
+      if (selectedId === nodePath) setSelectedId(null);
+      await loadStructure();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur lors de la suppression";
+      toast.error(message);
+    }
+  };
+
+  const handleRename = async () => {
+    if (!modal || !modalName.trim() || !modal.targetPath) return;
+    try {
+      const res = await fetch(`/api/local-db/fs?t=${Date.now()}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: modal.targetPath,
+          newName: modalName.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur renommage" }));
+        throw new Error(err.error || "Erreur renommage");
+      }
+      toast.success("Élément renommé");
+      setModal(null);
+      setModalName("");
+      await loadStructure();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur lors du renommage";
+      toast.error(message);
+    }
+  };
+
+  const handlePreview = async (node: DatabaseTreeNode) => {
+    if (node.kind !== "document") return;
+    try {
+      const res = await fetch(`/api/local-db/fs?path=${encodeURIComponent(node.path)}&read=true&t=${Date.now()}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setPreview({ path: node.path, content: data.content, name: node.name });
+    } catch {
+      setPreview({ path: node.path, content: "[Impossible de lire le fichier]", name: node.name });
+    }
+  };
+
+  const handleVectorize = async (nodePath: string) => {
+    try {
+      const res = await fetch(`/api/local-db/fs?t=${Date.now()}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: nodePath,
+          action: "vectorize",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur vectorisation" }));
+        throw new Error(err.error || "Erreur vectorisation");
+      }
+      setVectorizedFiles((prev) => {
         const next = new Set(prev);
-        matchIds.forEach((id) => next.add(id));
-        highlightAncestors.forEach((id) => next.add(id));
+        next.add(nodePath);
         return next;
       });
+      toast.success("Fichier vectorisé avec succès");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur lors de la vectorisation";
+      toast.error(message);
     }
-  }, [matchIds, highlightAncestors, searchTerm]);
+  };
 
-  const showDiff = viewMode === "diff";
-  const allNodes = useMemo(
-    () =>
-      Array.from(
-        new Set([...flattenDeep(webStructure), ...flattenDeep(localStructure)]),
-      ),
-    [webStructure, localStructure],
-  );
+  const handleVectorizeAll = async () => {
+    if (!schemaStructure) return;
+    try {
+      const allFiles: string[] = [];
+      const walk = (node: DatabaseTreeNode) => {
+        if (node.kind === "document" && !vectorizedFiles.has(node.path)) {
+          allFiles.push(node.path);
+        }
+        node.children?.forEach(walk);
+      };
+      walk(schemaStructure);
 
-  const syncSummary = useMemo<Record<SyncState, number>>(() => {
-    const counts: Record<SyncState, number> = {
-      synced: 0,
-      pending: 0,
-      conflict: 0,
-      "local-only": 0,
+      if (allFiles.length === 0) {
+        toast.info("Aucun fichier à vectoriser");
+        return;
+      }
+
+      let successCount = 0;
+      for (const filePath of allFiles) {
+        try {
+          const res = await fetch(`/api/local-db/fs?t=${Date.now()}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              path: filePath,
+              action: "vectorize",
+            }),
+          });
+          if (res.ok) {
+            successCount++;
+            setVectorizedFiles((prev) => {
+              const next = new Set(prev);
+              next.add(filePath);
+              return next;
+            });
+          }
+        } catch {
+          // continue with next file
+        }
+      }
+
+      toast.success(`${successCount} fichier(s) vectorisé(s)`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur lors de la vectorisation";
+      toast.error(message);
+    }
+  };
+
+  const matchIds = useMemo<string[]>(() => {
+    if (!schemaStructure) return [];
+    const set = new Set<string>();
+    if (searchTerm) {
+      findMatches(schemaStructure, searchTerm).forEach((id) => set.add(id));
+      if (indexedStructure) findMatches(indexedStructure, searchTerm).forEach((id) => set.add(id));
+    }
+    return Array.from(set);
+  }, [schemaStructure, indexedStructure, searchTerm]);
+
+  const highlightAncestors = useMemo<string[]>(() => {
+    if (!schemaStructure) return [];
+    const set = new Set<string>();
+    if (searchTerm) {
+      matchingAncestors(schemaStructure, searchTerm).forEach((id) => set.add(id));
+      if (indexedStructure) matchingAncestors(indexedStructure, searchTerm).forEach((id) => set.add(id));
+    }
+    return Array.from(set);
+  }, [schemaStructure, indexedStructure, searchTerm]);
+
+  const allNodes = useMemo(() => {
+    if (!schemaStructure) return [];
+    const nodes: DatabaseTreeNode[] = [];
+    const walk = (node: DatabaseTreeNode) => {
+      nodes.push(node);
+      node.children?.forEach(walk);
     };
-    allNodes.forEach((n) => {
-      if (n.syncState) counts[n.syncState] = (counts[n.syncState] ?? 0) + 1;
-    });
-    return counts;
-  }, [allNodes]);
+    walk(schemaStructure);
+    if (indexedStructure) {
+      const walk2 = (node: DatabaseTreeNode) => {
+        const idx = nodes.find((n) => n.id === node.id);
+        if (idx) {
+          idx.indexed = node.indexed;
+          idx.vectorized = node.vectorized;
+        }
+        node.children?.forEach(walk2);
+      };
+      walk2(indexedStructure);
+    }
+    return nodes;
+  }, [schemaStructure, indexedStructure]);
 
-  const webStats = aggregateStats(webStructure);
-  const localStats = aggregateStats(localStructure);
-  const totalVectors = webStats.vectors + localStats.vectors;
-  const totalChunks = webStats.chunks + localStats.chunks;
   const selected = allNodes.find((n) => n.id === selectedId) ?? null;
+
+  const schemaStats = useMemo(() => schemaStructure ? aggregateStats(schemaStructure) : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [schemaStructure]);
+  const indexedStats = useMemo(() => indexedStructure ? aggregateStats(indexedStructure) : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [indexedStructure]);
 
   return (
     <section className="relative isolate">
@@ -129,151 +443,233 @@ export function HolographicDatabaseExplorer() {
       </div>
 
       <div className="relative mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3 animate-slide-in-3d">
-          <div className="icon-glow">
-            <div className="icon-inner">
-              <Database className="h-5 w-5 text-primary" />
-            </div>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight gradient-text">
-              Structure BDD
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Arborescence des bases Web &amp; locale — contenus indexés et
-              vectorisés
-            </p>
-          </div>
-        </div>
-
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Filtrer l'arborescence..."
+              placeholder="Rechercher une table ou colonne..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9 w-64 rounded-xl border-border/60 bg-background/60 focus:border-primary/50"
             />
           </div>
 
-          <div className="inline-flex items-center gap-1 rounded-xl border border-border/60 bg-card/60 p-1 text-xs text-muted-foreground">
-            <button
-              type="button"
-              onClick={() => setViewMode("tree")}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-all",
-                viewMode === "tree"
-                  ? "bg-primary/15 text-primary shadow-primary-glow"
-                  : "hover:bg-muted/50",
-              )}
-            >
-              <Layers className="h-3.5 w-3.5" />
-              Arborescence
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("diff")}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-all",
-                viewMode === "diff"
-                  ? "bg-primary/15 text-primary shadow-primary-glow"
-                  : "hover:bg-muted/50",
-              )}
-            >
-              <GitMerge className="h-3.5 w-3.5" />
-              Synchronisation
-            </button>
-          </div>
-
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              const init = new Set<string>();
-              init.add("nexaflow_web");
-              init.add("INDEX_CHROMA");
-              setExpanded(init);
-              setSearchTerm("");
-              setSelectedId(null);
-            }}
+            onClick={loadStructure}
             className="h-8 rounded-xl border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary"
           >
             Réinitialiser
           </Button>
+
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleVectorizeAll}
+            className="h-8 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <Wand2 className="h-4 w-4 mr-2" />
+            Vectoriser tout
+          </Button>
         </div>
       </div>
 
-      <StatsRibbon
-        web={webStats}
-        local={localStats}
-        totalVectors={totalVectors}
-        totalChunks={totalChunks}
-      />
+      {loading && (
+        <Card className="dashboard-card flex h-24 items-center justify-center">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+            <span>Chargement de .local-db...</span>
+          </div>
+        </Card>
+      )}
 
-      {showDiff && <DiffSummary counts={syncSummary} className="mt-4" />}
+      {!loading && schemaStructure && (
+        <>
+          <DbStatsRibbon
+            tablesCount={schemaStructure.children?.length ?? 0}
+            columnsCount={schemaStats.documents}
+            totalVectors={indexedStats.vectors}
+            totalChunks={indexedStats.chunks}
+          />
 
-      {selected && <SelectedDetail node={selected} className="mt-4" />}
+          {selected && <SelectedDetail node={selected} className="mt-4" />}
 
-      <div className="relative isolate mt-6 grid grid-cols-1 gap-6 md:grid-cols-[1fr_10rem_1fr]">
-        <TreePanel
-          label="Web BDD"
-          structure={webStructure}
-          accent="web"
-          expanded={expanded}
-          onToggle={toggleNode}
-          onSelect={onSelect}
-          selectedId={selectedId}
-          hoveredId={hoveredId}
-          onHover={setHoveredId}
-          searchTerm={searchTerm}
-          matchIds={matchIds}
-          highlightAncestors={highlightAncestors}
-          showDiff={showDiff}
-        />
+          {preview && (
+            <Card className="dashboard-card mt-4 overflow-hidden">
+              <div className="border-b border-border/50 px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-semibold text-foreground">{preview.name}</h3>
+                  <span className="text-xs text-muted-foreground font-mono">{preview.path}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 rounded-lg p-0"
+                  onClick={() => setPreview(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="max-h-80 overflow-y-auto bg-muted/20 p-4">
+                <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground/80">
+                  {preview.content}
+                </pre>
+              </div>
+            </Card>
+          )}
 
-        <SyncSpine syncSummary={syncSummary} />
+          <div className="relative isolate mt-6 grid grid-cols-1 gap-6 md:grid-cols-[1fr_10rem_1fr]">
+            <TreePanel
+              label="Schéma BDD"
+              subtitle="Structure physique .local-db"
+              structure={schemaStructure}
+              accent="schema"
+              expanded={expanded}
+              onToggle={toggleNode}
+              onSelect={onSelect}
+              selectedId={selectedId}
+              hoveredId={null}
+              onHover={() => {}}
+              searchTerm={searchTerm}
+              matchIds={matchIds}
+              highlightAncestors={highlightAncestors}
+              onPreview={handlePreview}
+              onDelete={handleDelete}
+              onRename={(path, currentName) => {
+                setModal({ mode: "rename", targetPath: path, defaultName: currentName });
+                setModalName(currentName);
+              }}
+              onCreate={(parentPath) => {
+                setModal({ mode: "create", parentPath });
+                setModalName("");
+                setModalKind("file");
+                setSelectedFile(null);
+              }}
+              onVectorize={handleVectorize}
+            />
 
-        <TreePanel
-          label="Local BDD"
-          structure={localStructure}
-          accent="local"
-          expanded={expanded}
-          onToggle={toggleNode}
-          onSelect={onSelect}
-          selectedId={selectedId}
-          hoveredId={hoveredId}
-          onHover={setHoveredId}
-          searchTerm={searchTerm}
-          matchIds={matchIds}
-          highlightAncestors={highlightAncestors}
-          showDiff={showDiff}
-        />
-      </div>
+            <SyncSpine
+              syncSummary={{ synced: indexedStats.vectors, pending: 0, conflict: 0, "local-only": schemaStats.documents - indexedStats.vectors }}
+              vectorizationState={vectorizationState}
+            />
 
-      <div className="relative mt-8 text-center text-xs text-muted-foreground/60">
-        <span className="inline-flex items-center gap-1.5">
-          <Layers className="h-3 w-3" />
-          Survol ou expansion d’un nœud se synchronise entre les deux bases. La
-          colonne centrale représente le flux de synchronisation RAG en temps
-          réel.
-        </span>
-      </div>
+            <TreePanel
+              label="Indexation & Vectorisation"
+              subtitle="État après dernière action"
+              structure={indexedStructure}
+              accent="indexed"
+              expanded={expanded}
+              onToggle={toggleNode}
+              onSelect={onSelect}
+              selectedId={selectedId}
+              hoveredId={null}
+              onHover={() => {}}
+              searchTerm={searchTerm}
+              matchIds={matchIds}
+              highlightAncestors={highlightAncestors}
+              onPreview={handlePreview}
+              onDelete={handleDelete}
+              onRename={(path, currentName) => {
+                setModal({ mode: "rename", targetPath: path, defaultName: currentName });
+                setModalName(currentName);
+              }}
+              onCreate={(parentPath) => {
+                setModal({ mode: "create", parentPath });
+                setModalName("");
+                setModalKind("file");
+                setSelectedFile(null);
+              }}
+            />
+          </div>
+
+          <div className="relative mt-8 text-center text-xs text-muted-foreground/60">
+            <span className="inline-flex items-center gap-1.5">
+              <Layers className="h-3 w-3" />
+              Panneau gauche : schéma physique de .local-db. Panneau droit : même arborescence avec l’état d’indexation et de vectorisation.
+            </span>
+          </div>
+        </>
+      )}
+
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-md p-6 space-y-4">
+            <h3 className="text-lg font-semibold">
+              {modal.mode === "create" ? "Nouvel élément" : "Renommer"}
+            </h3>
+            {modal.mode === "create" && (
+              <div className="flex gap-2">
+                <Button
+                  variant={modalKind === "file" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setModalKind("file");
+                    setSelectedFile(null);
+                  }}
+                  className="flex-1 rounded-xl"
+                >
+                  <FileText className="h-4 w-4 mr-2" /> Fichier
+                </Button>
+                <Button
+                  variant={modalKind === "directory" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setModalKind("directory")}
+                  className="flex-1 rounded-xl"
+                >
+                  <Plus className="h-4 w-4 mr-2" /> Dossier
+                </Button>
+              </div>
+            )}
+            {modalKind === "directory" ? (
+              <Input
+                value={modalName}
+                onChange={(e) => setModalName(e.target.value)}
+                placeholder="Nom du dossier"
+                className="rounded-xl"
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              />
+            ) : (
+              <div className="space-y-2">
+                <Input
+                  type="file"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setSelectedFile(file);
+                      setModalName(file.name);
+                    }
+                  }}
+                  className="rounded-xl"
+                />
+                {selectedFile && (
+                  <p className="text-xs text-muted-foreground">
+                    Fichier sélectionné : {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} Ko)
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setModal(null); setSelectedFile(null); }} className="rounded-xl">
+                Annuler
+              </Button>
+              <Button onClick={modal.mode === "rename" ? handleRename : handleCreate} className="rounded-xl">
+                {modal.mode === "create" ? (modalKind === "directory" ? "Créer" : "Uploader") : "Renommer"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </section>
   );
 }
 
-function flattenDeep(node: DatabaseTreeNode): DatabaseTreeNode[] {
-  const out: DatabaseTreeNode[] = [node];
-  const children = node.children ?? [];
-  for (const c of children) out.push(...flattenDeep(c));
-  return out;
-}
-
 interface TreePanelProps {
   label: string;
+  subtitle: string;
   structure: DatabaseStructure;
-  accent: "web" | "local";
+  accent: "schema" | "indexed";
   expanded: Set<string>;
   onToggle: (id: string) => void;
   onSelect: (node: DatabaseTreeNode) => void;
@@ -283,11 +679,16 @@ interface TreePanelProps {
   searchTerm: string;
   matchIds: string[];
   highlightAncestors: string[];
-  showDiff: boolean;
+  onPreview: (node: DatabaseTreeNode) => void;
+  onDelete: (path: string) => void;
+  onRename: (path: string, currentName: string) => void;
+  onCreate: (parentPath: string) => void;
+  onVectorize?: (path: string) => void;
 }
 
 function TreePanel({
   label,
+  subtitle,
   structure,
   accent,
   expanded,
@@ -299,20 +700,27 @@ function TreePanel({
   searchTerm,
   matchIds,
   highlightAncestors,
-  showDiff,
+  onPreview,
+  onDelete,
+  onRename,
+  onCreate,
+  onVectorize,
 }: TreePanelProps) {
   const stats = aggregateStats(structure);
   const a = ACCENTS[accent];
   const rootNode = structure as unknown as DatabaseTreeNode;
+
+  const tablesCount = rootNode.children?.length ?? 0;
+  const columnsCount = stats.documents;
 
   return (
     <Card
       className={cn(
         "relative isolate h-full overflow-hidden rounded-2xl border bg-card/60 backdrop-blur-sm",
         "before:absolute before:inset-0 before:rounded-2xl before:border before:border-transparent",
-        accent === "web"
+        accent === "schema"
           ? "before:from-cyan-500/6 before:via-transparent before:to-transparent"
-          : "before:from-amber-500/6 before:via-transparent before:to-transparent",
+          : "before:from-emerald-500/6 before:via-transparent before:to-transparent",
         "shadow-3d-sm transition-shadow duration-300",
         selectedId ? "shadow-3d-lg" : "",
       )}
@@ -326,26 +734,38 @@ function TreePanel({
             >
               <Database className="h-4 w-4" style={{ color: a.color }} />
             </div>
-            <h3 className="text-sm font-semibold text-foreground">{label}</h3>
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">{label}</h3>
+              <p className="text-[11px] text-muted-foreground">{subtitle}</p>
+            </div>
           </div>
-          <Badge
-            variant="secondary"
-            className="text-xs"
-            style={{
-              background: a.bg,
-              color: a.color,
-              borderColor: `${a.color}40`,
-            }}
-          >
-            {stats.collections} collections
-          </Badge>
+          <div className="flex items-center gap-1">
+            <Badge
+              variant="secondary"
+              className="text-xs"
+              style={{
+                background: a.bg,
+                color: a.color,
+                borderColor: `${a.color}40`,
+              }}
+            >
+              {tablesCount} éléments
+            </Badge>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 rounded-lg p-0"
+              onClick={() => onCreate(rootNode.path)}
+              title="Ajouter"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
           <span>
-            <span className="font-medium text-foreground">
-              {stats.documents}
-            </span>{" "}
-            documents
+            <span className="font-medium text-foreground">{columnsCount}</span>{" "}
+            fichiers
           </span>
           <span>
             <span className="font-medium text-foreground">{stats.vectors}</span>{" "}
@@ -380,7 +800,12 @@ function TreePanel({
             searchTerm={searchTerm}
             matchIds={matchIds}
             highlightAncestors={highlightAncestors}
-            showDiff={showDiff}
+            showDiff={false}
+            onPreview={onPreview}
+            onDelete={onDelete}
+            onRename={onRename}
+            onCreate={onCreate}
+            onVectorize={onVectorize}
           />
         </ul>
       </div>
@@ -388,19 +813,19 @@ function TreePanel({
   );
 }
 
-interface StatsRibbonProps {
-  web: ReturnType<typeof aggregateStats>;
-  local: ReturnType<typeof aggregateStats>;
+interface DbStatsRibbonProps {
+  tablesCount: number;
+  columnsCount: number;
   totalVectors: number;
   totalChunks: number;
 }
 
-function StatsRibbon({
-  web,
-  local,
+function DbStatsRibbon({
+  tablesCount,
+  columnsCount,
   totalVectors,
   totalChunks,
-}: StatsRibbonProps) {
+}: DbStatsRibbonProps) {
   const counters: {
     label: string;
     value: number;
@@ -408,28 +833,28 @@ function StatsRibbon({
     color: string;
   }[] = [
     {
-      label: "Documents indexés",
-      value: web.documents + local.documents,
-      Icon: BarChart3,
-      color: "hsl(200 90% 65%)",
+      label: "Éléments",
+      value: tablesCount,
+      Icon: Database,
+      color: "hsl(210 90% 65%)",
+    },
+    {
+      label: "Fichiers",
+      value: columnsCount,
+      Icon: Layers,
+      color: "hsl(250 80% 65%)",
     },
     {
       label: "Vecteurs",
       value: totalVectors,
-      Icon: Database,
-      color: "hsl(250 80% 65%)",
+      Icon: BarChart3,
+      color: "hsl(150 80% 50%)",
     },
     {
       label: "Chunks",
       value: totalChunks,
       Icon: Layers,
       color: "hsl(270 80% 70%)",
-    },
-    {
-      label: "Collections",
-      value: web.collections + local.collections,
-      Icon: GitMerge,
-      color: "hsl(40 90% 60%)",
     },
   ];
 
@@ -464,63 +889,6 @@ function StatsRibbon({
   );
 }
 
-function DiffSummary({
-  counts,
-  className,
-}: {
-  counts: Record<SyncState, number>;
-  className?: string;
-}) {
-  const items: {
-    state: SyncState;
-    label: string;
-    color: string;
-    count: number;
-  }[] = [
-    {
-      state: "synced",
-      label: "Synchronisés",
-      color: "text-emerald-400",
-      count: counts.synced,
-    },
-    {
-      state: "pending",
-      label: "En attente",
-      color: "text-amber-400",
-      count: counts.pending,
-    },
-    {
-      state: "conflict",
-      label: "Conflits",
-      color: "text-rose-400",
-      count: counts.conflict,
-    },
-    {
-      state: "local-only",
-      label: "Local uniquement",
-      color: "text-blue-400",
-      count: counts["local-only"],
-    },
-  ];
-
-  return (
-    <Card className={cn("dashboard-card p-3", className)}>
-      <div className="flex flex-wrap items-center gap-3 text-xs">
-        <span className="font-medium text-muted-foreground">
-          État de synchronisation :
-        </span>
-        {items.map((it) => (
-          <span key={it.state} className="inline-flex items-center gap-1.5">
-            <SyncDot state={it.state} />
-            <span className={cn("font-medium", it.color)}>{it.count}</span>
-            <span className="text-muted-foreground">{it.label}</span>
-          </span>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
 function SelectedDetail({
   node,
   className,
@@ -539,31 +907,19 @@ function SelectedDetail({
         </span>
         {node.kind === "document" && node.stats && (
           <>
-            <span className="text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {node.stats.vectors}
-              </span>{" "}
-              vecteurs (dim {node.stats.dimension})
-            </span>
-            <span className="text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {node.stats.chunks}
-              </span>{" "}
-              chunks
-            </span>
             <span className="text-muted-foreground">≈ {sizeLabel}</span>
           </>
-        )}
-        {node.syncState && (
-          <span className="inline-flex items-center gap-1.5">
-            <SyncDot state={node.syncState} />
-            <span className="text-muted-foreground">{node.syncState}</span>
-          </span>
         )}
         {node.indexed && node.vectorized && (
           <span className="inline-flex items-center gap-1 text-emerald-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
             indexé &amp; vectorisé
+          </span>
+        )}
+        {!node.indexed && node.kind === "document" && (
+          <span className="inline-flex items-center gap-1 text-muted-foreground">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+            non indexé
           </span>
         )}
       </div>
@@ -573,20 +929,44 @@ function SelectedDetail({
 
 function SyncSpine({
   syncSummary,
+  vectorizationState,
 }: {
   syncSummary: Record<SyncState, number>;
+  vectorizationState: "complete" | "pending" | "in-progress";
 }) {
   const synced = syncSummary.synced;
-  const conflicts = syncSummary.conflict;
-  const healthy = conflicts === 0;
+
+  const vectorizationConfig = {
+    complete: {
+      label: "Vectorisation complète",
+      color: "bg-emerald-400",
+      shadow: "shadow-[0_0_8px_rgba(74,222,128,.7)]",
+      anim: "animate-pulse",
+      gradient: "from-emerald-400/30 via-emerald-500/35 to-emerald-400/30",
+    },
+    pending: {
+      label: "En attente",
+      color: "bg-amber-400",
+      shadow: "shadow-[0_0_8px_rgba(251,191,36,.7)]",
+      anim: "animate-bounce",
+      gradient: "from-amber-400/30 via-amber-500/35 to-amber-400/30",
+    },
+    "in-progress": {
+      label: "En cours",
+      color: "bg-cyan-300",
+      shadow: "shadow-[0_0_8px_rgba(34,203,255,.7)]",
+      anim: "animate-pulse",
+      gradient: "from-cyan-400/30 via-primary/35 to-amber-400/30",
+    },
+  }[vectorizationState];
 
   return (
     <div className="relative col-span-1 col-start-2 flex flex-col items-center justify-between py-6">
       <div className="absolute inset-0 -z-10 flex justify-center">
         <div className="relative h-full w-px">
-          <div className="absolute inset-0 bg-gradient-to-b from-cyan-400/30 via-primary/35 to-amber-400/30" />
+          <div className={`absolute inset-0 bg-gradient-to-b ${vectorizationConfig.gradient}`} />
           <span
-            className="absolute top-0 left-1/2 -translate-x-1/2 block h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(34,203,255,.7)]"
+            className={`absolute top-0 left-1/2 -translate-x-1/2 block h-2.5 w-2.5 rounded-full ${vectorizationConfig.color} ${vectorizationConfig.shadow}`}
             style={{ animation: "spine-travel 4.2s linear infinite" }}
           />
         </div>
@@ -597,17 +977,14 @@ function SyncSpine({
           <span
             className={cn(
               "block h-2.5 w-2.5 rounded-full",
-              healthy
-                ? "bg-emerald-400 shadow-[0_0_8px_rgba(74,222,128,.7)]"
-                : "bg-rose-400",
-              healthy ? "animate-pulse" : "animate-bounce",
+              vectorizationConfig.color,
+              vectorizationConfig.shadow,
+              vectorizationConfig.anim,
             )}
           />
         </span>
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {healthy
-            ? "Synchronisé"
-            : `${conflicts} conflit${conflicts > 1 ? "s" : ""}`}
+          {vectorizationConfig.label}
         </span>
         <span className="text-[10px] text-muted-foreground/70">
           {synced} nœuds connectés

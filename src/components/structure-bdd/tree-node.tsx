@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, FileText, Trash2, Pencil, Wand2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DatabaseTreeNode } from "@/lib/types/structure-bdd";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,11 @@ export interface TreeNodeProps {
   hoveredId: string | null;
   onHover: (id: string | null) => void;
   showDiff: boolean;
+  onPreview?: (node: DatabaseTreeNode) => void;
+  onDelete?: (path: string) => void;
+  onRename?: (path: string, currentName: string) => void;
+  onCreate?: (parentPath: string) => void;
+  onVectorize?: (path: string) => void;
 }
 
 export function TreeNode({
@@ -38,6 +43,11 @@ export function TreeNode({
   hoveredId,
   onHover,
   showDiff,
+  onPreview,
+  onDelete,
+  onRename,
+  onCreate,
+  onVectorize,
 }: TreeNodeProps) {
   const hasChildren = (node.children?.length ?? 0) > 0;
   const isExpanded = expanded.has(node.id);
@@ -139,14 +149,73 @@ export function TreeNode({
           {renderName(node, searchTerm, isMatch)}
         </span>
 
-        {node.collection && node.kind === "document" && (
-          <span
-            className="hidden items-center text-xs text-muted-foreground md:inline-flex"
-            title={`Collection Chroma: ${node.collection}`}
-          >
-            ⟨{truncate(node.collection, 26)}⟩
-          </span>
-        )}
+        <div className="flex items-center gap-1 opacity-0 group-hover/node:opacity-100 transition-opacity">
+          {node.kind === "directory" && onCreate && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreate(node.path);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10"
+              title="Ajouter"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {node.kind === "document" && onPreview && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPreview(node);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10"
+              title="Prévisualiser"
+            >
+              <FileText className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {node.kind === "document" && onVectorize && !node.vectorized && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onVectorize(node.path);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"
+              title="Vectoriser"
+            >
+              <Wand2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onRename && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename(node.path, node.name);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10"
+              title="Renommer"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(node.path);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10"
+              title="Supprimer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
 
         {chunks > 0 && (vectors > 0 || node.kind === "document") && (
           <span
@@ -197,6 +266,11 @@ export function TreeNode({
               hoveredId={hoveredId}
               onHover={onHover}
               showDiff={showDiff}
+              onPreview={onPreview}
+              onDelete={onDelete}
+              onRename={onRename}
+              onCreate={onCreate}
+              onVectorize={onVectorize}
             />
           ))}
         </ul>
@@ -240,8 +314,4 @@ function renderName(
         )}
     </>
   );
-}
-
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : `${str.slice(0, max - 1)}…`;
 }

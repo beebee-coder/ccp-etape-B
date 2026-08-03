@@ -503,8 +503,8 @@ function SchemaView({
 }: SchemaViewProps) {
   return (
     <>
-      <div className="mt-2 grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-1 space-y-2">
+      <div className="mt-2 grid gap-6 grid-cols-1">
+        <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Tables
           </p>
@@ -599,7 +599,7 @@ function SchemaView({
           })}
         </div>
 
-        <div className="lg:col-span-2">
+        <div>
           {activeTable ? (
             <Card className="dashboard-card overflow-hidden">
               <div className="border-b border-border/50 px-4 py-3 flex items-center justify-between">

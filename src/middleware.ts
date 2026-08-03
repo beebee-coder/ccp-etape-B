@@ -12,6 +12,7 @@ const PUBLIC_API_ROUTES = [
   "/api/auth/logout",
   "/api/health",
   "/api/openapi",
+  "/api/local-db/fs",
 ];
 
 function isPublicApiPath(pathname: string): boolean {
