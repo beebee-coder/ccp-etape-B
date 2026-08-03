@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useLayoutEffect, useEffect, useState } from "react";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardTopNav } from "@/components/dashboard/top-nav";
+import { SidebarProvider } from "@/components/dashboard/sidebar-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 
@@ -12,7 +13,13 @@ type Role = "admin" | "chef-de-quart" | "chef-de-bloc" | "rondier";
 function getStoredRole(): Role {
   if (typeof window === "undefined") return "rondier";
   const stored = window.sessionStorage.getItem("dashboardRole");
-  if (stored === "admin" || stored === "chef-de-quart" || stored === "chef-de-bloc" || stored === "rondier") return stored;
+  if (
+    stored === "admin" ||
+    stored === "chef-de-quart" ||
+    stored === "chef-de-bloc" ||
+    stored === "rondier"
+  )
+    return stored;
   return "rondier";
 }
 
@@ -37,36 +44,49 @@ export default function DashboardLayout({
   const hideSidebar = pathname.startsWith("/actions-ia");
 
   useLayoutEffect(() => {
-    const next = pathname.startsWith("/admin") || pathname.startsWith("/chef-de-quart") || pathname.startsWith("/chef-de-bloc") || pathname.startsWith("/rondier")
-      ? deriveRoleFromPath(pathname)
-      : stored;
+    const next =
+      pathname.startsWith("/admin") ||
+      pathname.startsWith("/chef-de-quart") ||
+      pathname.startsWith("/chef-de-bloc") ||
+      pathname.startsWith("/rondier")
+        ? deriveRoleFromPath(pathname)
+        : stored;
     setRole(next);
     setHydrated(true);
   }, [pathname, stored]);
 
   useEffect(() => {
     if (!hydrated) return;
-    const hasRolePrefix = pathname.startsWith("/admin") || pathname.startsWith("/chef-de-quart") || pathname.startsWith("/chef-de-bloc") || pathname.startsWith("/rondier");
+    const hasRolePrefix =
+      pathname.startsWith("/admin") ||
+      pathname.startsWith("/chef-de-quart") ||
+      pathname.startsWith("/chef-de-bloc") ||
+      pathname.startsWith("/rondier");
     if (hasRolePrefix) {
       try {
-        window.sessionStorage.setItem("dashboardRole", deriveRoleFromPath(pathname));
+        window.sessionStorage.setItem(
+          "dashboardRole",
+          deriveRoleFromPath(pathname),
+        );
       } catch {}
     }
   }, [pathname, hydrated]);
 
   return (
     <ThemeProvider>
-      <ErrorBoundary>
-        <div className="flex h-screen overflow-hidden">
-          {!hideSidebar && <DashboardSidebar role={role} />}
-          <main className={`flex flex-1 flex-col overflow-hidden ${hideSidebar ? "w-full" : ""}`}>
-            <DashboardTopNav showBackButton={hideSidebar} />
-            <div className="flex-1 overflow-y-auto">
-              {children}
-            </div>
-          </main>
-        </div>
-      </ErrorBoundary>
+      <SidebarProvider>
+        <ErrorBoundary>
+          <div className="flex h-screen overflow-hidden">
+            {!hideSidebar && <DashboardSidebar role={role} />}
+            <main
+              className={`flex flex-1 flex-col overflow-hidden ${hideSidebar ? "w-full" : ""}`}
+            >
+              <DashboardTopNav showBackButton={hideSidebar} />
+              <div className="flex-1 overflow-y-auto">{children}</div>
+            </main>
+          </div>
+        </ErrorBoundary>
+      </SidebarProvider>
     </ThemeProvider>
   );
 }

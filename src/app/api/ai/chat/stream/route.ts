@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   });
   if (!result.ok) return result.response;
 
-  const { message, context } = result.ctx.body as AIChatRequest;
+  const { message, context, editMode } = result.ctx.body as AIChatRequest;
 
   try {
     const encoder = new TextEncoder();
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
         const mapEvent = (e: { event: "token" | "done"; data: { text: string; provider: string } }) =>
           sendEvent(e.event, e.data);
 
-        await generateAIStreamResponse(message.trim(), mapEvent, context as string | undefined);
+        await generateAIStreamResponse(message.trim(), mapEvent, context as string | undefined, editMode);
         controller.close();
       },
     });

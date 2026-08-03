@@ -204,3 +204,18 @@ CREATE TABLE IF NOT EXISTS chroma_index (
 
 CREATE INDEX IF NOT EXISTS idx_chroma_collection ON chroma_index(collection);
 CREATE INDEX IF NOT EXISTS idx_chroma_document ON chroma_index(document_id);
+
+-- ============================================================
+-- 11. GARDE-FOUS IA (guardrails)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS guardrail_rules (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  section       VARCHAR(50) NOT NULL DEFAULT 'general',
+  rule          TEXT NOT NULL,
+  is_active     BOOLEAN NOT NULL DEFAULT true,
+  created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_guardrail_section ON guardrail_rules(section);
+CREATE INDEX IF NOT EXISTS idx_guardrail_active ON guardrail_rules(is_active);

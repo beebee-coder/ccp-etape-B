@@ -1,11 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   Database,
   Table,
@@ -16,7 +11,15 @@ import {
   ChevronDown,
   GripVertical,
   Link as LinkIcon,
+  Layers,
 } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import { HolographicDatabaseExplorer } from "@/components/structure-bdd/holographic-database-explorer";
 
 const schema = {
   name: "nexaflow_prod",
@@ -25,14 +28,62 @@ const schema = {
       name: "users",
       description: "Utilisateurs de la plateforme",
       columns: [
-        { name: "id", type: "UUID", nullable: false, defaultValue: "gen_random_uuid()", isPrimary: true },
-        { name: "email", type: "VARCHAR(255)", nullable: false, defaultValue: null, isPrimary: false },
-        { name: "password_hash", type: "VARCHAR(255)", nullable: false, defaultValue: null, isPrimary: false },
-        { name: "name", type: "VARCHAR(100)", nullable: true, defaultValue: null, isPrimary: false },
-        { name: "role", type: "ENUM", nullable: false, defaultValue: "'user'", isPrimary: false },
-        { name: "is_active", type: "BOOLEAN", nullable: false, defaultValue: "true", isPrimary: false },
-        { name: "created_at", type: "TIMESTAMP", nullable: false, defaultValue: "NOW()", isPrimary: false },
-        { name: "updated_at", type: "TIMESTAMP", nullable: true, defaultValue: null, isPrimary: false },
+        {
+          name: "id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: "gen_random_uuid()",
+          isPrimary: true,
+        },
+        {
+          name: "email",
+          type: "VARCHAR(255)",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "password_hash",
+          type: "VARCHAR(255)",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "name",
+          type: "VARCHAR(100)",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "role",
+          type: "ENUM",
+          nullable: false,
+          defaultValue: "'user'",
+          isPrimary: false,
+        },
+        {
+          name: "is_active",
+          type: "BOOLEAN",
+          nullable: false,
+          defaultValue: "true",
+          isPrimary: false,
+        },
+        {
+          name: "created_at",
+          type: "TIMESTAMP",
+          nullable: false,
+          defaultValue: "NOW()",
+          isPrimary: false,
+        },
+        {
+          name: "updated_at",
+          type: "TIMESTAMP",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
       ],
       indexes: ["email_unique_idx", "role_idx"],
       relations: ["workflows.user_id", "executions.user_id"],
@@ -41,14 +92,64 @@ const schema = {
       name: "workflows",
       description: "Procédures automatiques",
       columns: [
-        { name: "id", type: "UUID", nullable: false, defaultValue: "gen_random_uuid()", isPrimary: true },
-        { name: "user_id", type: "UUID", nullable: false, defaultValue: null, isPrimary: false, isForeign: true, references: "users(id)" },
-        { name: "name", type: "VARCHAR(150)", nullable: false, defaultValue: null, isPrimary: false },
-        { name: "status", type: "ENUM", nullable: false, defaultValue: "'draft'", isPrimary: false },
-        { name: "trigger_type", type: "VARCHAR(50)", nullable: true, defaultValue: null, isPrimary: false },
-        { name: "config", type: "JSONB", nullable: true, defaultValue: "'{}'", isPrimary: false },
-        { name: "created_at", type: "TIMESTAMP", nullable: false, defaultValue: "NOW()", isPrimary: false },
-        { name: "updated_at", type: "TIMESTAMP", nullable: true, defaultValue: null, isPrimary: false },
+        {
+          name: "id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: "gen_random_uuid()",
+          isPrimary: true,
+        },
+        {
+          name: "user_id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+          isForeign: true,
+          references: "users(id)",
+        },
+        {
+          name: "name",
+          type: "VARCHAR(150)",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "status",
+          type: "ENUM",
+          nullable: false,
+          defaultValue: "'draft'",
+          isPrimary: false,
+        },
+        {
+          name: "trigger_type",
+          type: "VARCHAR(50)",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "config",
+          type: "JSONB",
+          nullable: true,
+          defaultValue: "'{}'",
+          isPrimary: false,
+        },
+        {
+          name: "created_at",
+          type: "TIMESTAMP",
+          nullable: false,
+          defaultValue: "NOW()",
+          isPrimary: false,
+        },
+        {
+          name: "updated_at",
+          type: "TIMESTAMP",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
       ],
       indexes: ["user_id_idx", "status_idx"],
       relations: ["executions.workflow_id", "workflow_steps.workflow_id"],
@@ -57,12 +158,52 @@ const schema = {
       name: "workflow_steps",
       description: "Étapes d'une procédure",
       columns: [
-        { name: "id", type: "UUID", nullable: false, defaultValue: "gen_random_uuid()", isPrimary: true },
-        { name: "workflow_id", type: "UUID", nullable: false, defaultValue: null, isPrimary: false, isForeign: true, references: "workflows(id)" },
-        { name: "position", type: "INTEGER", nullable: false, defaultValue: "0", isPrimary: false },
-        { name: "action_type", type: "VARCHAR(50)", nullable: false, defaultValue: null, isPrimary: false },
-        { name: "config", type: "JSONB", nullable: true, defaultValue: "'{}'", isPrimary: false },
-        { name: "next_step_id", type: "UUID", nullable: true, defaultValue: null, isPrimary: false, isForeign: true, references: "workflow_steps(id)" },
+        {
+          name: "id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: "gen_random_uuid()",
+          isPrimary: true,
+        },
+        {
+          name: "workflow_id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+          isForeign: true,
+          references: "workflows(id)",
+        },
+        {
+          name: "position",
+          type: "INTEGER",
+          nullable: false,
+          defaultValue: "0",
+          isPrimary: false,
+        },
+        {
+          name: "action_type",
+          type: "VARCHAR(50)",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "config",
+          type: "JSONB",
+          nullable: true,
+          defaultValue: "'{}'",
+          isPrimary: false,
+        },
+        {
+          name: "next_step_id",
+          type: "UUID",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+          isForeign: true,
+          references: "workflow_steps(id)",
+        },
       ],
       indexes: ["workflow_id_position_idx"],
       relations: ["executions.current_step_id"],
@@ -71,14 +212,66 @@ const schema = {
       name: "executions",
       description: "Historique des exécutions",
       columns: [
-        { name: "id", type: "UUID", nullable: false, defaultValue: "gen_random_uuid()", isPrimary: true },
-        { name: "workflow_id", type: "UUID", nullable: false, defaultValue: null, isPrimary: false, isForeign: true, references: "workflows(id)" },
-        { name: "user_id", type: "UUID", nullable: false, defaultValue: null, isPrimary: false, isForeign: true, references: "users(id)" },
-        { name: "current_step_id", type: "UUID", nullable: true, defaultValue: null, isPrimary: false },
-        { name: "status", type: "ENUM", nullable: false, defaultValue: "'running'", isPrimary: false },
-        { name: "started_at", type: "TIMESTAMP", nullable: false, defaultValue: "NOW()", isPrimary: false },
-        { name: "finished_at", type: "TIMESTAMP", nullable: true, defaultValue: null, isPrimary: false },
-        { name: "error", type: "TEXT", nullable: true, defaultValue: null, isPrimary: false },
+        {
+          name: "id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: "gen_random_uuid()",
+          isPrimary: true,
+        },
+        {
+          name: "workflow_id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+          isForeign: true,
+          references: "workflows(id)",
+        },
+        {
+          name: "user_id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+          isForeign: true,
+          references: "users(id)",
+        },
+        {
+          name: "current_step_id",
+          type: "UUID",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "status",
+          type: "ENUM",
+          nullable: false,
+          defaultValue: "'running'",
+          isPrimary: false,
+        },
+        {
+          name: "started_at",
+          type: "TIMESTAMP",
+          nullable: false,
+          defaultValue: "NOW()",
+          isPrimary: false,
+        },
+        {
+          name: "finished_at",
+          type: "TIMESTAMP",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "error",
+          type: "TEXT",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
       ],
       indexes: ["workflow_id_idx", "user_id_idx", "status_idx"],
       relations: [],
@@ -87,12 +280,50 @@ const schema = {
       name: "integrations",
       description: "Intégrations connectées",
       columns: [
-        { name: "id", type: "UUID", nullable: false, defaultValue: "gen_random_uuid()", isPrimary: true },
-        { name: "user_id", type: "UUID", nullable: false, defaultValue: null, isPrimary: false, isForeign: true, references: "users(id)" },
-        { name: "service", type: "VARCHAR(50)", nullable: false, defaultValue: null, isPrimary: false },
-        { name: "credentials", type: "JSONB", nullable: true, defaultValue: "'{}'", isPrimary: false },
-        { name: "is_active", type: "BOOLEAN", nullable: false, defaultValue: "true", isPrimary: false },
-        { name: "created_at", type: "TIMESTAMP", nullable: false, defaultValue: "NOW()", isPrimary: false },
+        {
+          name: "id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: "gen_random_uuid()",
+          isPrimary: true,
+        },
+        {
+          name: "user_id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+          isForeign: true,
+          references: "users(id)",
+        },
+        {
+          name: "service",
+          type: "VARCHAR(50)",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "credentials",
+          type: "JSONB",
+          nullable: true,
+          defaultValue: "'{}'",
+          isPrimary: false,
+        },
+        {
+          name: "is_active",
+          type: "BOOLEAN",
+          nullable: false,
+          defaultValue: "true",
+          isPrimary: false,
+        },
+        {
+          name: "created_at",
+          type: "TIMESTAMP",
+          nullable: false,
+          defaultValue: "NOW()",
+          isPrimary: false,
+        },
       ],
       indexes: ["user_id_service_idx"],
       relations: [],
@@ -101,13 +332,55 @@ const schema = {
       name: "audit_logs",
       description: "Journal d'audit",
       columns: [
-        { name: "id", type: "UUID", nullable: false, defaultValue: "gen_random_uuid()", isPrimary: true },
-        { name: "user_id", type: "UUID", nullable: true, defaultValue: null, isPrimary: false },
-        { name: "action", type: "VARCHAR(100)", nullable: false, defaultValue: null, isPrimary: false },
-        { name: "resource_type", type: "VARCHAR(50)", nullable: true, defaultValue: null, isPrimary: false },
-        { name: "resource_id", type: "UUID", nullable: true, defaultValue: null, isPrimary: false },
-        { name: "metadata", type: "JSONB", nullable: true, defaultValue: "'{}'", isPrimary: false },
-        { name: "created_at", type: "TIMESTAMP", nullable: false, defaultValue: "NOW()", isPrimary: false },
+        {
+          name: "id",
+          type: "UUID",
+          nullable: false,
+          defaultValue: "gen_random_uuid()",
+          isPrimary: true,
+        },
+        {
+          name: "user_id",
+          type: "UUID",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "action",
+          type: "VARCHAR(100)",
+          nullable: false,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "resource_type",
+          type: "VARCHAR(50)",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "resource_id",
+          type: "UUID",
+          nullable: true,
+          defaultValue: null,
+          isPrimary: false,
+        },
+        {
+          name: "metadata",
+          type: "JSONB",
+          nullable: true,
+          defaultValue: "'{}'",
+          isPrimary: false,
+        },
+        {
+          name: "created_at",
+          type: "TIMESTAMP",
+          nullable: false,
+          defaultValue: "NOW()",
+          isPrimary: false,
+        },
       ],
       indexes: ["user_id_idx", "action_idx", "resource_idx"],
       relations: [],
@@ -117,17 +390,21 @@ const schema = {
 
 export default function StructureBDDPage() {
   const [search, setSearch] = useState("");
-  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({
-    users: true,
-    workflows: true,
-  });
+  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>(
+    {
+      users: true,
+      workflows: true,
+    },
+  );
   const [activeTable, setActiveTable] = useState<string | null>(null);
 
   const filteredTables = schema.tables.filter((table) => {
     const matchesSearch =
       table.name.toLowerCase().includes(search.toLowerCase()) ||
       table.description.toLowerCase().includes(search.toLowerCase()) ||
-      table.columns.some((col) => col.name.toLowerCase().includes(search.toLowerCase()));
+      table.columns.some((col) =>
+        col.name.toLowerCase().includes(search.toLowerCase()),
+      );
     return matchesSearch;
   });
 
@@ -135,7 +412,10 @@ export default function StructureBDDPage() {
     setExpandedTables((prev) => ({ ...prev, [name]: !prev[name] }));
   };
 
-  const totalColumns = schema.tables.reduce((acc, table) => acc + table.columns.length, 0);
+  const totalColumns = schema.tables.reduce(
+    (acc, table) => acc + table.columns.length,
+    0,
+  );
 
   return (
     <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -147,40 +427,99 @@ export default function StructureBDDPage() {
           </div>
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight gradient-text">Structure BDD</h1>
+          <h1 className="text-2xl font-bold tracking-tight gradient-text">
+            Structure BDD
+          </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {schema.name} · {schema.tables.length} tables · {totalColumns} colonnes
+            {schema.name} · {schema.tables.length} tables · {totalColumns}{" "}
+            colonnes
           </p>
         </div>
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Rechercher une table ou colonne..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 w-full sm:w-80 bg-background/60 border-border/60 rounded-xl focus:border-primary/50 focus:shadow-primary-glow transition-all duration-200"
-          />
-        </div>
-      </div>
+      {/* ── Tabs ── */}
+      <Tabs defaultValue="schema" className="space-y-1">
+        <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-border/30 bg-background/80 pb-3 pt-1.5 backdrop-blur-sm">
+          <TabsList className="inline-flex h-10 items-center gap-1 rounded-xl border border-border/60 bg-card/60 p-1 text-sm text-muted-foreground">
+            <TabsTrigger
+              value="schema"
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-primary-glow"
+            >
+              <Table className="h-4 w-4" />
+              Schéma SQL
+            </TabsTrigger>
+            <TabsTrigger
+              value="tree"
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-primary-glow"
+            >
+              <Layers className="h-4 w-4" />
+              Arborescence BD
+            </TabsTrigger>
+          </TabsList>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher une table ou colonne..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 w-full sm:w-80 bg-background/60 border-border/60 rounded-xl focus:border-primary/50 focus:shadow-primary-glow transition-all duration-200"
+            />
+          </div>
+        </div>
+
+        <TabsContent value="schema" className="mt-0">
+          <SchemaView
+            expandedTables={expandedTables}
+            toggleTable={toggleTable}
+            setActiveTable={setActiveTable}
+            activeTable={activeTable}
+            filteredTables={filteredTables}
+          />
+        </TabsContent>
+
+        <TabsContent value="tree" className="mt-0">
+          <HolographicDatabaseExplorer />
+        </TabsContent>
+      </Tabs>
+    </section>
+  );
+}
+
+interface SchemaViewProps {
+  expandedTables: Record<string, boolean>;
+  toggleTable: (name: string) => void;
+  setActiveTable: (name: string | null) => void;
+  activeTable: string | null;
+  filteredTables: typeof schema.tables;
+}
+
+function SchemaView({
+  expandedTables,
+  toggleTable,
+  setActiveTable,
+  activeTable,
+  filteredTables,
+}: SchemaViewProps) {
+  return (
+    <>
+      <div className="mt-2 grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-1 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tables</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Tables
+          </p>
           {filteredTables.map((table) => {
             const isExpanded = expandedTables[table.name] || false;
             const isActive = activeTable === table.name;
 
             return (
-               <Card
+              <Card
                 key={table.name}
                 className={cn(
                   "p-3 cursor-pointer dashboard-card transition-all duration-200",
                   isActive
                     ? "border-primary/50 bg-gradient-to-b from-primary/5 to-transparent"
-                    : "hover:border-primary/30"
+                    : "hover:border-primary/30",
                 )}
                 onClick={() => {
                   setActiveTable(table.name);
@@ -196,8 +535,12 @@ export default function StructureBDDPage() {
                     )}
                     <Table className="h-4 w-4 text-primary" />
                     <div>
-                      <p className="text-sm font-medium text-foreground">{table.name}</p>
-                      <p className="text-xs text-muted-foreground">{table.description}</p>
+                      <p className="text-sm font-medium text-foreground">
+                        {table.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {table.description}
+                      </p>
                     </div>
                   </div>
                   <Badge variant="secondary" className="text-xs">
@@ -213,20 +556,36 @@ export default function StructureBDDPage() {
                         className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-muted/50"
                       >
                         <div className="flex items-center gap-2">
-                          {col.isPrimary && <Key className="h-3 w-3 text-amber-500" />}
-                          {col.isForeign && <LinkIcon className="h-3 w-3 text-blue-500" />}
-                          {!col.isPrimary && !col.isForeign && <GripVertical className="h-3 w-3 text-muted-foreground" />}
-                          <span className="text-xs font-medium text-foreground">{col.name}</span>
+                          {col.isPrimary && (
+                            <Key className="h-3 w-3 text-amber-500" />
+                          )}
+                          {col.isForeign && (
+                            <LinkIcon className="h-3 w-3 text-blue-500" />
+                          )}
+                          {!col.isPrimary && !col.isForeign && (
+                            <GripVertical className="h-3 w-3 text-muted-foreground" />
+                          )}
+                          <span className="text-xs font-medium text-foreground">
+                            {col.name}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{col.type}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {col.type}
+                          </span>
                           {col.isPrimary && (
-                            <Badge variant="outline" className="text-[10px] h-4 px-1">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] h-4 px-1"
+                            >
                               PK
                             </Badge>
                           )}
                           {col.isForeign && (
-                            <Badge variant="outline" className="text-[10px] h-4 px-1 border-blue-500/50 text-blue-600">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] h-4 px-1 border-blue-500/50 text-blue-600"
+                            >
                               FK
                             </Badge>
                           )}
@@ -246,12 +605,18 @@ export default function StructureBDDPage() {
               <div className="border-b border-border/50 px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Table className="h-4 w-4 text-primary" />
-                  <h3 className="text-sm font-semibold text-foreground">{activeTable}</h3>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {activeTable}
+                  </h3>
                   <Badge
                     variant="secondary"
                     className="text-xs bg-primary/10 text-primary border-primary/20"
                   >
-                    {schema.tables.find((t) => t.name === activeTable)?.columns.length} colonnes
+                    {
+                      schema.tables.find((t) => t.name === activeTable)?.columns
+                        .length
+                    }{" "}
+                    colonnes
                   </Badge>
                 </div>
                 <Button
@@ -268,34 +633,60 @@ export default function StructureBDDPage() {
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="px-4 py-2 font-medium text-muted-foreground">Colonne</th>
-                      <th className="px-4 py-2 font-medium text-muted-foreground">Type</th>
-                      <th className="px-4 py-2 font-medium text-muted-foreground">Nullable</th>
-                      <th className="px-4 py-2 font-medium text-muted-foreground">Défaut</th>
-                      <th className="px-4 py-2 font-medium text-muted-foreground">Contrainte</th>
+                      <th className="px-4 py-2 font-medium text-muted-foreground">
+                        Colonne
+                      </th>
+                      <th className="px-4 py-2 font-medium text-muted-foreground">
+                        Type
+                      </th>
+                      <th className="px-4 py-2 font-medium text-muted-foreground">
+                        Nullable
+                      </th>
+                      <th className="px-4 py-2 font-medium text-muted-foreground">
+                        Défaut
+                      </th>
+                      <th className="px-4 py-2 font-medium text-muted-foreground">
+                        Contrainte
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {schema.tables
                       .find((t) => t.name === activeTable)
                       ?.columns.map((col) => (
-                        <tr key={col.name} className="border-b border-border/70 last:border-0">
+                        <tr
+                          key={col.name}
+                          className="border-b border-border/70 last:border-0"
+                        >
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
-                              {col.isPrimary && <Key className="h-3.5 w-3.5 text-amber-500" />}
-                              {col.isForeign && <LinkIcon className="h-3.5 w-3.5 text-blue-500" />}
-                              {!col.isPrimary && !col.isForeign && <div className="h-3.5 w-3.5" />}
-                              <span className="font-medium text-foreground">{col.name}</span>
+                              {col.isPrimary && (
+                                <Key className="h-3.5 w-3.5 text-amber-500" />
+                              )}
+                              {col.isForeign && (
+                                <LinkIcon className="h-3.5 w-3.5 text-blue-500" />
+                              )}
+                              {!col.isPrimary && !col.isForeign && (
+                                <div className="h-3.5 w-3.5" />
+                              )}
+                              <span className="font-medium text-foreground">
+                                {col.name}
+                              </span>
                             </div>
                           </td>
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-1.5">
                               <Type className="h-3 w-3 text-muted-foreground" />
-                              <span className="text-muted-foreground">{col.type}</span>
+                              <span className="text-muted-foreground">
+                                {col.type}
+                              </span>
                             </div>
                           </td>
                           <td className="px-4 py-2.5">
-                            <Badge variant={col.nullable ? "secondary" : "outline"} className="text-xs">
+                            <Badge
+                              variant={col.nullable ? "secondary" : "outline"}
+                              className="text-xs"
+                            >
                               {col.nullable ? "Oui" : "Non"}
                             </Badge>
                           </td>
@@ -304,16 +695,26 @@ export default function StructureBDDPage() {
                           </td>
                           <td className="px-4 py-2.5">
                             {col.isPrimary && (
-                              <Badge variant="outline" className="text-xs border-amber-500/50 text-amber-600">
+                              <Badge
+                                variant="outline"
+                                className="text-xs border-amber-500/50 text-amber-600"
+                              >
                                 PRIMARY KEY
                               </Badge>
                             )}
                             {col.isForeign && (
-                              <Badge variant="outline" className="text-xs border-blue-500/50 text-blue-600">
+                              <Badge
+                                variant="outline"
+                                className="text-xs border-blue-500/50 text-blue-600"
+                              >
                                 FOREIGN KEY → {col.references}
                               </Badge>
                             )}
-                            {!col.isPrimary && !col.isForeign && <span className="text-xs text-muted-foreground">—</span>}
+                            {!col.isPrimary && !col.isForeign && (
+                              <span className="text-xs text-muted-foreground">
+                                —
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -324,27 +725,34 @@ export default function StructureBDDPage() {
               <div className="border-t border-border px-4 py-3">
                 <p className="text-xs text-muted-foreground">
                   <span className="font-medium">Indexes :</span>{" "}
-                  {schema.tables.find((t) => t.name === activeTable)?.indexes.join(", ")}
+                  {schema.tables
+                    .find((t) => t.name === activeTable)
+                    ?.indexes.join(", ")}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   <span className="font-medium">Relations :</span>{" "}
-                  {schema.tables.find((t) => t.name === activeTable)?.relations.join(", ") || "Aucune"}
+                  {schema.tables
+                    .find((t) => t.name === activeTable)
+                    ?.relations.join(", ") || "Aucune"}
                 </p>
               </div>
             </Card>
-           ) : (
+          ) : (
             <Card className="dashboard-card flex h-full flex-col items-center justify-center p-12 text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/30 border border-border/40 shadow-3d-sm">
                 <Database className="h-10 w-10 text-muted-foreground/40" />
               </div>
-              <p className="mt-4 text-sm font-medium text-foreground">Sélectionnez une table</p>
+              <p className="mt-4 text-sm font-medium text-foreground">
+                Sélectionnez une table
+              </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Cliquez sur une table dans la liste pour afficher ses colonnes et ses contraintes.
+                Cliquez sur une table dans la liste pour afficher ses colonnes
+                et ses contraintes.
               </p>
             </Card>
           )}
         </div>
       </div>
-    </section>
+    </>
   );
 }

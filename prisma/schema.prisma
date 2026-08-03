@@ -191,3 +191,16 @@ enum Role {
   
   user
 }
+
+model GuardrailRule {
+  id        String   @id @default(uuid())
+  section   String   @default("general")
+  rule      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("guardrail_rules")
+  @@index([section])
+  @@index([isActive])
+}

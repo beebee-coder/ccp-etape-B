@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateAIResponse } from "@/lib/ai/providers";
+import { generateAIResponse, type EditModeResponse } from "@/lib/ai/providers";
 import { validateApiRequest } from "@/lib/api/handlers";
 import { AIChatRequestSchema, type AIChatRequest } from "@/lib/ai/chat-schema";
 
@@ -11,18 +11,21 @@ export async function POST(request: Request) {
   });
   if (!result.ok) return result.response;
 
-  const { message, context } = result.ctx.body as AIChatRequest;
+  const { message, context, editMode } = result.ctx.body as AIChatRequest;
 
   try {
-    const { response, provider } = await generateAIResponse(
+    const result = await generateAIResponse(
       message.trim(),
-      typeof context === "string" ? context : undefined
+      typeof context === "string" ? context : undefined,
+      editMode
     );
 
     return NextResponse.json({
       data: {
-        response,
-        provider,
+        response: result.response,
+        provider: result.provider,
+        editMode: editMode || false,
+        editResult: editMode ? (result as unknown as EditModeResponse) : null,
       },
     });
   } catch (error) {

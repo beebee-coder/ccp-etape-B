@@ -36,3 +36,16 @@ export { AdviceRequestSchema, type AdviceRequest } from "@/lib/ai/advice-schema"
 export { AIChatRequestSchema, type AIChatRequest } from "@/lib/ai/chat-schema";
 export { PipelineConfigSchema, type PipelineConfig } from "@/lib/pipeline/pipeline-schema";
 export { ActuatorToggleSchema, type ActuatorToggle } from "@/lib/embedded/schemas";
+
+export {
+  NodeKindSchema,
+  SyncStateSchema,
+  NodeStatsSchema,
+  DatabaseTreeNodeSchema,
+  DatabaseStructureSchema,
+  type NodeKind,
+  type SyncState,
+  type NodeStats,
+  type DatabaseTreeNode,
+  type DatabaseStructure,
+} from "@/lib/types/structure-bdd";

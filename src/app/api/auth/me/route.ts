@@ -14,7 +14,6 @@ export async function GET(request: Request) {
 
   const result = await validateApiRequest(request, {
     requireAuth: true,
-    allowedContentTypes: ["application/json"],
     rateLimiter: "auth-me",
   });
 

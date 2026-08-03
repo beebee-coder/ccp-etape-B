@@ -18,6 +18,8 @@ import {
   ChevronDown,
   Bot,
   Sparkles,
+  Shield,
+  ShieldCheck,
 } from "lucide-react";
 
 type Message = {
@@ -25,6 +27,15 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+};
+
+type EditModeResponse = {
+  action: string;
+  ruleText?: string;
+  section?: string;
+  preview?: string;
+  confirmationNeeded?: boolean;
+  rawResponse?: string;
 };
 
 function formatTime(date: Date): string {
@@ -46,6 +57,9 @@ export default function ChatIAPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [voiceMode, setVoiceMode] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<EditModeResponse | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -59,7 +73,15 @@ export default function ChatIAPage() {
     toggleListening,
   } = useSpeech({ language: "fr-FR", continuous: false });
 
-  // Load session messages safely after mount (avoids SSR crash)
+  useEffect(() => {
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.user?.role) setUserRole(data.user.role);
+      })
+      .catch((err) => console.error("Failed to fetch user role:", err));
+  }, []);
+
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
@@ -112,18 +134,19 @@ export default function ChatIAPage() {
         if (csrfToken) {
           headers["x-csrf-token"] = csrfToken;
         }
- 
+
         const res = await fetch("/api/ai/chat/stream", {
           method: "POST",
           headers,
-          body: JSON.stringify({ message: userMessage }),
+          body: JSON.stringify({ message: userMessage, editMode }),
+          credentials: "include",
         });
 
         if (res.status === 401) {
           window.location.href = "/login?callbackUrl=/chat-ia";
           return;
         }
- 
+
         if (res.ok && res.body) {
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
@@ -181,26 +204,27 @@ export default function ChatIAPage() {
         // fallback to JSON below
       }
 
-       setIsTyping(true);
-       try {
-         const csrfToken = getCsrfTokenClient();
-         const headers: Record<string, string> = { "Content-Type": "application/json" };
-         if (csrfToken) {
-           headers["x-csrf-token"] = csrfToken;
-         }
- 
-         const res = await fetch("/api/ai/chat", {
-           method: "POST",
-           headers,
-           body: JSON.stringify({ message: userMessage }),
-         });
+      setIsTyping(true);
+      try {
+        const csrfToken = getCsrfTokenClient();
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (csrfToken) {
+          headers["x-csrf-token"] = csrfToken;
+        }
 
-         if (res.status === 401) {
-           window.location.href = "/login?callbackUrl=/chat-ia";
-           return;
-         }
- 
-         if (!res.ok) {
+        const res = await fetch("/api/ai/chat", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ message: userMessage, editMode }),
+          credentials: "include",
+        });
+
+        if (res.status === 401) {
+          window.location.href = "/login?callbackUrl=/chat-ia";
+          return;
+        }
+
+        if (!res.ok) {
           const error = await res.json();
           throw new Error(error.error || "Erreur lors de la génération de la réponse");
         }
@@ -217,6 +241,10 @@ export default function ChatIAPage() {
             timestamp: new Date(),
           },
         ]);
+
+        if (data.data?.editResult?.confirmationNeeded) {
+          setPendingEdit(data.data.editResult as EditModeResponse);
+        }
 
         if (voiceMode) {
           speak(response);
@@ -238,7 +266,7 @@ export default function ChatIAPage() {
         setIsTyping(false);
       }
     },
-    [voiceMode, speak]
+    [voiceMode, speak, editMode]
   );
 
   const simulateResponse = useCallback(
@@ -316,6 +344,7 @@ export default function ChatIAPage() {
     setInput("");
     setVoiceMode(false);
     stopListening();
+    setPendingEdit(null);
 
     if (isMock) {
       simulateResponse(trimmed);
@@ -363,9 +392,30 @@ export default function ChatIAPage() {
     [handleSend]
   );
 
+  const handleConfirmEdit = useCallback(() => {
+    if (!pendingEdit) return;
+    const confirmMessage = `OUI - confirme la modification : ${pendingEdit.ruleText || pendingEdit.rawResponse}`;
+    setPendingEdit(null);
+    setInput(confirmMessage);
+    inputRef.current?.focus();
+  }, [pendingEdit]);
+
+  const handleCancelEdit = useCallback(() => {
+    setPendingEdit(null);
+    const cancelMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      content: "NON - annule la modification",
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, cancelMessage]);
+    fetchAIResponse("NON - annule la modification");
+  }, [fetchAIResponse]);
+
+  const isAdmin = userRole === "admin";
+
   return (
     <section className="flex flex-1 flex-col overflow-hidden">
-
       {/* ── Header ── */}
       <header className="relative flex-shrink-0">
         {/* Glassmorphism background */}
@@ -386,38 +436,88 @@ export default function ChatIAPage() {
             <div>
               <h1 className="text-sm font-bold text-foreground flex items-center gap-1.5">
                 Assistant IA
-                <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse" />
+                {editMode && (
+                  <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 border border-amber-500/20">
+                    <ShieldCheck className="h-3 w-3" />
+                    Édition garde-fous
+                  </span>
+                )}
+                {!editMode && <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse" />}
               </h1>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                 </span>
-                <p className="text-[10px] text-muted-foreground font-medium">En ligne · Réponse instantanée</p>
+                <p className="text-[10px] text-muted-foreground font-medium">
+                  {editMode ? "Mode édition des règles actif" : "En ligne · Réponse instantanée"}
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Right — Clear button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "h-9 w-9 rounded-xl border border-transparent",
-              "hover:bg-destructive/10 hover:border-destructive/20",
-              "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d-sm",
-              "active:translate-y-0 group"
+          {/* Right — Action buttons */}
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Button
+                variant={editMode ? "destructive" : "outline"}
+                size="sm"
+                onClick={() => setEditMode(!editMode)}
+                className={cn(
+                  "rounded-xl border transition-all duration-200 gap-1.5",
+                  editMode
+                    ? "bg-red-500/10 border-red-500/30 text-red-600 hover:bg-red-500/20"
+                    : "border-border/60 bg-card/60 backdrop-blur-sm hover:bg-primary/8 hover:border-primary/30 hover:text-primary"
+                )}
+              >
+                {editMode ? (
+                  <>
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Quitter mode édition
+                  </>
+                ) : (
+                  <>
+                    <Shield className="h-3.5 w-3.5" />
+                    Éditer les garde-fous
+                  </>
+                )}
+              </Button>
             )}
-            onClick={handleClearChat}
-            title="Effacer la conversation"
-          >
-            <Trash2 className="h-4 w-4 text-foreground/50 group-hover:text-destructive transition-colors" />
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-9 w-9 rounded-xl border border-transparent",
+                "hover:bg-destructive/10 hover:border-destructive/20",
+                "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d-sm",
+                "active:translate-y-0 group"
+              )}
+              onClick={handleClearChat}
+              title="Effacer la conversation"
+            >
+              <Trash2 className="h-4 w-4 text-foreground/50 group-hover:text-destructive transition-colors" />
+            </Button>
+          </div>
         </div>
       </header>
 
       {/* ── Chat Body ── */}
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-hidden relative">
+
+        {/* Edit mode banner */}
+        {editMode && (
+          <div className="mx-4 mt-4 sm:mx-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-3 animate-slide-in-3d">
+            <ShieldCheck className="h-5 w-5 text-amber-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-700">
+                🔒 MODE ÉDITION DES GARDE-FOUS
+              </p>
+              <p className="text-xs text-amber-600/80 mt-0.5">
+                Les messages vont modifier les règles de l&apos;IA. Écrivez vos commandes d&apos;édition.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Messages area */}
         <ScrollArea className="flex-1 px-4 py-6 sm:px-6" ref={scrollAreaRef}>
@@ -432,26 +532,44 @@ export default function ChatIAPage() {
               </div>
               <h2 className="text-xl font-bold gradient-text mb-2">Comment puis-je vous aider ?</h2>
               <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-                Posez vos questions sur NexaFlow. Je suis là pour vous guider.
+                {editMode
+                  ? "Mode édition actif. Écrivez vos commandes pour modifier les garde-fous."
+                  : "Posez vos questions sur NexaFlow. Je suis là pour vous guider."}
               </p>
 
               {/* Quick prompt pills */}
               <div className="mt-6 flex flex-wrap justify-center gap-2">
-                {["Créer une procédure", "Voir les intégrations", "Nos tarifs"].map((prompt) => (
-                  <button
-                    key={prompt}
-                    onClick={() => { setInput(prompt); inputRef.current?.focus(); }}
-                    className={cn(
-                      "rounded-full border border-primary/20 bg-primary/8 px-4 py-1.5",
-                      "text-xs font-medium text-primary/80",
-                      "hover:bg-primary/15 hover:border-primary/30 hover:text-primary",
-                      "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d-sm",
-                      "active:translate-y-0"
-                    )}
-                  >
-                    {prompt}
-                  </button>
-                ))}
+                {editMode
+                  ? ["Liste les règles", "Ajoute une règle", "Montre les garde-fous"].map((prompt) => (
+                      <button
+                        key={prompt}
+                        onClick={() => { setInput(prompt); inputRef.current?.focus(); }}
+                        className={cn(
+                          "rounded-full border border-amber-500/20 bg-amber-500/8 px-4 py-1.5",
+                          "text-xs font-medium text-amber-700",
+                          "hover:bg-amber-500/15 hover:border-amber-500/30 hover:text-amber-800",
+                          "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d-sm",
+                          "active:translate-y-0"
+                        )}
+                      >
+                        {prompt}
+                      </button>
+                    ))
+                  : ["Créer une procédure", "Voir les intégrations", "Nos tarifs"].map((prompt) => (
+                      <button
+                        key={prompt}
+                        onClick={() => { setInput(prompt); inputRef.current?.focus(); }}
+                        className={cn(
+                          "rounded-full border border-primary/20 bg-primary/8 px-4 py-1.5",
+                          "text-xs font-medium text-primary/80",
+                          "hover:bg-primary/15 hover:border-primary/30 hover:text-primary",
+                          "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d-sm",
+                          "active:translate-y-0"
+                        )}
+                      >
+                        {prompt}
+                      </button>
+                    ))}
               </div>
             </div>
           )}
@@ -477,7 +595,12 @@ export default function ChatIAPage() {
                     <div className="relative flex-shrink-0">
                       <div className="absolute inset-0 rounded-xl bg-primary/20 blur-md" />
                       <Avatar className="relative h-8 w-8 shadow-3d-sm">
-                        <AvatarFallback className="rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/10 border border-primary/20 text-primary text-xs">
+                        <AvatarFallback className={cn(
+                          "rounded-xl border text-primary text-xs",
+                          editMode
+                            ? "bg-gradient-to-br from-amber-500/20 to-orange-500/10 border-amber-500/20"
+                            : "bg-gradient-to-br from-primary/20 to-purple-500/10 border-primary/20"
+                        )}>
                           <Bot className="h-4 w-4" />
                         </AvatarFallback>
                       </Avatar>
@@ -504,6 +627,12 @@ export default function ChatIAPage() {
                               "text-white rounded-3xl rounded-br-sm",
                               "shadow-3d shadow-primary/25",
                               "border border-primary/30",
+                            ].join(" ")
+                          : editMode
+                          ? [
+                              "bg-amber-500/10 border border-amber-500/20",
+                              "text-foreground rounded-3xl rounded-bl-sm",
+                              "shadow-3d-sm backdrop-blur-sm",
                             ].join(" ")
                           : [
                               "bg-card/80 border border-border/50",
@@ -571,7 +700,12 @@ export default function ChatIAPage() {
                 <div className="relative flex-shrink-0">
                   <div className="absolute inset-0 rounded-xl bg-primary/15 blur-md" />
                   <Avatar className="relative h-8 w-8 shadow-3d-sm">
-                    <AvatarFallback className="rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/10 border border-primary/20 text-primary text-xs">
+                    <AvatarFallback className={cn(
+                      "rounded-xl border text-primary text-xs",
+                      editMode
+                        ? "bg-gradient-to-br from-amber-500/20 to-orange-500/10 border-amber-500/20"
+                        : "bg-gradient-to-br from-primary/20 to-purple-500/10 border-primary/20"
+                    )}>
                       <Bot className="h-4 w-4" />
                     </AvatarFallback>
                   </Avatar>
@@ -579,7 +713,9 @@ export default function ChatIAPage() {
 
                 <div className={cn(
                   "px-4 py-3 rounded-3xl rounded-bl-sm",
-                  "bg-card/80 border border-border/50 shadow-3d-sm backdrop-blur-sm"
+                  editMode
+                    ? "bg-amber-500/10 border border-amber-500/20"
+                    : "bg-card/80 border border-border/50 shadow-3d-sm backdrop-blur-sm"
                 )}>
                   <div className="flex items-center gap-1.5">
                     <span className="typing-dot h-2 w-2 rounded-full bg-primary/60" />
@@ -627,7 +763,8 @@ export default function ChatIAPage() {
                   "bg-card/60 backdrop-blur-sm",
                   isFocused
                     ? "border-primary/50 shadow-primary-glow"
-                    : "border-border/60 shadow-3d-sm hover:border-border"
+                    : "border-border/60 shadow-3d-sm hover:border-border",
+                  editMode && "border-amber-500/40 shadow-amber-500/10"
                 )}
               >
                 <input
@@ -638,7 +775,7 @@ export default function ChatIAPage() {
                   onKeyDown={handleKeyDown}
                   onFocus={() => setIsFocused(true)}
                   onBlur={() => setIsFocused(false)}
-                  placeholder="Écrivez votre message..."
+                  placeholder={editMode ? "Commande d'édition (ex: Ajoute la règle...)..." : "Écrivez votre message..."}
                   className={cn(
                     "flex-1 bg-transparent px-4 py-3 text-sm",
                     "placeholder:text-muted-foreground/50 text-foreground",
@@ -675,8 +812,9 @@ export default function ChatIAPage() {
                     size="icon"
                     className={cn(
                       "h-8 w-8 rounded-xl transition-all duration-200",
-                      "bg-gradient-to-br from-primary to-purple-600",
-                      "border border-primary/30 shadow-3d-sm",
+                      editMode
+                        ? "bg-gradient-to-br from-amber-500 to-orange-600 border border-amber-500/30 shadow-3d-sm"
+                        : "bg-gradient-to-br from-primary to-purple-600 border border-primary/30 shadow-3d-sm",
                       "hover:-translate-y-0.5 hover:shadow-primary-glow",
                       "active:translate-y-0 active:shadow-3d-sm",
                       "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-3d-sm"
@@ -690,11 +828,48 @@ export default function ChatIAPage() {
               </div>
 
               <p className="mt-2 text-center text-[10px] text-muted-foreground/40">
-                Entrée pour envoyer · Mode vocal disponible
+                {editMode ? "Mode édition · Entrée pour envoyer" : "Entrée pour envoyer · Mode vocal disponible"}
               </p>
             </div>
           </div>
         </div>
+
+        {/* ── Confirmation Modal ── */}
+        {pendingEdit && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="mx-4 max-w-lg w-full rounded-2xl border border-amber-500/30 bg-background/95 backdrop-blur-xl p-6 shadow-3d-lg animate-slide-in-3d">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <ShieldCheck className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">Confirmer la modification</h3>
+                  <p className="text-xs text-muted-foreground">Mode édition des garde-fous</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/50 bg-muted/20 p-4 mb-6">
+                <p className="text-sm text-foreground whitespace-pre-wrap">{pendingEdit.preview || pendingEdit.rawResponse}</p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={handleCancelEdit}
+                  className="rounded-xl border-border/60 hover:bg-destructive/10 hover:border-destructive/20 hover:text-destructive"
+                >
+                  Annuler
+                </Button>
+                <Button
+                  onClick={handleConfirmEdit}
+                  className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 border border-amber-500/30 shadow-3d-sm text-white hover:-translate-y-0.5 hover:shadow-primary-glow"
+                >
+                  Confirmer
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
