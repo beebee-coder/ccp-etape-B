@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyToken } from "@/lib/auth/jwt";
-import { getCookies, AUTH_COOKIE_ACCESS, AUTH_COOKIE_REFRESH, getCsrfToken, validateCsrfToken } from "@/lib/auth/cookies";
+import {
+  getCookies,
+  AUTH_COOKIE_ACCESS,
+  AUTH_COOKIE_REFRESH,
+  getCsrfToken,
+  validateCsrfToken,
+} from "@/lib/auth/cookies";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger({ handler: "middleware" });
@@ -13,16 +19,37 @@ const PUBLIC_API_ROUTES = [
   "/api/health",
   "/api/openapi",
   "/api/local-db/fs",
+  "/api/local-db/sync-registry",
+  "/api/registry/fs",
 ];
+
+const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "*";
 
 function isPublicApiPath(pathname: string): boolean {
   return PUBLIC_API_ROUTES.some(
-    (route) => pathname === route || pathname.startsWith(route + "/")
+    (route) => pathname === route || pathname.startsWith(route + "/"),
   );
 }
 
 function isApiRoute(pathname: string): boolean {
   return pathname.startsWith("/api/");
+}
+
+function addCorsHeaders(response: NextResponse, request: NextRequest): NextResponse {
+  const origin = request.headers.get("origin");
+  const allowOrigin =
+    origin && CORS_ORIGIN === "*" ? origin : CORS_ORIGIN;
+  response.headers.set("Access-Control-Allow-Origin", allowOrigin);
+  response.headers.set(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+  );
+  response.headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, x-csrf-token",
+  );
+  response.headers.set("Access-Control-Allow-Credentials", "true");
+  return response;
 }
 
 function isProtectedPath(pathname: string): boolean {
@@ -53,7 +80,7 @@ function isProtectedPath(pathname: string): boolean {
   ];
 
   return dashboardPaths.some(
-    (route) => pathname === route || pathname.startsWith(route + "/")
+    (route) => pathname === route || pathname.startsWith(route + "/"),
   );
 }
 
@@ -76,7 +103,10 @@ function csrfErrorResponse() {
 }
 
 function unauthorizedResponse() {
-  return NextResponse.json({ error: "Authentification requise" }, { status: 401 });
+  return NextResponse.json(
+    { error: "Authentification requise" },
+    { status: 401 },
+  );
 }
 
 function loginRedirect(pathname: string, request: NextRequest): NextResponse {
@@ -95,9 +125,24 @@ export async function middleware(request: NextRequest) {
 
   const method = request.method;
 
+  if (isApiRoute(pathname) && method === "OPTIONS") {
+    return addCorsHeaders(
+      new NextResponse(null, { status: 200 }),
+      request,
+    );
+  }
+
   if (!isProtectedPath(pathname)) {
-    log.debug("Path not protected, allowing through", { pathname, method, clientIp });
-    return NextResponse.next();
+    log.debug("Path not protected, allowing through", {
+      pathname,
+      method,
+      clientIp,
+    });
+    const response = NextResponse.next();
+    if (isApiRoute(pathname)) {
+      return addCorsHeaders(response, request);
+    }
+    return response;
   }
 
   log.debug("Protected path accessed", { pathname, method, clientIp });
@@ -109,52 +154,78 @@ export async function middleware(request: NextRequest) {
     const token = accessToken ?? getBearerToken(request) ?? null;
 
     if (!token) {
-      log.warn("API route access denied: no token provided", { pathname, clientIp });
-      return unauthorizedResponse();
+      log.warn("API route access denied: no token provided", {
+        pathname,
+        clientIp,
+      });
+      const response = unauthorizedResponse();
+      return addCorsHeaders(response, request);
     }
 
     const payload = await verifyToken(token);
 
     if (!payload) {
-      log.warn("API route access denied: invalid token", { pathname, clientIp });
-      return unauthorizedResponse();
+      log.warn("API route access denied: invalid token", {
+        pathname,
+        clientIp,
+      });
+      const response = unauthorizedResponse();
+      return addCorsHeaders(response, request);
     }
 
-    log.debug("API route access granted via token", { pathname, userId: payload.sub, role: payload.role, tokenType: payload.type, clientIp });
+    log.debug("API route access granted via token", {
+      pathname,
+      userId: payload.sub,
+      role: payload.role,
+      tokenType: payload.type,
+      clientIp,
+    });
 
     if (isMutationMethod(request.method)) {
       const csrfToken = getCsrfToken(request);
       if (!csrfToken || !validateCsrfToken(request, csrfToken)) {
         log.warn("API route CSRF check failed", { pathname, clientIp });
-        return csrfErrorResponse();
+        const response = csrfErrorResponse();
+        return addCorsHeaders(response, request);
       }
       log.debug("CSRF validation passed", { pathname, clientIp });
     }
 
-    return NextResponse.next();
+    const response = NextResponse.next();
+    return addCorsHeaders(response, request);
   }
 
   const refreshToken = cookies[AUTH_COOKIE_REFRESH];
   const token = accessToken ?? refreshToken ?? null;
 
   if (!token) {
-    log.debug("Page route: no tokens found, redirecting to login", { pathname, clientIp });
+    log.debug("Page route: no tokens found, redirecting to login", {
+      pathname,
+      clientIp,
+    });
     return loginRedirect(pathname, request);
   }
 
   const payload = await verifyToken(token);
 
   if (!payload) {
-    log.warn("Page route: token invalid, redirecting to login", { pathname, clientIp });
+    log.warn("Page route: token invalid, redirecting to login", {
+      pathname,
+      clientIp,
+    });
     return loginRedirect(pathname, request);
   }
 
-  log.debug("Page route access granted", { pathname, userId: payload.sub, role: payload.role, tokenType: payload.type, clientIp });
+  log.debug("Page route access granted", {
+    pathname,
+    userId: payload.sub,
+    role: payload.role,
+    tokenType: payload.type,
+    clientIp,
+  });
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

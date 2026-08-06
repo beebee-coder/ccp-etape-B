@@ -1,0 +1,110 @@
+
+{
+  "Groupes": {
+    "ORDINATEUR DE SUPERVISION - TCI": {
+      "descendants": [
+        { "nom": "B0SY11", "libelle": "Vue Système TCI 11" },
+        { "nom": "B0SY21", "libelle": "Vue Système TCI 21" },
+        { "nom": "B0SY31", "libelle": "Vue Système TCI 31" },
+        { "nom": "B0SY32", "libelle": "Vue Système TCI 32" }
+      ]
+    },
+    "SUPERVISION DU BLOC": {
+      "descendants": [
+        { "nom": "B0GN02", "libelle": "Vue Bloc 02" },
+        { "nom": "B0GN11", "libelle": "VUE GENERALE DU BLOC" }
+      ]
+    },
+    "TURBINE GAZ 1": {
+      "descendants": [
+        { "nom": "B1TG11", "libelle": "VUE GENERALE TG 1" },
+        { "nom": "B1TG21", "libelle": "LUBRIFICATION TG 1" },
+        { "nom": "B1TG31", "libelle": "VIBRATION ET TEMPERATURE TG 1" },
+        { "nom": "B1TG32", "libelle": "TEMPERATURE INTER-ROUES TG 1" },
+        { "nom": "B1TG33", "libelle": "TEMPERATURE ECHAPPEMENT TG 1" }
+      ]
+    },
+    "CHAUDIERE DE RECUPERATION 1": {
+      "descendants": [
+        { "nom": "B1CR11", "libelle": "VUE GENERALE CR 1" },
+        { "nom": "B1CR21", "libelle": "SYSTEME VAPEUR HP CR 1" },
+        { "nom": "B1CR22", "libelle": "SYSTEME VAPEUR BP CR 1" },
+        { "nom": "B1CR31", "libelle": "TEMPERATURE METAL CHAUDIERE 1" }
+      ]
+    },
+    "TURBINE GAZ 2": {
+      "descendants": [
+        { "nom": "B2TG11", "libelle": "VUE GENERALE TG 2" },
+        { "nom": "B2TG21", "libelle": "LUBRIFICATION TG 2" },
+        { "nom": "B2TG31", "libelle": "Synoptique TG2 31" },
+        { "nom": "B2TG32", "libelle": "Synoptique TG2 32" },
+        { "nom": "B2TG33", "libelle": "Synoptique TG2 33" }
+      ]
+    },
+    "CHAUDIERE DE RECUPERATION 2": {
+      "descendants": [
+        { "nom": "B2CR11", "libelle": "VUE GENERALE CR 2" },
+        { "nom": "B2CR21", "libelle": "SYSTEME VAPEUR HP CR 2" },
+        { "nom": "B2CR22", "libelle": "SYSTEME VAPEUR BP CR 2" },
+        { "nom": "B2CR31", "libelle": "TEMPERATURE METAL CHAUDIERE 2" }
+      ]
+    },
+    "POSTE D'EAU": {
+      "descendants": [
+        { "nom": "B3PE11", "libelle": "VUE GENERALE DU POSTE D'EAU" },
+        { "nom": "B3PE20", "libelle": "Stockage d'eau déminé" },
+        { "nom": "B3PE21", "libelle": "SYSTEME EXTR EAU CONDENSEUR" },
+        { "nom": "B3PE22", "libelle": "SYSTEME EAU ALIMENTAIRE" },
+        { "nom": "B3PE23", "libelle": "VIDE ET APPOINT CONDENSEUR" },
+        { "nom": "B3PE24", "libelle": "SYSTEME EAU DE CIRCULATION" },
+        { "nom": "B3PE25", "libelle": "SYSTEME EAU DE REFRIGERATION" },
+        { "nom": "B3PE26", "libelle": "RECHAUFFAGE DES CONDENSATS" }
+      ]
+    },
+    "TURBINE VAPEUR": {
+      "descendants": [
+        { "nom": "B1TV21", "libelle": "CONTOURNEMENT HP CR 1" },
+        { "nom": "B1TV22", "libelle": "CONTOURNEMENT BP CR 1" },
+        { "nom": "B2TV21", "libelle": "CONTOURNEMENT HP CR 2" },
+        { "nom": "B2TV22", "libelle": "CONTOURNEMENT BP CR 2" },
+        { "nom": "B3TV11", "libelle": "VUE GENERALE TURBINE A VAPEUR" },
+        { "nom": "B3TV21", "libelle": "SYSTEME DE PURGES TV" },
+        { "nom": "B3TV23", "libelle": "SYSTEME HUILE DE REGULATION TV" },
+        { "nom": "B3TV24", "libelle": "LUBRIFICATION ET SOULEVEMENT TV" },
+        { "nom": "B3TV31", "libelle": "SURVEILLANCE LIGNE D'ARBRE TV" }
+      ]
+    },
+    "REGULATION ET CALCULS": {
+      "descendants": [
+        { "nom": "B0ASR1", "libelle": "REGULATION DES AUXILIAIRES SITE" },
+        { "nom": "B0GN31", "libelle": "CALCULS ECONOMIQUES 1/2" },
+        { "nom": "B0GN32", "libelle": "CALCULS ECONOMIQUES 2/2" },
+        { "nom": "B0GNR1", "libelle": "REGULATION DU BLOC" },
+        { "nom": "B1CRR1", "libelle": "REGULATION CR 1" },
+        { "nom": "B2CRR1", "libelle": "REGULATION CR 2" },
+        { "nom": "B3PER1", "libelle": "REGULATION POSTE D'EAU" }
+      ]
+    },
+    "DISTRIBUTION ELECTRIQUE": {
+      "descendants": [
+        { "nom": "B0EL11", "libelle": "DISTRIBUTION ELECTRIQUE 15.5/6.6" },
+        { "nom": "B0EL21", "libelle": "DISTRIBUTION B0LGA" },
+        { "nom": "B0EL22", "libelle": "Groupe électrogène" },
+        { "nom": "B1EL21", "libelle": "DISTRIBUTION B1LGA" },
+        { "nom": "B2EL21", "libelle": "DISTRIBUTION B2LGA" },
+        { "nom": "B3EL21", "libelle": "DISTRIBUTION B3LGA" },
+        { "nom": "B3EL22", "libelle": "Distribution courant continu" }
+      ]
+    },
+    "CONTROSTEAM": {
+      "descendants": [
+        { "nom": "B3TV41", "libelle": "REGULATION" },
+        { "nom": "B3TV42", "libelle": "SECURITEES" },
+        { "nom": "B3TV43", "libelle": "CET" },
+        { "nom": "B3TV44", "libelle": "INSTRUMENTATION" },
+        { "nom": "B3TV45", "libelle": "TEST SECURITES FONDAMENTALES" },
+        { "nom": "B3TV46EXP", "libelle": "TESTS VANNES ARRET" }
+      ]
+    }
+  }
+}

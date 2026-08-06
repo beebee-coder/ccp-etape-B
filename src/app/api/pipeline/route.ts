@@ -3,6 +3,9 @@ import { spawn } from "child_process";
 import { resolve } from "path";
 import { PipelineConfigSchema, type PipelineConfig } from "@/lib/pipeline/pipeline-schema";
 import { validateApiRequest } from "@/lib/api/handlers";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger({ handler: "pipeline" });
 
 const PROJECT_ROOT = resolve(process.cwd());
 const GITHUB_REPO_URL = "https://github.com/beebee-coder/ccp-etape-B.git";
@@ -116,35 +119,29 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  console.log("[pipeline] DEBUG - POST request received");
-  console.log("[pipeline] DEBUG - content-type:", request.headers.get("content-type"));
-  console.log("[pipeline] DEBUG - x-csrf-token present:", !!request.headers.get("x-csrf-token"));
-  console.log("[pipeline] DEBUG - accept header:", request.headers.get("accept"));
- 
    try {
      const bodyText = await request.clone().text();
-     console.log("[pipeline] DEBUG - request body:", bodyText);
+     log.debug("Pipeline request body", { body: bodyText.slice(0, 500) });
    } catch {
-     console.log("[pipeline] DEBUG - could not read body for debug");
+     log.debug("Pipeline request body unreadable");
    }
- 
+  
    const result = await validateApiRequest(request, {
-     allowedContentTypes: ["application/json"],
-     rateLimiter: "pipeline",
-     schema: PipelineConfigSchema,
-   });
- 
-   console.log("[pipeline] DEBUG - validateApiRequest result.ok:", result.ok);
+      allowedContentTypes: ["application/json"],
+      rateLimiter: "pipeline",
+      schema: PipelineConfigSchema,
+    });
+  
    if (!result.ok) {
-     console.log("[pipeline] DEBUG - validation failed, status:", result.response.status);
-     try {
-       const errorBody = await result.response.clone().json();
-       console.log("[pipeline] DEBUG - validation error body:", JSON.stringify(errorBody));
+      log.debug("Pipeline validation failed", { status: result.response.status });
+      try {
+        const errorBody = await result.response.clone().json();
+        log.debug("Pipeline validation error", { errorBody });
       } catch {
-        console.log("[pipeline] DEBUG - could not parse error body");
+        // ignore parse error
       }
-     return result.response;
-   }
+      return result.response;
+    }
 
   const config = result.ctx.body as PipelineConfig;
 

@@ -61,11 +61,14 @@ class ApiClient {
 
   private MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 
-  private buildHeaders(method: string, options: RequestInit): Record<string, string> {
+  private buildHeaders(
+    method: string,
+    options: RequestInit,
+  ): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...this.headers,
-      ...(options.headers as Record<string, string> ?? {}),
+      ...((options.headers as Record<string, string>) ?? {}),
     };
 
     const csrfToken = this.getCsrfToken();
@@ -95,7 +98,18 @@ class ApiClient {
 
   private buildUrl(url: string): string {
     if (url.startsWith("http")) return url;
-    return `${this.baseUrl}${url}`;
+    if (!this.baseUrl) return url;
+    const resolved = `${this.baseUrl}${url}`;
+    try {
+      const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+      const resolvedUrl = new URL(resolved);
+      if (currentOrigin && resolvedUrl.origin !== currentOrigin) {
+        return url;
+      }
+    } catch {
+      // invalid URL, fall through
+    }
+    return resolved;
   }
 
   private async handleResponse<T>(response: Response): Promise<T> {
@@ -103,7 +117,8 @@ class ApiClient {
       let message = `Erreur HTTP ${response.status}`;
       try {
         const body = await response.json();
-        message = (body as { error?: string; message?: string }).error ??
+        message =
+          (body as { error?: string; message?: string }).error ??
           (body as { error?: string; message?: string }).message ??
           message;
       } catch {
@@ -125,7 +140,7 @@ class ApiClient {
     url: string,
     options: RequestInit,
     attempt = 1,
-    authRetried = false
+    authRetried = false,
   ): Promise<T> {
     const token = await this.getAuthToken();
     const headers = this.buildHeaders(method, options);
@@ -144,14 +159,22 @@ class ApiClient {
       });
     } catch (error) {
       if (attempt <= this.retryAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, this.retryDelay * attempt));
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.retryDelay * attempt),
+        );
         return this.request<T>(method, url, options, attempt + 1, authRetried);
       }
 
       if (error instanceof TypeError && error.message === "Failed to fetch") {
-        throw new ApiError(0, "Impossible de joindre le serveur. Vérifiez votre connexion.");
+        throw new ApiError(
+          0,
+          "Impossible de joindre le serveur. Vérifiez votre connexion.",
+        );
       }
-      throw new ApiError(0, error instanceof Error ? error.message : "Erreur inconnue");
+      throw new ApiError(
+        0,
+        error instanceof Error ? error.message : "Erreur inconnue",
+      );
     }
 
     if (response.status === 401) {
@@ -170,7 +193,11 @@ class ApiClient {
     return this.request<T>("GET", url, options ?? {});
   }
 
-  async post<T>(url: string, body?: unknown, options?: RequestInit): Promise<T> {
+  async post<T>(
+    url: string,
+    body?: unknown,
+    options?: RequestInit,
+  ): Promise<T> {
     return this.request<T>("POST", url, {
       ...options,
       body: body ? JSON.stringify(body) : undefined,
@@ -186,6 +213,17 @@ class ApiClient {
 
   async delete<T>(url: string, options?: RequestInit): Promise<T> {
     return this.request<T>("DELETE", url, options ?? {});
+  }
+
+  async patch<T>(
+    url: string,
+    body?: unknown,
+    options?: RequestInit,
+  ): Promise<T> {
+    return this.request<T>("PATCH", url, {
+      ...options,
+      body: body ? JSON.stringify(body) : undefined,
+    });
   }
 }
 

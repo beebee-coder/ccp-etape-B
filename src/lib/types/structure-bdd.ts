@@ -37,6 +37,7 @@ export interface DatabaseTreeNode {
   collection?: string;
   syncState?: SyncState;
   indexedAt?: string;
+  libelle?: string;
 }
 
 export const DatabaseTreeNodeSchema: z.ZodType<DatabaseTreeNode> = z.lazy(() =>
@@ -52,6 +53,7 @@ export const DatabaseTreeNodeSchema: z.ZodType<DatabaseTreeNode> = z.lazy(() =>
     collection: z.string().optional(),
     syncState: SyncStateSchema.optional(),
     indexedAt: z.string().datetime().optional(),
+    libelle: z.string().optional(),
   }),
 );
 

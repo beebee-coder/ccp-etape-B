@@ -194,47 +194,80 @@ describe("middleware — page / dashboard routes redirect to login when unauthen
 });
 
 describe("middleware — CSRF protection on mutations", () => {
-  it("allows POST with valid CSRF token", async () => {
-    vi.mocked(verifyToken).mockResolvedValue(VALID_PAYLOAD);
-    const csrfToken = "csrf-valid";
-    const req = makeRequest(
-      "http://localhost:3000/api/procedures",
-      `${accessCookie("valid")}; ${CSRF_COOKIE_NAME}=${csrfToken}`,
-      undefined,
-      "POST",
-    );
-    req.headers.set("x-csrf-token", csrfToken);
+   it("allows POST with valid CSRF token", async () => {
+     vi.mocked(verifyToken).mockResolvedValue(VALID_PAYLOAD);
+     const csrfToken = "csrf-valid";
+     const req = makeRequest(
+       "http://localhost:3000/api/procedures",
+       `${accessCookie("valid")}; ${CSRF_COOKIE_NAME}=${csrfToken}`,
+       undefined,
+       "POST",
+     );
+     req.headers.set("x-csrf-token", csrfToken);
 
-    const res = await middleware(req);
+     const res = await middleware(req);
 
-    expect(isContinuation(res)).toBe(true);
-  });
+     expect(isContinuation(res)).toBe(true);
+   });
 
-  it("returns 403 on POST without CSRF token", async () => {
-    vi.mocked(verifyToken).mockResolvedValue(VALID_PAYLOAD);
-    const req = makeRequest("http://localhost:3000/api/procedures", accessCookie("valid"), undefined, "POST");
+   it("returns 403 on POST without CSRF token", async () => {
+     vi.mocked(verifyToken).mockResolvedValue(VALID_PAYLOAD);
+     const req = makeRequest("http://localhost:3000/api/procedures", accessCookie("valid"), undefined, "POST");
 
-    const res = await middleware(req);
+     const res = await middleware(req);
 
-    expect(res.status).toBe(403);
-  });
+     expect(res.status).toBe(403);
+   });
 
-  it("returns 403 on POST with mismatched CSRF token", async () => {
-    vi.mocked(verifyToken).mockResolvedValue(VALID_PAYLOAD);
-    const req = makeRequest("http://localhost:3000/api/procedures", `${accessCookie("valid")}; ${CSRF_COOKIE_NAME}=token-a`, undefined, "POST");
-    req.headers.set("x-csrf-token", "token-b");
+   it("returns 403 on POST with mismatched CSRF token", async () => {
+     vi.mocked(verifyToken).mockResolvedValue(VALID_PAYLOAD);
+     const req = makeRequest("http://localhost:3000/api/procedures", `${accessCookie("valid")}; ${CSRF_COOKIE_NAME}=token-a`, undefined, "POST");
+     req.headers.set("x-csrf-token", "token-b");
 
-    const res = await middleware(req);
+     const res = await middleware(req);
 
-    expect(res.status).toBe(403);
-  });
+     expect(res.status).toBe(403);
+   });
 
-  it("does not check CSRF on GET requests", async () => {
-    vi.mocked(verifyToken).mockResolvedValue(VALID_PAYLOAD);
-    const req = makeRequest("http://localhost:3000/api/procedures", accessCookie("valid"), undefined, "GET");
+   it("does not check CSRF on GET requests", async () => {
+     vi.mocked(verifyToken).mockResolvedValue(VALID_PAYLOAD);
+     const req = makeRequest("http://localhost:3000/api/procedures", accessCookie("valid"), undefined, "GET");
 
-    const res = await middleware(req);
+     const res = await middleware(req);
 
-    expect(isContinuation(res)).toBe(true);
-  });
-});
+     expect(isContinuation(res)).toBe(true);
+   });
+ });
+
+ describe("middleware — CORS headers on API routes", () => {
+   it("adds Access-Control-Allow-Origin on GET to public API route", async () => {
+     const req = makeRequest("http://localhost:3000/api/health");
+     req.headers.set("origin", "http://localhost:3000");
+
+     const res = await middleware(req);
+
+     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
+   });
+
+   it("adds CORS headers on OPTIONS preflight for API route", async () => {
+     const req = makeRequest("http://localhost:3000/api/images", undefined, undefined, "OPTIONS");
+     req.headers.set("origin", "http://localhost:3000");
+
+     const res = await middleware(req);
+
+     expect(res.status).toBe(200);
+     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
+     expect(res.headers.get("access-control-allow-methods")).toBe("GET, POST, PUT, DELETE, PATCH, OPTIONS");
+     expect(res.headers.get("access-control-allow-headers")).toBe("Content-Type, Authorization, x-csrf-token");
+   });
+
+   it("adds CORS headers on 401 response for protected API route", async () => {
+     const req = makeRequest("http://localhost:3000/api/images");
+     req.headers.set("origin", "http://localhost:3000");
+
+     const res = await middleware(req);
+
+     expect(res.status).toBe(401);
+     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
+   });
+ });

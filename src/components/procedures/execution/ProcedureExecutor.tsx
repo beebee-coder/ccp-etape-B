@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { TProcedure } from "@/lib/procedures/services/validator.service";
-import { GuidePhase } from "@/lib/procedures/types";
+import { TProcedure, TProcedureExecution } from "@/lib/procedures/services/validator.service";
+import { GuidePhase, ProcedureExecutionContext } from "@/lib/procedures/types";
 import { useProcedureExecution } from "@/lib/procedures/hooks/useProcedureExecution";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
 import { generateAssistantAdvice } from "@/lib/procedures/assistants/assistant-service";
@@ -18,6 +18,70 @@ interface ProcedureExecutorProps {
   onClose: () => void;
 }
 
+function logStructured(level: "log" | "error" | "warn", message: string, data?: unknown): void {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    level,
+    module: "ProcedureExecutor",
+    message,
+    ...(data ? { data } : {}),
+  };
+  if (level === "error") {
+    console.error(JSON.stringify(entry));
+  } else if (level === "warn") {
+    console.warn(JSON.stringify(entry));
+  } else {
+    console.log(JSON.stringify(entry));
+  }
+}
+
+function contextToExecution(
+  procedure: TProcedure,
+  ctx: ProcedureExecutionContext,
+  status: "COMPLETED" | "ABORTED",
+): TProcedureExecution {
+  const now = Date.now();
+  const finishedAt = ctx.finishedAt ?? now;
+  return {
+    procedureCode: procedure.metadata.code,
+    status,
+    context: {
+      currentStepIndex: ctx.currentStepIndex,
+      completedSteps: Array.from(ctx.completedSteps),
+      startedAt: ctx.startedAt,
+      finishedAt,
+      anomalies: ctx.anomalies,
+    },
+  };
+}
+
+async function persistExecution(
+  procedure: TProcedure,
+  ctx: ProcedureExecutionContext,
+  status: "COMPLETED" | "ABORTED",
+): Promise<void> {
+  try {
+    const execution = contextToExecution(procedure, ctx, status);
+    logStructured("log", "Persisting procedure execution", {
+      procedureCode: execution.procedureCode,
+      status: execution.status,
+      completedSteps: execution.context.completedSteps.length,
+      totalSteps: procedure.steps.length,
+    });
+    await apiClient.post<{ id: string; success: boolean }>("/api/procedures/executions", execution);
+    logStructured("log", "Procedure execution persisted", {
+      procedureCode: execution.procedureCode,
+      status: execution.status,
+    });
+  } catch (error) {
+    logStructured("error", "Failed to persist procedure execution", {
+      procedureCode: procedure.metadata.code,
+      status,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps) {
   const {
     phase,
@@ -31,10 +95,30 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
   } = useProcedureExecution({
     procedure,
     onComplete: (ctx) => {
-      console.log("Procedure completed", ctx);
+      logStructured("log", "Procedure completed", {
+        procedureCode: procedure.metadata.code,
+        completedSteps: Array.from(ctx.completedSteps).length,
+        totalSteps: procedure.steps.length,
+        startedAt: ctx.startedAt,
+        finishedAt: ctx.finishedAt,
+        durationSeconds: ctx.finishedAt
+          ? Math.round((ctx.finishedAt - ctx.startedAt) / 1000)
+          : undefined,
+        anomalies: ctx.anomalies,
+      });
+      void persistExecution(procedure, ctx, "COMPLETED");
     },
-    onAbort: (_ctx, reason) => {
-      console.log("Procedure aborted:", reason);
+    onAbort: (ctx, reason) => {
+      logStructured("warn", "Procedure aborted", {
+        procedureCode: procedure.metadata.code,
+        reason,
+        completedSteps: Array.from(ctx.completedSteps).length,
+        totalSteps: procedure.steps.length,
+        startedAt: ctx.startedAt,
+        finishedAt: ctx.finishedAt,
+        anomalies: ctx.anomalies,
+      });
+      void persistExecution(procedure, ctx, "ABORTED");
     },
   });
 

@@ -1,6 +1,12 @@
-import { ProcedureSchema, TProcedure, TStep } from "@/lib/procedures/services/validator.service";
+import {
+  ProcedureSchema,
+  TProcedure,
+  TStep,
+} from "@/lib/procedures/services/validator.service";
+import { createLogger } from "@/lib/logger";
 
 const DRAFT_STORAGE_KEY = "nexaflow-procedure-draft";
+const log = createLogger({ module: "procedure-manager" });
 
 export function createEmptyProcedure(): TProcedure {
   return {
@@ -49,7 +55,10 @@ export function removeStep(procedure: TProcedure, stepId: string): TProcedure {
   };
 }
 
-export function duplicateStep(procedure: TProcedure, stepId: string): TProcedure {
+export function duplicateStep(
+  procedure: TProcedure,
+  stepId: string,
+): TProcedure {
   const idx = procedure.steps.findIndex((s) => s.id === stepId);
   if (idx < 0) return procedure;
   const original = procedure.steps[idx];
@@ -67,7 +76,11 @@ export function duplicateStep(procedure: TProcedure, stepId: string): TProcedure
   return { ...procedure, steps: newSteps };
 }
 
-export function reorderSteps(procedure: TProcedure, fromIndex: number, toIndex: number): TProcedure {
+export function reorderSteps(
+  procedure: TProcedure,
+  fromIndex: number,
+  toIndex: number,
+): TProcedure {
   const newSteps = [...procedure.steps];
   const [moved] = newSteps.splice(fromIndex, 1);
   newSteps.splice(toIndex, 0, moved);
@@ -77,14 +90,23 @@ export function reorderSteps(procedure: TProcedure, fromIndex: number, toIndex: 
   };
 }
 
-export function updateStep(procedure: TProcedure, stepId: string, updates: Partial<TStep>): TProcedure {
+export function updateStep(
+  procedure: TProcedure,
+  stepId: string,
+  updates: Partial<TStep>,
+): TProcedure {
   return {
     ...procedure,
-    steps: procedure.steps.map((s) => (s.id === stepId ? { ...s, ...updates } : s)),
+    steps: procedure.steps.map((s) =>
+      s.id === stepId ? { ...s, ...updates } : s,
+    ),
   };
 }
 
-export function updateMetadata(procedure: TProcedure, metadata: Partial<TProcedure["metadata"]>): TProcedure {
+export function updateMetadata(
+  procedure: TProcedure,
+  metadata: Partial<TProcedure["metadata"]>,
+): TProcedure {
   return {
     ...procedure,
     metadata: { ...procedure.metadata, ...metadata },
@@ -109,7 +131,9 @@ export function downloadJson(procedure: TProcedure, filename?: string): void {
 }
 
 function isBrowser(): boolean {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+  return (
+    typeof window !== "undefined" && typeof window.localStorage !== "undefined"
+  );
 }
 
 export function saveDraft(procedure: TProcedure): void {
@@ -117,8 +141,15 @@ export function saveDraft(procedure: TProcedure): void {
   try {
     const serialized = JSON.stringify(procedure);
     window.localStorage.setItem(DRAFT_STORAGE_KEY, serialized);
-  } catch {
-    // localStorage unavailable or quota exceeded
+    log.debug("saveDraft: draft saved to localStorage", {
+      code: procedure.metadata.code,
+      stepCount: procedure.steps.length,
+    });
+  } catch (error) {
+    log.error("saveDraft: failed to save draft to localStorage", {
+      code: procedure.metadata.code,
+      error,
+    });
   }
 }
 
@@ -126,10 +157,19 @@ export function loadDraft(): TProcedure | null {
   if (!isBrowser()) return null;
   try {
     const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      log.debug("loadDraft: no draft found in localStorage");
+      return null;
+    }
     const parsed = JSON.parse(raw) as unknown;
-    return ProcedureSchema.parse(parsed);
-  } catch {
+    const draft = ProcedureSchema.parse(parsed);
+    log.info("loadDraft: draft loaded from localStorage", {
+      code: draft.metadata.code,
+      stepCount: draft.steps.length,
+    });
+    return draft;
+  } catch (error) {
+    log.warn("loadDraft: failed to parse localStorage draft", { error });
     return null;
   }
 }
@@ -138,31 +178,72 @@ export function clearDraft(): void {
   if (!isBrowser()) return;
   try {
     window.localStorage.removeItem(DRAFT_STORAGE_KEY);
-  } catch {
-    // ignore
+    log.debug("clearDraft: draft cleared from localStorage");
+  } catch (error) {
+    log.error("clearDraft: failed to clear localStorage draft", { error });
   }
 }
 
 export async function syncWithServer(procedure: TProcedure): Promise<boolean> {
+  const code = procedure.metadata.code;
+  const stepCount = procedure.steps.length;
+  log.info("syncWithServer: attempting to sync procedure to server", {
+    code,
+    stepCount,
+  });
+
   try {
     const { apiClient } = await import("@/lib/api/client");
     await apiClient.post("/api/procedures", procedure);
+    log.info("syncWithServer: procedure synced to server successfully", {
+      code,
+      stepCount,
+    });
     return true;
-  } catch {
+  } catch (error) {
+    log.error("syncWithServer: failed to sync procedure to server", {
+      code,
+      stepCount,
+      error,
+    });
     return false;
   }
 }
 
 export async function loadFromServer(): Promise<TProcedure[]> {
+  log.info("loadFromServer: fetching procedures from server");
+
   try {
     const { apiClient } = await import("@/lib/api/client");
-    return await apiClient.get<TProcedure[]>("/api/procedures");
-  } catch {
+    const procedures = await apiClient.get<TProcedure[]>("/api/procedures");
+    log.info("loadFromServer: procedures fetched from server", {
+      count: procedures.length,
+    });
+    return procedures;
+  } catch (error) {
+    log.error("loadFromServer: failed to fetch procedures from server", {
+      error,
+    });
     return [];
   }
 }
 
 export async function autoSync(procedure: TProcedure): Promise<boolean> {
+  const code = procedure.metadata.code;
+  const stepCount = procedure.steps.length;
+  log.info("autoSync: starting auto-sync", { code, stepCount });
+
   saveDraft(procedure);
-  return syncWithServer(procedure);
+  log.debug("autoSync: draft saved to localStorage", { code, stepCount });
+
+  const synced = await syncWithServer(procedure);
+  if (synced) {
+    log.info("autoSync: procedure synced to server", { code, stepCount });
+  } else {
+    log.warn("autoSync: server sync failed, procedure kept locally", {
+      code,
+      stepCount,
+    });
+  }
+  return synced;
 }

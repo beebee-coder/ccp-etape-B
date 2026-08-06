@@ -10,16 +10,11 @@
     "test": "vitest run",
     "test:watch": "vitest watch",
     "test:coverage": "vitest run --coverage",
-    "db:generate": "prisma generate",
     "db:migrate": "npx tsx src/lib/db/migrate.ts",
     "db:sql-seed": "npx tsx src/lib/db/seed.ts",
-    "db:seed": "prisma db seed",
-    "db:push": "prisma db push"
-  },
-  "prisma": {
-    "seed": {
-      "command": "tsx prisma/seed.ts"
-    }
+    "db:sqlite": "npm run db:sqlite:migrate && npm run db:sqlite:seed",
+    "db:sqlite:migrate": "cross-env DATA_PROVIDER=sqlite npx tsx src/lib/db/migrate.ts",
+    "db:sqlite:seed": "cross-env DATA_PROVIDER=sqlite npx tsx src/lib/db/seed.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -29,17 +24,16 @@
     "@google/generative-ai": "^0.24.1",
     "@hello-pangea/dnd": "^16.6.0",
     "@hookform/resolvers": "^3.9.0",
-    "@prisma/client": "^7.9.1",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.1",
     "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "groq-sdk": "^1.5.0",
     "lucide-react": "^1.27.0",
     "next": "14.2.35",
     "pg": "^8.22.0",
-    "prisma": "^7.9.1",
     "react": "^18",
     "react-dom": "^18",
     "react-hook-form": "^7.54.0",
@@ -50,16 +44,17 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@prisma/adapter-pg": "^7.9.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
     "@types/pg": "^8.20.2",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^6.0.5",
+    "cross-env": "^10.1.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
     "happy-dom": "^20.11.1",

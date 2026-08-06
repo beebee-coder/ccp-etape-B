@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogBody, DialogFooter, DialogTi
 import { teams } from "@/data/teams";
 import type { Member } from "@/data/teams";
 import { useSpeech } from "@/lib/speech/use-speech";
+import { apiClient } from "@/lib/api/client";
 import {
   Mic,
   MicOff,
@@ -31,6 +32,7 @@ import {
   Download,
   Mail,
   Send,
+  Loader2,
 } from "lucide-react";
 
 interface ReportPoint {
@@ -46,6 +48,7 @@ interface ReportEntry {
   points: ReportPoint[];
   date: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 const zones = [
@@ -70,45 +73,11 @@ const services = [
   "Service Automatisme",
 ];
 
-const STORAGE_KEY = "nexaflow_rapports";
-const MAX_REPORTS = 100;
-
-function loadReports(): ReportEntry[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as ReportEntry[];
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const cutoff = thirtyDaysAgo.toISOString();
-    const filtered = parsed.filter((r) => r.createdAt >= cutoff);
-    if (filtered.length !== parsed.length) {
-      saveReports(filtered);
-    }
-    return filtered;
-  } catch {
-    return [];
-  }
-}
-
-function saveReports(reports: ReportEntry[]) {
-  if (typeof window === "undefined") return;
-  const trimmed = reports.slice(0, MAX_REPORTS);
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
-  } catch {
-    console.error("Failed to save reports to localStorage");
-  }
-}
+const API_BASE = "/api/rapports";
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);
   return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
 function getAllMembers(): { member: Member; teamName: string }[] {
@@ -125,6 +94,7 @@ type ToastState = { message: string; type: "success" | "error" } | null;
 
 export default function RapportsPage() {
   const [reports, setReports] = useState<ReportEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [points, setPoints] = useState<ReportPoint[]>([
@@ -143,8 +113,26 @@ export default function RapportsPage() {
     continuous: true,
   });
 
+  console.log("[RapportsPage] component mounted, fetching reports from API");
+
   useEffect(() => {
-    setReports(loadReports());
+    async function fetchReports() {
+      console.log("[RapportsPage] fetching reports from API", { url: API_BASE });
+      try {
+        const data = await apiClient.get<ReportEntry[]>(API_BASE);
+        console.log("[RapportsPage] reports fetched successfully", { count: data.length });
+        setReports(data);
+      } catch (err) {
+        console.error("[RapportsPage] failed to fetch reports", {
+          error: err instanceof Error ? err.message : String(err),
+          url: API_BASE,
+        });
+        setInlineToast({ message: "Erreur lors du chargement des rapports.", type: "error" });
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchReports();
   }, []);
 
   useEffect(() => {
@@ -201,64 +189,96 @@ export default function RapportsPage() {
   }, [speechText, isListening, stopListening]);
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault();
+      console.log("[RapportsPage] handleSubmit called", { pointCount: points.length });
+
       const validPoints = points.filter((p) => p.text.trim());
       if (validPoints.length === 0) {
+        console.warn("[RapportsPage] handleSubmit rejected: no valid points");
         setInlineToast({ message: "Au moins un point de travail est requis.", type: "error" });
         return;
       }
       for (const p of validPoints) {
         if (!p.executorName.trim()) {
+          console.warn("[RapportsPage] handleSubmit rejected: missing executorName");
           setInlineToast({ message: "Le nom de l'exécuteur est requis pour chaque point.", type: "error" });
           return;
         }
         if (!p.zone) {
+          console.warn("[RapportsPage] handleSubmit rejected: missing zone");
           setInlineToast({ message: "La zone est requise pour chaque point.", type: "error" });
           return;
         }
         if (!p.service) {
+          console.warn("[RapportsPage] handleSubmit rejected: missing service");
           setInlineToast({ message: "Le service est requis pour chaque point.", type: "error" });
           return;
         }
         if (p.hoursWorked <= 0) {
+          console.warn("[RapportsPage] handleSubmit rejected: invalid hoursWorked", { hoursWorked: p.hoursWorked });
           setInlineToast({ message: "L'heurotage doit être supérieur à 0 pour chaque point.", type: "error" });
           return;
         }
       }
 
       setIsSubmitting(true);
+      const now = new Date().toISOString();
       const newReport: ReportEntry = {
-        id: generateId(),
+        id: `rpt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         points: validPoints,
         date: new Date().toISOString().split("T")[0],
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       };
 
-      const updated = [newReport, ...reports];
-      setReports(updated);
-      saveReports(updated);
+      console.log("[RapportsPage] submitting report to API", { id: newReport.id, date: newReport.date, pointCount: validPoints.length });
 
-      setPoints([{ executorName: "", zone: "", service: "", hoursWorked: 0, text: "" }]);
-      setSpeechText("");
-      setShowForm(false);
-      setIsSubmitting(false);
-      setInlineToast({ message: "Rapport sauvegardé avec succès.", type: "success" });
+      try {
+        const created = await apiClient.post<ReportEntry>(API_BASE, {
+          date: newReport.date,
+          points: newReport.points,
+        });
+        console.log("[RapportsPage] report created successfully", { id: created.id });
+        setReports((prev) => [created, ...prev]);
+        setInlineToast({ message: "Rapport sauvegardé avec succès.", type: "success" });
+      } catch (err) {
+        console.error("[RapportsPage] failed to create report", {
+          error: err instanceof Error ? err.message : String(err),
+          report: newReport,
+        });
+        setInlineToast({ message: "Erreur lors de la sauvegarde du rapport.", type: "error" });
+      } finally {
+        setPoints([{ executorName: "", zone: "", service: "", hoursWorked: 0, text: "" }]);
+        setSpeechText("");
+        setShowForm(false);
+        setIsSubmitting(false);
+      }
     },
-    [points, reports]
+    [points]
   );
 
   const handleDelete = useCallback(
-    (id: string) => {
-      const updated = reports.filter((r) => r.id !== id);
-      setReports(updated);
-      saveReports(updated);
-      setInlineToast({ message: "Rapport supprimé.", type: "success" });
+    async (id: string) => {
+      console.log("[RapportsPage] deleting report", { id });
+      try {
+        await apiClient.delete(`${API_BASE}/${id}`);
+        console.log("[RapportsPage] report deleted successfully", { id });
+        setReports((prev) => prev.filter((r) => r.id !== id));
+        setInlineToast({ message: "Rapport supprimé.", type: "success" });
+      } catch (err) {
+        console.error("[RapportsPage] failed to delete report", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        setInlineToast({ message: "Erreur lors de la suppression du rapport.", type: "error" });
+      }
     },
-    [reports]
+    []
   );
 
   const handleExport = useCallback((report: ReportEntry) => {
+    console.log("[RapportsPage] exporting report", { id: report.id, date: report.date });
     const lines: string[] = [];
     lines.push(`Rapport Journalier - ${formatDate(report.createdAt)}`);
     lines.push("");
@@ -309,11 +329,13 @@ export default function RapportsPage() {
       return;
     }
     setIsSending(true);
+    console.log("[RapportsPage] sending report to recipients", { count: selectedRecipients.size });
     await new Promise((resolve) => setTimeout(resolve, 1500));
     setIsSending(false);
     setSendDialogOpen(false);
     setSelectedRecipients(new Set());
     setInlineToast({ message: `Rapport envoyé à ${selectedRecipients.size} utilisateur(s).`, type: "success" });
+    console.log("[RapportsPage] report sent successfully");
   }, [selectedRecipients]);
 
   return (
@@ -374,6 +396,14 @@ export default function RapportsPage() {
           {showForm ? "Fermer" : "Nouveau rapport"}
         </Button>
       </div>
+
+      {/* ── Loading state ── */}
+      {isLoading && (
+        <div className="mt-8 flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-3 text-sm text-muted-foreground">Chargement des rapports...</span>
+        </div>
+      )}
 
       {/* ── Report form ── */}
       {showForm && (

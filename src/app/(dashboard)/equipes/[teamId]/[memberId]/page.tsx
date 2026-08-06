@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,12 +18,23 @@ import {
   ChevronRight,
   RotateCcw,
   Calendar,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
-import { teams, rolesConfig } from "@/data/teams";
+import { teamsService } from "@/lib/teams/teams-service";
+import { rolesConfig } from "@/data/teams";
+import type { TeamInfo, TeamMember } from "@/lib/teams/schemas";
+import { toast } from "sonner";
 
 const CalendarIcon = Calendar;
 
-const SHIFT_PATTERN: Record<string, { type: "morning" | "night" | "rest" | "morning_supp" | "night_supp"; day: number }[]> = {
+const SHIFT_PATTERN: Record<
+  string,
+  {
+    type: "morning" | "night" | "rest" | "morning_supp" | "night_supp";
+    day: number;
+  }[]
+> = {
   chef_de_quart: [
     { type: "morning", day: 1 },
     { type: "morning", day: 2 },
@@ -97,10 +108,22 @@ const SHIFT_PATTERN: Record<string, { type: "morning" | "night" | "rest" | "morn
 };
 
 const MONTHS = [
-  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+  "Janvier",
+  "Février",
+  "Mars",
+  "Avril",
+  "Mai",
+  "Juin",
+  "Juillet",
+  "Août",
+  "Septembre",
+  "Octobre",
+  "Novembre",
+  "Décembre",
 ];
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+const PAGE_LOG_PREFIX = "[membre-detail-page]";
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -116,29 +139,139 @@ export default function MembreDetailPage() {
   const router = useRouter();
   const teamId = Number(params.teamId);
   const memberId = Number(params.memberId);
-  const team = teams.find((t) => t.id === teamId);
-  const member = team?.members_list.find((m) => m.id === memberId);
+
+  const [team, setTeam] = useState<TeamInfo | null>(null);
+  const [member, setMember] = useState<TeamMember | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [customShifts, setCustomShifts] = useState<Record<number, "morning" | "night" | "rest" | "morning_supp" | "night_supp">>({});
+  const [customShifts, setCustomShifts] = useState<
+    Record<number, "morning" | "night" | "rest" | "morning_supp" | "night_supp">
+  >({});
   const [manualHours, setManualHours] = useState(0);
   const [addedHours, setAddedHours] = useState(0);
   const [history, setHistory] = useState<number[]>([]);
 
-  if (!team || !member) {
+  const fetchTeamAndMember = useCallback(async () => {
+    if (Number.isNaN(teamId) || Number.isNaN(memberId)) {
+      console.error(`${PAGE_LOG_PREFIX} fetchTeamAndMember: invalid params`, {
+        teamId: params.teamId,
+        memberId: params.memberId,
+      });
+      setError("Paramètres invalides");
+      setLoading(false);
+      return;
+    }
+
+    console.log(`${PAGE_LOG_PREFIX} fetchTeamAndMember: starting`, {
+      teamId,
+      memberId,
+    });
+    try {
+      const teamData = await teamsService.getById(teamId);
+      console.log(`${PAGE_LOG_PREFIX} fetchTeamAndMember: team fetched`, {
+        teamId,
+        name: teamData.name,
+      });
+      setTeam(teamData);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      console.error(`${PAGE_LOG_PREFIX} fetchTeamAndMember: team error`, {
+        error: e,
+        teamId,
+        status: e?.status,
+      });
+      setError("Impossible de charger l'équipe");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const memberData = await teamsService.getMember(teamId, memberId);
+      console.log(`${PAGE_LOG_PREFIX} fetchTeamAndMember: member fetched`, {
+        teamId,
+        memberId,
+        name: memberData.name,
+      });
+      setMember(memberData);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      console.error(`${PAGE_LOG_PREFIX} fetchTeamAndMember: member error`, {
+        error: e,
+        teamId,
+        memberId,
+        status: e?.status,
+      });
+      if (e?.status === 401 || e?.status === 403) {
+        if (e.status === 401) {
+          window.location.href = "/login?callbackUrl=/equipes";
+        } else {
+          toast.error("Vous n'êtes pas autorisé à effectuer cette action");
+        }
+      } else {
+        setError("Membre introuvable");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [teamId, memberId, params.teamId, params.memberId]);
+
+  useEffect(() => {
+    fetchTeamAndMember();
+  }, [fetchTeamAndMember]);
+
+  if (loading || !team || !member) {
+    if (error) {
+      return (
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <Card className="dashboard-card flex h-64 items-center justify-center">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+              <p className="text-sm text-muted-foreground">{error}</p>
+            </div>
+          </Card>
+        </section>
+      );
+    }
     return (
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <Card className="dashboard-card flex h-64 items-center justify-center">
-          <p className="text-sm text-muted-foreground">Membre introuvable</p>
-        </Card>
+        <div className="mb-8 flex items-center gap-3 animate-slide-in-3d">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted/30">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          </div>
+          <div>
+            <div className="h-6 w-40 rounded bg-muted/30 animate-pulse" />
+            <div className="mt-1 h-4 w-64 rounded bg-muted/30 animate-pulse" />
+          </div>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-1 space-y-6">
+            <Card className="dashboard-card overflow-hidden">
+              <div className="border-b border-border/50 px-6 py-4 flex items-center gap-3">
+                <div className="h-12 w-12 rounded-full bg-muted/30 animate-pulse" />
+                <div className="space-y-1 flex-1">
+                  <div className="h-4 w-32 rounded bg-muted/30 animate-pulse" />
+                  <div className="h-3 w-24 rounded bg-muted/30 animate-pulse" />
+                </div>
+              </div>
+            </Card>
+          </div>
+          <div className="lg:col-span-2">
+            <Card className="dashboard-card flex h-64 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </Card>
+          </div>
+        </div>
       </section>
     );
   }
 
   const roleCfg = rolesConfig[member.role];
-  const isChef = member.role === "chef_de_quart" || member.role.startsWith("chef_de_bloc");
+  const isChef =
+    member.role === "chef_de_quart" || member.role.startsWith("chef_de_bloc");
   const memberShifts = SHIFT_PATTERN[member.role] ?? [];
 
   const getShiftType = (day: number) => {
@@ -149,15 +282,14 @@ export default function MembreDetailPage() {
   };
 
   const cycleShift = (day: number) => {
+    console.log(`${PAGE_LOG_PREFIX} cycleShift: cycling shift for day`, {
+      day,
+    });
     setCustomShifts((prev) => {
       const current = prev[day] ?? getShiftType(day);
-      const order: ("morning" | "night" | "rest" | "morning_supp" | "night_supp")[] = [
-        "morning",
-        "night",
-        "rest",
-        "morning_supp",
-        "night_supp",
-      ];
+      const order: (
+        "morning" | "night" | "rest" | "morning_supp" | "night_supp"
+      )[] = ["morning", "night", "rest", "morning_supp", "night_supp"];
       const idx = order.indexOf(current);
       const next = order[(idx + 1) % order.length];
       return { ...prev, [day]: next };
@@ -165,12 +297,20 @@ export default function MembreDetailPage() {
   };
 
   const addManualHours = () => {
+    console.log(`${PAGE_LOG_PREFIX} addManualHours: adding`, {
+      hours: manualHours,
+      added: addedHours,
+      historyLength: history.length,
+    });
     setHistory((prev) => [...prev, addedHours]);
     setAddedHours((prev) => prev + manualHours);
     setManualHours(0);
   };
 
   const restoreLastAction = () => {
+    console.log(`${PAGE_LOG_PREFIX} restoreLastAction: restoring`, {
+      historyLength: history.length,
+    });
     setAddedHours((prev) => {
       const last = history[history.length - 1];
       if (last === undefined) return prev;
@@ -187,6 +327,10 @@ export default function MembreDetailPage() {
   for (let d = 1; d <= daysInMonth; d++) calendarDays.push(d);
 
   const prevMonth = () => {
+    console.log(`${PAGE_LOG_PREFIX} prevMonth: navigating to previous month`, {
+      currentMonth,
+      currentYear,
+    });
     if (currentMonth === 0) {
       setCurrentMonth(11);
       setCurrentYear((y) => y - 1);
@@ -196,6 +340,10 @@ export default function MembreDetailPage() {
   };
 
   const nextMonth = () => {
+    console.log(`${PAGE_LOG_PREFIX} nextMonth: navigating to next month`, {
+      currentMonth,
+      currentYear,
+    });
     if (currentMonth === 11) {
       setCurrentMonth(0);
       setCurrentYear((y) => y + 1);
@@ -266,7 +414,7 @@ export default function MembreDetailPage() {
                     "absolute inset-0 rounded-full blur-md",
                     member.status === "active"
                       ? "bg-emerald-500/20"
-                      : "bg-muted/20"
+                      : "bg-muted/20",
                   )}
                 />
                 <div
@@ -274,14 +422,16 @@ export default function MembreDetailPage() {
                     "relative flex h-12 w-12 items-center justify-center rounded-full",
                     member.status === "active"
                       ? "bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border-2 border-emerald-500/20 text-emerald-500"
-                      : "bg-muted/30 border-2 border-border/40 text-muted-foreground"
+                      : "bg-muted/30 border-2 border-border/40 text-muted-foreground",
                   )}
                 >
                   {member.avatar}
                 </div>
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-foreground">{member.name}</h2>
+                <h2 className="text-lg font-semibold text-foreground">
+                  {member.name}
+                </h2>
                 <p className="text-xs text-muted-foreground">{member.email}</p>
               </div>
             </div>
@@ -294,7 +444,7 @@ export default function MembreDetailPage() {
                     "text-xs rounded-full",
                     isChef
                       ? "bg-primary/10 text-primary border-primary/20"
-                      : "bg-muted/30 text-muted-foreground border-border/40"
+                      : "bg-muted/30 text-muted-foreground border-border/40",
                   )}
                 >
                   {roleCfg?.label ?? member.role}
@@ -317,7 +467,9 @@ export default function MembreDetailPage() {
               <div className="h-px bg-border/50" />
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Équipe</span>
-                <span className="text-xs font-medium text-foreground">{team.name}</span>
+                <span className="text-xs font-medium text-foreground">
+                  {team.name}
+                </span>
               </div>
             </div>
           </Card>
@@ -366,7 +518,9 @@ export default function MembreDetailPage() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Matinées supp.</span>
+                <span className="text-xs text-muted-foreground">
+                  Matinées supp.
+                </span>
                 <Badge
                   variant="secondary"
                   className="text-xs bg-primary/10 text-primary border-primary/20"
@@ -376,7 +530,9 @@ export default function MembreDetailPage() {
               </div>
               <div className="h-px bg-border/50" />
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Nuitées supp.</span>
+                <span className="text-xs text-muted-foreground">
+                  Nuitées supp.
+                </span>
                 <Badge
                   variant="secondary"
                   className="text-xs bg-primary/10 text-primary border-primary/20"
@@ -386,12 +542,16 @@ export default function MembreDetailPage() {
               </div>
               <div className="h-px bg-border/50" />
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Heures sup. ajout.</span>
+                <span className="text-xs text-muted-foreground">
+                  Heures sup. ajout.
+                </span>
                 <div className="flex items-center gap-1">
                   <Input
                     type="number"
                     value={manualHours}
-                    onChange={(e) => setManualHours(Math.max(0, Number(e.target.value)))}
+                    onChange={(e) =>
+                      setManualHours(Math.max(0, Number(e.target.value)))
+                    }
                     className="h-7 w-16 text-right text-xs bg-background/60 border-border/60 rounded-xl focus:border-primary/50 transition-all duration-200"
                   />
                   <Button
@@ -405,7 +565,9 @@ export default function MembreDetailPage() {
               </div>
               <div className="h-px bg-border/50" />
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Total heures sup.</span>
+                <span className="text-xs text-muted-foreground">
+                  Total heures sup.
+                </span>
                 <div className="flex items-center gap-1">
                   <Badge
                     variant="secondary"
@@ -426,11 +588,15 @@ export default function MembreDetailPage() {
               </div>
               <div className="h-px bg-border/50" />
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-foreground">Total</span>
                 <span className="text-xs font-semibold text-foreground">
-                  {shiftCounts.morning} matinée{shiftCounts.morning !== 1 ? "s" : ""},{" "}
-                  {shiftCounts.night} nuitée{shiftCounts.night !== 1 ? "s" : ""},{" "}
-                  {shiftCounts.totalSupp} heure{shiftCounts.totalSupp !== 1 ? "s" : ""} sup.
+                  Total
+                </span>
+                <span className="text-xs font-semibold text-foreground">
+                  {shiftCounts.morning} matinée
+                  {shiftCounts.morning !== 1 ? "s" : ""}, {shiftCounts.night}{" "}
+                  nuitée{shiftCounts.night !== 1 ? "s" : ""},{" "}
+                  {shiftCounts.totalSupp} heure
+                  {shiftCounts.totalSupp !== 1 ? "s" : ""} sup.
                 </span>
               </div>
             </div>
@@ -442,7 +608,9 @@ export default function MembreDetailPage() {
             <div className="border-b border-border/50 px-3 py-1.5 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-xs font-semibold text-foreground">Calendrier de quart</h3>
+                <h3 className="text-xs font-semibold text-foreground">
+                  Calendrier de quart
+                </h3>
                 <Badge
                   variant="secondary"
                   className="text-[8px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20"
@@ -500,45 +668,45 @@ export default function MembreDetailPage() {
                     shiftType === "morning"
                       ? "bg-sky-500/15 border border-sky-500/30"
                       : shiftType === "night"
-                      ? "bg-violet-500/15 border border-violet-500/30"
-                      : shiftType === "morning_supp"
-                      ? "bg-orange-500/15 border border-orange-500/30"
-                      : shiftType === "night_supp"
-                      ? "bg-pink-500/15 border border-pink-500/30"
-                      : "bg-background border border-transparent hover:border-border";
+                        ? "bg-violet-500/15 border border-violet-500/30"
+                        : shiftType === "morning_supp"
+                          ? "bg-orange-500/15 border border-orange-500/30"
+                          : shiftType === "night_supp"
+                            ? "bg-pink-500/15 border border-pink-500/30"
+                            : "bg-background border border-transparent hover:border-border";
 
                   const numberClasses =
                     shiftType === "morning"
                       ? "text-sky-700 font-bold dark:text-sky-300"
                       : shiftType === "night"
-                      ? "text-violet-700 font-bold dark:text-violet-300"
-                      : shiftType === "morning_supp"
-                      ? "text-orange-700 font-bold dark:text-orange-300"
-                      : shiftType === "night_supp"
-                      ? "text-pink-700 font-bold dark:text-pink-300"
-                      : "text-muted-foreground";
+                        ? "text-violet-700 font-bold dark:text-violet-300"
+                        : shiftType === "morning_supp"
+                          ? "text-orange-700 font-bold dark:text-orange-300"
+                          : shiftType === "night_supp"
+                            ? "text-pink-700 font-bold dark:text-pink-300"
+                            : "text-muted-foreground";
 
                   const badgeClasses =
                     shiftType === "morning"
                       ? "bg-sky-500 text-white"
                       : shiftType === "night"
-                      ? "bg-violet-500 text-white"
-                      : shiftType === "morning_supp"
-                      ? "bg-orange-500 text-white"
-                      : shiftType === "night_supp"
-                      ? "bg-pink-500 text-white"
-                      : "bg-muted text-muted-foreground";
+                        ? "bg-violet-500 text-white"
+                        : shiftType === "morning_supp"
+                          ? "bg-orange-500 text-white"
+                          : shiftType === "night_supp"
+                            ? "bg-pink-500 text-white"
+                            : "bg-muted text-muted-foreground";
 
                   const badgeLabel =
                     shiftType === "morning"
                       ? "M"
                       : shiftType === "night"
-                      ? "N"
-                      : shiftType === "morning_supp"
-                      ? "MS"
-                      : shiftType === "night_supp"
-                      ? "NS"
-                      : "R";
+                        ? "N"
+                        : shiftType === "morning_supp"
+                          ? "MS"
+                          : shiftType === "night_supp"
+                            ? "NS"
+                            : "R";
 
                   return (
                     <div
@@ -567,23 +735,33 @@ export default function MembreDetailPage() {
               <div className="mt-1 flex items-center justify-center gap-1.5 flex-wrap">
                 <div className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded bg-sky-500/60" />
-                  <span className="text-[10px] text-muted-foreground font-medium">Matinée</span>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    Matinée
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded bg-violet-500/60" />
-                  <span className="text-[10px] text-muted-foreground font-medium">Nuit</span>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    Nuit
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded bg-orange-500/60" />
-                  <span className="text-[10px] text-muted-foreground font-medium">Matinée supp.</span>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    Matinée supp.
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded bg-pink-500/60" />
-                  <span className="text-[10px] text-muted-foreground font-medium">Nuit supp.</span>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    Nuit supp.
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded bg-muted border border-border" />
-                  <span className="text-[10px] text-muted-foreground font-medium">Repos</span>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    Repos
+                  </span>
                 </div>
               </div>
             </div>
@@ -601,7 +779,9 @@ export default function MembreDetailPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between rounded-xl border border-border/50 bg-background/50 p-4">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Congé annuel</p>
+                  <p className="text-sm font-medium text-foreground">
+                    Congé annuel
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Du 15 Août au 22 Août 2026
                   </p>
@@ -615,8 +795,12 @@ export default function MembreDetailPage() {
               </div>
               <div className="flex items-center justify-between rounded-xl border border-border/50 bg-background/50 p-4">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Récupération</p>
-                  <p className="text-xs text-muted-foreground">10 Septembre 2026</p>
+                  <p className="text-sm font-medium text-foreground">
+                    Récupération
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    10 Septembre 2026
+                  </p>
                 </div>
                 <Badge
                   variant="outline"

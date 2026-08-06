@@ -8,5 +8,15 @@ export type {
   DeviceEvent,
 } from "@/lib/embedded/device-service";
 
-export { ActuatorToggleSchema } from "@/lib/embedded/schemas";
-export type { ActuatorToggle } from "@/lib/embedded/schemas";
+export {
+  ActuatorToggleSchema,
+  SensorCameraSchema,
+  SensorMicrophoneSchema,
+  SensorTemperatureSchema,
+  SensorReadingSchema,
+  ActuatorStateSchema,
+  DeviceConnectionInfoSchema,
+  ConnectionTypeSchema,
+  ConnectionStatusSchema,
+  type ActuatorToggle,
+} from "@/lib/embedded/schemas";

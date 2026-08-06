@@ -1,27 +1,16 @@
-export type ConnectionType = "cable" | "wireless" | "disconnected";
-export type ConnectionStatus = "connected" | "connecting" | "disconnected";
+import type {
+  SensorReading,
+  ActuatorState,
+  DeviceConnectionInfo,
+} from "@/lib/embedded/schemas";
 
-export interface SensorReading {
-  deviceId: string;
-  timestamp: number;
-  camera: { active: boolean; resolution: string; fps: number; motionDetected: boolean };
-  microphone: { active: boolean; level: number; noiseDetected: boolean };
-  temperature: { active: boolean; current: number; min: number; max: number; unit: "C" | "F"; alert: boolean };
-}
-
-export interface ActuatorState {
-  id: string;
-  name: string;
-  type: "relay" | "servo" | "led" | "motor" | "valve";
-  state: "idle" | "active" | "error";
-  enabled: boolean;
-}
-
-export interface DeviceConnectionInfo {
-  type: ConnectionType;
-  status: ConnectionStatus;
-  rssi?: number;
-}
+export type {
+  ConnectionType,
+  ConnectionStatus,
+  SensorReading,
+  ActuatorState,
+  DeviceConnectionInfo,
+} from "@/lib/embedded/schemas";
 
 export interface DeviceSnapshot {
   sensors: SensorReading;
@@ -32,7 +21,14 @@ export interface DeviceSnapshot {
 export type DeviceEvent =
   | { type: "sensor"; data: SensorReading }
   | { type: "actuator"; data: ActuatorState }
-  | { type: "alarm"; data: { message: string; severity: "warning" | "danger" | "info"; sensor: string } }
+  | {
+      type: "alarm";
+      data: {
+        message: string;
+        severity: "warning" | "danger" | "info";
+        sensor: string;
+      };
+    }
   | { type: "status"; data: { connected: boolean; rssi?: number } };
 
 type EventCallback = (event: DeviceEvent) => void;
@@ -52,7 +48,11 @@ export class DeviceService {
     this.readingsUrl = `${baseUrl}/${deviceId}/readings`;
   }
 
-  private connection: DeviceConnectionInfo = { type: "wireless", status: "connected", rssi: -42 };
+  private connection: DeviceConnectionInfo = {
+    type: "wireless",
+    status: "connected",
+    rssi: -42,
+  };
 
   onEvent(callback: EventCallback): () => void {
     this.callbacks.add(callback);
@@ -121,7 +121,11 @@ export class DeviceService {
     return json.data as DeviceSnapshot;
   }
 
-  async toggleActuator(id: string, state: "idle" | "active" | "error", enabled: boolean): Promise<ActuatorState> {
+  async toggleActuator(
+    id: string,
+    state: "idle" | "active" | "error",
+    enabled: boolean,
+  ): Promise<ActuatorState> {
     const res = await fetch(this.readingsUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -130,7 +134,9 @@ export class DeviceService {
 
     if (!res.ok) {
       const error = await res.json().catch(() => ({ error: "Erreur réseau" }));
-      throw new Error(error.error || `Failed to toggle actuator: ${res.status}`);
+      throw new Error(
+        error.error || `Failed to toggle actuator: ${res.status}`,
+      );
     }
 
     const json = await res.json();

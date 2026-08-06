@@ -363,7 +363,7 @@ type Report = {
 
 ## 8. Équipes
 
-**Modèles Prisma :** (pas de modèle dédié, à créer)
+**Modèles Prisma :** `Team`, `TeamMember`
 
 **Types métier :**
 ```ts
@@ -387,9 +387,9 @@ type Team = {
 ```
 
 **À implémenter :**
-- [ ] Créer tables `teams`, `team_members`
-- [ ] CRUD équipes et membres
-- [ ] Affectation rôles par équipe
+- [x] Créer tables `teams`, `team_members`
+- [x] CRUD équipes et membres
+- [x] Affectation rôles par équipe
 
 ---
 

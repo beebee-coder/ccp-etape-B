@@ -1,5 +1,8 @@
 import { query } from "@/lib/db";
 import { z } from "zod";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger({ module: "images-server-store" });
 
 export const MediaItemSchema = z.object({
   id: z.string().optional(),
@@ -9,7 +12,7 @@ export const MediaItemSchema = z.object({
   tags: z.array(z.string()),
   kind: z.enum(["image", "video"]),
   mimeType: z.string(),
-  size: z.number().positive(),
+  size: z.number().positive().max(100 * 1024 * 1024),
   dataUrl: z.string(),
   thumbnailDataUrl: z.string().optional(),
   createdAt: z.string().optional(),
@@ -21,6 +24,12 @@ export const MediaItemInputSchema = MediaItemSchema.omit({
   createdAt: true,
   updatedAt: true,
 });
+
+export const MediaItemUpdateSchema = MediaItemSchema.omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).partial();
 
 export interface MediaItem {
   id: string;
@@ -37,132 +46,236 @@ export interface MediaItem {
   updatedAt: string;
 }
 
+export type MediaItemMeta = Omit<MediaItem, "dataUrl" | "thumbnailDataUrl">;
+
+export interface GetAllOptions {
+  limit?: number;
+  offset?: number;
+  includeDataUrl?: boolean;
+}
+
+export interface ImageStats {
+  total: number;
+  totalSize: number;
+  totalImages: number;
+  totalVideos: number;
+  categories: string[];
+}
+
 export function generateId(): string {
   return `media_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export async function getAll(): Promise<MediaItem[]> {
-  const result = await query<{
-    id: string;
-    title: string;
-    category: string;
-    description: string;
-    tags: string[];
-    kind: string;
-    mime_type: string;
-    size: number;
-    data_url: string;
-    thumbnail_url: string | null;
-    created_at: string;
-    updated_at: string;
-  }>(
-    `SELECT id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at
-     FROM media_items
-     ORDER BY created_at DESC`
-  );
+function buildColumns(includeDataUrl: boolean): string {
+  return includeDataUrl
+    ? "id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at"
+    : "id, title, category, description, tags, kind, mime_type, size, created_at, updated_at";
+}
 
-  return result.rows.map((row) => ({
-    id: row.id,
-    title: row.title,
-    category: row.category,
-    description: row.description,
-    tags: row.tags || [],
+function buildItem(
+  row: Record<string, unknown>,
+  includeDataUrl: boolean,
+): MediaItem | MediaItemMeta {
+  const base: MediaItemMeta = {
+    id: row.id as string,
+    title: row.title as string,
+    category: row.category as string,
+    description: row.description as string,
+    tags: (row.tags as string[]) || [],
     kind: row.kind as "image" | "video",
-    mimeType: row.mime_type,
-    size: row.size,
-    dataUrl: row.data_url,
-    thumbnailDataUrl: row.thumbnail_url ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+    mimeType: row.mime_type as string,
+    size: row.size as number,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+
+  if (includeDataUrl) {
+    return {
+      ...base,
+      dataUrl: row.data_url as string,
+      thumbnailDataUrl: row.thumbnail_url
+        ? (row.thumbnail_url as string)
+        : undefined,
+    } as MediaItem;
+  }
+  return base;
+}
+
+export async function getAll(opts: GetAllOptions = {}): Promise<MediaItem[]> {
+  const { limit, offset, includeDataUrl = true } = opts;
+  const columns = buildColumns(includeDataUrl);
+
+  log.debug("getAll: fetching media items from database", {
+    limit,
+    offset,
+    includeDataUrl,
+  });
+
+  try {
+    let limitClause = "";
+    let offsetClause = "";
+    if (limit !== undefined) {
+      limitClause = "LIMIT $1";
+    }
+    if (offset !== undefined) {
+      offsetClause = limit !== undefined ? " OFFSET $2" : " OFFSET $1";
+    }
+    const sql = `SELECT ${columns}
+        FROM media_items
+        ORDER BY created_at DESC
+        ${limitClause}${offsetClause}`;
+    const params: unknown[] = [];
+    if (limit !== undefined && offset !== undefined) {
+      params.push(limit, offset);
+    } else if (limit !== undefined) {
+      params.push(limit);
+    } else if (offset !== undefined) {
+      params.push(offset);
+    }
+
+    const result = await query<{
+      id: string;
+      title: string;
+      category: string;
+      description: string;
+      tags: string[];
+      kind: string;
+      mime_type: string;
+      size: number;
+      data_url?: string;
+      thumbnail_url?: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(sql, params.length > 0 ? params : undefined);
+
+    const items = result.rows.map((row) =>
+      buildItem(row, includeDataUrl),
+    );
+
+    log.debug("getAll: media items retrieved", {
+      count: items.length,
+      rowCount: result.rowCount,
+    });
+    return items as MediaItem[];
+  } catch (error) {
+    log.error("getAll: error fetching media items", { error });
+    throw error;
+  }
 }
 
 export async function getById(id: string): Promise<MediaItem | undefined> {
-  const result = await query<{
-    id: string;
-    title: string;
-    category: string;
-    description: string;
-    tags: string[];
-    kind: string;
-    mime_type: string;
-    size: number;
-    data_url: string;
-    thumbnail_url: string | null;
-    created_at: string;
-    updated_at: string;
-  }>(
-    `SELECT id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at
-     FROM media_items
-     WHERE id = $1`,
-    [id]
-  );
+  log.debug("getById: fetching media item by id", { id });
+  try {
+    const result = await query<{
+      id: string;
+      title: string;
+      category: string;
+      description: string;
+      tags: string[];
+      kind: string;
+      mime_type: string;
+      size: number;
+      data_url: string;
+      thumbnail_url: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `SELECT id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at
+        FROM media_items
+        WHERE id = $1`,
+      [id],
+    );
 
-  if (result.rows.length === 0) return undefined;
+    if (result.rows.length === 0) {
+      log.warn("getById: media item not found", { id });
+      return undefined;
+    }
 
-  const row = result.rows[0];
-  return {
-    id: row.id,
-    title: row.title,
-    category: row.category,
-    description: row.description,
-    tags: row.tags || [],
-    kind: row.kind as "image" | "video",
-    mimeType: row.mime_type,
-    size: row.size,
-    dataUrl: row.data_url,
-    thumbnailDataUrl: row.thumbnail_url ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+    const row = result.rows[0];
+    log.debug("getById: media item retrieved", { id, title: row.title });
+    return buildItem(row, true) as MediaItem;
+  } catch (error) {
+    log.error("getById: error fetching media item", { error, id });
+    throw error;
+  }
 }
 
-export async function create(item: Omit<MediaItem, "id" | "createdAt" | "updatedAt">): Promise<MediaItem> {
+export async function create(
+  item: Omit<MediaItem, "id" | "createdAt" | "updatedAt">,
+): Promise<MediaItem> {
   const id = generateId();
   const now = new Date().toISOString();
 
-  const result = await query<{
-    id: string;
-    title: string;
-    category: string;
-    description: string;
-    tags: string[];
-    kind: string;
-    mime_type: string;
-    size: number;
-    data_url: string;
-    thumbnail_url: string | null;
-    created_at: string;
-    updated_at: string;
-  }>(
-    `INSERT INTO media_items (id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-     RETURNING id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at`,
-    [id, item.title, item.category, item.description, item.tags, item.kind, item.mimeType, item.size, item.dataUrl, item.thumbnailDataUrl || null, now, now]
-  );
+  log.debug("create: inserting new media item", {
+    id,
+    title: item.title,
+    kind: item.kind,
+    category: item.category,
+    size: item.size,
+  });
 
-  const row = result.rows[0];
-  return {
-    id: row.id,
-    title: row.title,
-    category: row.category,
-    description: row.description,
-    tags: row.tags || [],
-    kind: row.kind as "image" | "video",
-    mimeType: row.mime_type,
-    size: row.size,
-    dataUrl: row.data_url,
-    thumbnailDataUrl: row.thumbnail_url ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  try {
+    const result = await query<{
+      id: string;
+      title: string;
+      category: string;
+      description: string;
+      tags: string[];
+      kind: string;
+      mime_type: string;
+      size: number;
+      data_url: string;
+      thumbnail_url: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `INSERT INTO media_items (id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at`,
+      [
+        id,
+        item.title,
+        item.category,
+        item.description,
+        item.tags,
+        item.kind,
+        item.mimeType,
+        item.size,
+        item.dataUrl,
+        item.thumbnailDataUrl || null,
+        now,
+        now,
+      ],
+    );
+
+    const row = result.rows[0];
+    log.debug("create: media item inserted", {
+      id: row.id,
+      title: row.title,
+      kind: row.kind,
+    });
+
+    return buildItem(row, true) as MediaItem;
+  } catch (error) {
+    log.error("create: error inserting media item", {
+      error,
+      id,
+      title: item.title,
+    });
+    throw error;
+  }
 }
 
 export async function update(
   id: string,
-  updates: Partial<Omit<MediaItem, "id" | "createdAt">>
+  updates: Partial<Omit<MediaItem, "id" | "createdAt">>,
 ): Promise<MediaItem | undefined> {
   const now = new Date().toISOString();
+
+  log.debug("update: updating media item", {
+    id,
+    fields: Object.keys(updates),
+  });
 
   const setClauses: string[] = [];
   const values: unknown[] = [];
@@ -209,53 +322,147 @@ export async function update(
   values.push(now);
   values.push(id);
 
-  const result = await query<{
-    id: string;
-    title: string;
-    category: string;
-    description: string;
-    tags: string[];
-    kind: string;
-    mime_type: string;
-    size: number;
-    data_url: string;
-    thumbnail_url: string | null;
-    created_at: string;
-    updated_at: string;
-  }>(
-    `UPDATE media_items SET ${setClauses.join(", ")} WHERE id = $${paramIndex} RETURNING id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at`,
-    values
-  );
+  try {
+    const result = await query<{
+      id: string;
+      title: string;
+      category: string;
+      description: string;
+      tags: string[];
+      kind: string;
+      mime_type: string;
+      size: number;
+      data_url: string;
+      thumbnail_url: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `UPDATE media_items SET ${setClauses.join(", ")} WHERE id = $${paramIndex} RETURNING id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at`,
+      values,
+    );
 
-  if (result.rows.length === 0) return undefined;
+    if (result.rows.length === 0) {
+      log.warn("update: media item not found for update", { id });
+      return undefined;
+    }
 
-  const row = result.rows[0];
-  return {
-    id: row.id,
-    title: row.title,
-    category: row.category,
-    description: row.description,
-    tags: row.tags || [],
-    kind: row.kind as "image" | "video",
-    mimeType: row.mime_type,
-    size: row.size,
-    dataUrl: row.data_url,
-    thumbnailDataUrl: row.thumbnail_url ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+    const row = result.rows[0];
+    log.debug("update: media item updated", { id: row.id, title: row.title });
+
+    return buildItem(row, true) as MediaItem;
+  } catch (error) {
+    log.error("update: error updating media item", { error, id });
+    throw error;
+  }
 }
 
 export async function getCategories(): Promise<string[]> {
-  const result = await query<{ category: string }>(
-    `SELECT DISTINCT category FROM media_items WHERE category IS NOT NULL ORDER BY category ASC`
-  );
+  log.debug("getCategories: fetching distinct categories");
 
-  const cats = result.rows.map((row) => row.category);
-  return ["Tous", ...cats];
+  try {
+    const result = await query<{ category: string }>(
+      `SELECT DISTINCT category FROM media_items WHERE category IS NOT NULL ORDER BY category ASC`,
+    );
+
+    const cats = result.rows.map((row) => row.category);
+    log.debug("getCategories: categories retrieved", {
+      count: cats.length,
+      categories: cats,
+    });
+    return ["Tous", ...cats];
+  } catch (error) {
+    log.error("getCategories: error fetching categories", { error });
+    throw error;
+  }
 }
 
 export async function remove(id: string): Promise<boolean> {
-  const result = await query<{ id: string }>("DELETE FROM media_items WHERE id = $1 RETURNING id", [id]);
-  return result.rows.length > 0;
+  log.debug("remove: deleting media item", { id });
+
+  try {
+    const result = await query<{ id: string }>(
+      "DELETE FROM media_items WHERE id = $1 RETURNING id",
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      log.warn("remove: media item not found for deletion", { id });
+      return false;
+    }
+
+    log.debug("remove: media item deleted", { id });
+    return true;
+  } catch (error) {
+    log.error("remove: error deleting media item", { error, id });
+    throw error;
+  }
+}
+
+export async function getAllMeta(
+  opts: Omit<GetAllOptions, "includeDataUrl"> = {},
+): Promise<MediaItemMeta[]> {
+  const items = await getAll({ ...opts, includeDataUrl: false });
+  return items as MediaItemMeta[];
+}
+
+export async function getCount(): Promise<number> {
+  log.debug("getCount: fetching total count");
+  try {
+    const result = await query<{ count: number }>(
+      "SELECT COUNT(*) as count FROM media_items",
+    );
+    const count = Number(result.rows[0]?.count ?? 0);
+    log.debug("getCount: count retrieved", { count });
+    return count;
+  } catch (error) {
+    log.error("getCount: error fetching count", { error });
+    throw error;
+  }
+}
+
+export async function getTotalSize(): Promise<number> {
+  log.debug("getTotalSize: fetching total size");
+  try {
+    const result = await query<{ total: number | null }>(
+      "SELECT SUM(size) as total FROM media_items",
+    );
+    const total = Number(result.rows[0]?.total ?? 0);
+    log.debug("getTotalSize: total size retrieved", { bytes: total });
+    return total;
+  } catch (error) {
+    log.error("getTotalSize: error fetching total size", { error });
+    throw error;
+  }
+}
+
+export async function getStats(): Promise<ImageStats> {
+  log.debug("getStats: fetching aggregate stats");
+  try {
+    const [countResult, sizeResult] = await Promise.all([
+      query<{ total: number; total_images: number; total_videos: number }>(
+        `SELECT COUNT(*) as total,
+         SUM(CASE WHEN kind = 'image' THEN 1 ELSE 0 END) as total_images,
+         SUM(CASE WHEN kind = 'video' THEN 1 ELSE 0 END) as total_videos
+         FROM media_items`,
+      ),
+      query<{ total: number | null }>(
+        "SELECT SUM(size) as total FROM media_items",
+      ),
+    ]);
+
+    const row = countResult.rows[0];
+    const stats: ImageStats = {
+      total: Number(row?.total ?? 0),
+      totalSize: Number(sizeResult.rows[0]?.total ?? 0),
+      totalImages: Number(row?.total_images ?? 0),
+      totalVideos: Number(row?.total_videos ?? 0),
+      categories: [],
+    };
+
+    log.debug("getStats: stats retrieved", { ...stats });
+    return stats;
+  } catch (error) {
+    log.error("getStats: error fetching stats", { error });
+    throw error;
+  }
 }

@@ -1,16 +1,26 @@
 import { NextResponse } from "next/server";
 import type { z } from "zod";
-import { AdviceRequestSchema, type AdviceRequest } from "@/lib/ai/advice-schema";
+import {
+  AdviceRequestSchema,
+  type AdviceRequest,
+} from "@/lib/ai/advice-schema";
 import { GuidePhase } from "@/lib/procedures/types";
 import { generateAIResponse } from "@/lib/ai/providers";
 import { validateApiRequest } from "@/lib/api/handlers";
+import { getQAItemsForAI } from "@/lib/q-r/server-store";
+import { saveChatMessage } from "@/lib/ai/server-store";
+import { createLogger } from "@/lib/logger";
+import type { ChatMessage } from "@/lib/types/chat";
+
+const log = createLogger({ handler: "ai-advice-route" });
 
 function formatAdvicePrompt(
   step: z.infer<typeof AdviceRequestSchema>["step"],
   stepIndex: number,
   totalSteps: number,
   phase: GuidePhase,
-  userMessage?: string
+  userMessage?: string,
+  qaContext?: string,
 ): string {
   const phaseLabels: Record<GuidePhase, string> = {
     briefing: "Briefing (présentation de la procédure)",
@@ -55,7 +65,10 @@ function formatAdvicePrompt(
       ? `\n- Dépendances : cette étape nécessite la validation des étapes suivantes avant exécution : ${step.dependencies.join(", ")}`
       : "";
 
-  const basePrompt = `Tu es un conseiller IA spécialisé dans les procédures industrielles. Tu aides un opérateur à exécuter une procédure pas à pas.
+  const qaInfo = qaContext ? `\n- Questions fréquentes :\n${qaContext}` : "";
+
+  const basePrompt =
+    `Tu es un conseiller IA spécialisé dans les procédures industrielles. Tu aides un opérateur à exécuter une procédure pas à pas.
 
 CONTEXTE ACTUEL :
 - Phase : ${phaseLabels[phase]}
@@ -67,7 +80,8 @@ CONTEXTE ACTUEL :
     timerInfo +
     mediaInfo +
     alarmInfo +
-    depInfo;
+    depInfo +
+    qaInfo;
 
   if (userMessage && userMessage.trim().length > 0) {
     return `${basePrompt}
@@ -91,11 +105,79 @@ export async function POST(request: Request) {
   });
   if (!result.ok) return result.response;
 
-  const { step, stepIndex, totalSteps, phase, userMessage, context } = result.ctx.body as AdviceRequest;
-  const prompt = formatAdvicePrompt(step, stepIndex, totalSteps, phase, userMessage);
+  const user = result.ctx.user;
+  const { step, stepIndex, totalSteps, phase, userMessage, context } = result
+    .ctx.body as AdviceRequest;
+
+  log.debug("AI advice request received", {
+    userId: user.sub,
+    stepId: step.id,
+    stepIndex,
+    totalSteps,
+    phase,
+    hasUserMessage: !!userMessage,
+  });
+
+  const conversationId = crypto.randomUUID();
+  const aiContext = typeof context === "string" ? context : undefined;
+
+  let qaContext: string | undefined;
+  try {
+    qaContext = await getQAItemsForAI();
+  } catch (error) {
+    log.warn("AI advice: failed to fetch Q&A context", {
+      userId: user.sub,
+      stepId: step.id,
+      error,
+    });
+  }
+
+  const prompt = formatAdvicePrompt(
+    step,
+    stepIndex,
+    totalSteps,
+    phase,
+    userMessage,
+    qaContext,
+  );
 
   try {
-    const { response, provider } = await generateAIResponse(prompt, typeof context === "string" ? context : undefined);
+    const { response, provider } = await generateAIResponse(prompt, aiContext);
+
+    log.info("AI advice: response generated", {
+      userId: user.sub,
+      stepId: step.id,
+      phase,
+      provider,
+      responseLength: response.length,
+    });
+
+    const assistantMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      conversationId,
+      userId: user.sub,
+      role: "assistant",
+      content: response,
+      provider,
+      timestamp: new Date(),
+      procedureId: undefined,
+      source: `ai-advice:${step.id}`,
+    };
+
+    try {
+      await saveChatMessage(assistantMessage);
+      log.debug("AI advice: advice message persisted", {
+        userId: user.sub,
+        stepId: step.id,
+        messageId: assistantMessage.id,
+      });
+    } catch (error) {
+      log.warn("AI advice: failed to persist advice message to database", {
+        userId: user.sub,
+        stepId: step.id,
+        error,
+      });
+    }
 
     return NextResponse.json({
       data: {
@@ -104,13 +186,22 @@ export async function POST(request: Request) {
         message: response,
         provider,
         timestamp: Date.now(),
+        conversationId,
       },
     });
   } catch (error) {
-    console.error("AI advice route error:", error);
+    log.error("AI advice route error", {
+      userId: user.sub,
+      stepId: step.id,
+      phase,
+      stepIndex,
+      totalSteps,
+      hasUserMessage: !!userMessage,
+      error,
+    });
     return NextResponse.json(
       { error: "Erreur serveur lors de la génération du conseil" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

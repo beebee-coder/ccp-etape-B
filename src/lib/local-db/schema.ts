@@ -1,0 +1,94 @@
+export const LOCAL_FIRST_SCHEMA = `
+-- ============================================================
+-- Visionode — Tables spécifiques au mode local-first
+-- ============================================================
+
+-- Index des métadonnées locales (.meta.json)
+CREATE TABLE IF NOT EXISTS local_meta (
+  id            TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+  path          TEXT NOT NULL UNIQUE,
+  libelle       TEXT NOT NULL,
+  code          TEXT NOT NULL,
+  type          TEXT NOT NULL,
+  parent_id     TEXT,
+  sync_state    TEXT NOT NULL DEFAULT 'local-only',
+  last_sync_at  TIMESTAMP,
+  description   TEXT,
+  tags          TEXT NOT NULL DEFAULT '[]',
+  metadata      TEXT NOT NULL DEFAULT '{}',
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_local_meta_path ON local_meta(path);
+CREATE INDEX IF NOT EXISTS idx_local_meta_type ON local_meta(type);
+CREATE INDEX IF NOT EXISTS idx_local_meta_sync_state ON local_meta(sync_state);
+CREATE INDEX IF NOT EXISTS idx_local_meta_parent ON local_meta(parent_id);
+
+-- File d'attente de synchronisation (web-sync)
+CREATE TABLE IF NOT EXISTS sync_queue (
+  id            TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+  operation     TEXT NOT NULL CHECK (operation IN ('create', 'update', 'delete')),
+  entity        TEXT NOT NULL,
+  entity_id     TEXT NOT NULL,
+  data          TEXT NOT NULL DEFAULT '{}',
+  timestamp     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'synced', 'failed')),
+  retry_count   INTEGER NOT NULL DEFAULT 0,
+  last_error    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_entity ON sync_queue(entity, entity_id);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_timestamp ON sync_queue(timestamp);
+
+-- Manifeste de synchronisation
+CREATE TABLE IF NOT EXISTS sync_manifest (
+   id            INTEGER PRIMARY KEY CHECK (id = 1),
+   version       TEXT NOT NULL,
+   last_sync     TIMESTAMP,
+   pending_count INTEGER NOT NULL DEFAULT 0,
+   synced_count  INTEGER NOT NULL DEFAULT 0,
+   failed_count  INTEGER NOT NULL DEFAULT 0
+);
+
+-- ============================================================
+-- Knowledge Items (Q/R) — local-first
+-- ============================================================
+CREATE TABLE IF NOT EXISTS knowledge_items (
+   id          TEXT PRIMARY KEY,
+   user_id     TEXT NOT NULL,
+   type        TEXT NOT NULL DEFAULT 'qa',
+   title       TEXT NOT NULL,
+   question    TEXT,
+   answer      TEXT,
+   tags        TEXT NOT NULL DEFAULT '[]',
+   category    TEXT,
+   content     TEXT,
+   created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   synced      INTEGER NOT NULL DEFAULT 0 CHECK (synced IN (0, 1)),
+   vectorized  INTEGER NOT NULL DEFAULT 0 CHECK (vectorized IN (0, 1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ki_user ON knowledge_items(user_id);
+CREATE INDEX IF NOT EXISTS idx_ki_type ON knowledge_items(type);
+CREATE INDEX IF NOT EXISTS idx_ki_synced ON knowledge_items(synced);
+CREATE INDEX IF NOT EXISTS idx_ki_vectorized ON knowledge_items(vectorized);
+
+-- ============================================================
+-- Chroma Index (vecteur / RAG)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS chroma_index (
+  id            TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+  collection    TEXT NOT NULL,
+  document_id   TEXT NOT NULL,
+  content       TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  embedding     TEXT NOT NULL DEFAULT '[]',
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_chroma_collection ON chroma_index(collection);
+CREATE INDEX IF NOT EXISTS idx_chroma_document ON chroma_index(document_id);
+`;

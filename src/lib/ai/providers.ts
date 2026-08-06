@@ -1,5 +1,10 @@
 import Groq from "groq-sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { createLogger } from "@/lib/logger";
+import { CircuitBreaker } from "./circuit-breaker";
+import { searchRagDocuments } from "./rag-search";
+
+const log = createLogger({ module: "ai-providers" });
 
 const AI_TIMEOUT_MS = 30000;
 
@@ -55,6 +60,12 @@ function getGenAIClient(): GoogleGenerativeAI | null {
 function isProviderAvailable(): boolean {
   return !!process.env.GROQ_API_KEY || !!process.env.GOOGLE_GENAI_API_KEY;
 }
+
+const groqCircuit = new CircuitBreaker({
+  threshold: 3,
+  resetTimeMs: 60_000,
+  halfOpenMaxCalls: 2,
+});
 
 function generateMockResponse(message: string, context?: string): string {
   const contextHint = context ? ` (contexte: ${context})` : "";
@@ -114,69 +125,89 @@ export async function generateAIResponse(
     return { response: editResponse.rawResponse || "Mode édition traité.", provider: "groq" };
   }
 
+  const enrichedContext = await buildEnrichedContext(message, context);
+
   if (!isProviderAvailable()) {
     return {
-      response: generateMockResponse(message, context),
+      response: generateMockResponse(message, enrichedContext),
       provider: "none",
     };
   }
 
-  const groqClient = getGroqClient();
-
-  if (groqClient) {
-    try {
-      const completion = await withTimeout(
-        groqClient.chat.completions.create({
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            ...(context
-              ? [
-                  {
-                    role: "system" as const,
-                    content: `Contexte utilisateur: ${context}`,
-                  },
-                ]
-              : []),
-            { role: "user", content: message },
-          ],
-          model: "llama-3.3-70b-versatile",
-          temperature: 0.7,
-          max_tokens: 1024,
-        }),
-        "Groq API"
-      );
-      const text = completion.choices[0]?.message?.content;
-      if (text) {
-        return { response: text, provider: "groq" };
-      }
-    } catch (error) {
-      console.error("GROQ provider error:", error);
-    }
+  async function tryGroq(): Promise<{ response: string; provider: Provider }> {
+    const client = getGroqClient();
+    if (!client) throw new Error("Groq client unavailable");
+    const completion = await withTimeout(
+      client.chat.completions.create({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...(enrichedContext
+            ? [
+                {
+                  role: "system" as const,
+                  content: `Contexte utilisateur: ${enrichedContext}`,
+                },
+              ]
+            : []),
+          { role: "user", content: message },
+        ],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.7,
+        max_tokens: 1024,
+      }),
+      "Groq API"
+    );
+    const text = completion.choices[0]?.message?.content;
+    if (!text) throw new Error("Empty Groq response");
+    return { response: text, provider: "groq" };
   }
 
-  const genAIClient = getGenAIClient();
-
-  if (genAIClient) {
-    try {
-      const model = genAIClient.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const prompt = context
-        ? `${SYSTEM_PROMPT}\n\nContexte: ${context}\n\nUtilisateur: ${message}`
+  async function tryGemini(): Promise<{ response: string; provider: Provider }> {
+    const client = getGenAIClient();
+    if (!client) throw new Error("Gemini client unavailable");
+    const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt =
+      enrichedContext && typeof enrichedContext === "string"
+        ? `${SYSTEM_PROMPT}\n\nContexte: ${enrichedContext}\n\nUtilisateur: ${message}`
         : `${SYSTEM_PROMPT}\n\nUtilisateur: ${message}`;
-      const result = await withTimeout(model.generateContent(prompt), "Gemini API");
-      const response = await result.response;
-      const text = response.text();
-      if (text) {
-        return { response: text, provider: "gemini" };
-      }
-    } catch (error) {
-      console.error("Gemini provider error:", error);
-    }
+    const result = await withTimeout(model.generateContent(prompt), "Gemini API");
+    const response = await result.response;
+    const text = response.text();
+    if (!text) throw new Error("Empty Gemini response");
+    return { response: text, provider: "gemini" };
   }
 
-  return {
-    response: generateMockResponse(message, context),
-    provider: "none",
-  };
+  try {
+    return await groqCircuit.execute(tryGroq, tryGemini);
+  } catch {
+    return {
+      response: generateMockResponse(message, enrichedContext),
+      provider: "none",
+    };
+  }
+}
+
+async function buildEnrichedContext(
+  message: string,
+  existingContext?: string,
+): Promise<string | undefined> {
+  try {
+    const docs = await searchRagDocuments(message, 5);
+    if (docs.length === 0) return existingContext;
+
+    const ragBlock = docs
+      .map(
+        (doc, index) =>
+          `[${index + 1}] ${doc.content}\n   source: ${(doc.metadata.source as string) || (doc.metadata.title as string) || "chroma_index"}`,
+      )
+      .join("\n");
+
+    return existingContext
+      ? `${existingContext}\n\nRAG:\n${ragBlock}`
+      : `RAG:\n${ragBlock}`;
+  } catch {
+    return existingContext;
+  }
 }
 
 export async function getGuardrailRulesForPrompt(): Promise<string> {
@@ -267,7 +298,7 @@ export async function generateEditModeResponse(
     const text = completion.choices[0]?.message?.content || "";
     return parseEditModeResponse(text);
   } catch (error) {
-    console.error("GROQ edit mode error:", error);
+    log.error("Groq edit mode error", { error: error instanceof Error ? error.message : String(error) });
     return {
       action: "none",
       rawResponse: "Erreur lors de la communication avec le service IA.",
@@ -348,80 +379,77 @@ export async function generateAIStreamResponse(
     return "groq";
   }
 
+  const enrichedContext = await buildEnrichedContext(message, context);
+
   if (!isProviderAvailable()) {
-    generateMockStreamResponse(message, context, onEvent);
+    generateMockStreamResponse(message, enrichedContext, onEvent);
     return "none";
   }
 
-  const groqClient = getGroqClient();
+  async function streamGroq(): Promise<string> {
+    const client = getGroqClient();
+    if (!client) throw new Error("Groq client unavailable");
+    const completion = await withTimeout(
+      client.chat.completions.create({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...(enrichedContext
+            ? [
+                {
+                  role: "system" as const,
+                  content: `Contexte utilisateur: ${enrichedContext}`,
+                },
+              ]
+            : []),
+          { role: "user", content: message },
+        ],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.7,
+        max_tokens: 1024,
+        stream: true,
+      }),
+      "Groq stream API"
+    );
 
-  if (groqClient) {
-    try {
-      const completion = await withTimeout(
-        groqClient.chat.completions.create({
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            ...(context
-              ? [
-                  {
-                     role: "system" as const,
-                    content: `Contexte utilisateur: ${context}`,
-                  },
-                ]
-              : []),
-            { role: "user", content: message },
-          ],
-          model: "llama-3.3-70b-versatile",
-          temperature: 0.7,
-          max_tokens: 1024,
-          stream: true,
-        }),
-        "Groq stream API"
-      );
-
-      let fullText = "";
-      for await (const chunk of completion) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          fullText += delta;
-          onEvent({ event: "token", data: { text: delta, provider: "groq" } });
-        }
+    let fullText = "";
+    for await (const chunk of completion) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        fullText += delta;
+        onEvent({ event: "token", data: { text: delta, provider: "groq" } });
       }
-
-      onEvent({ event: "done", data: { text: fullText, provider: "groq" } });
-      return "groq";
-    } catch (error) {
-      console.error("GROQ stream error:", error);
     }
+    return fullText;
   }
 
-  const genAIClient = getGenAIClient();
+  async function streamGemini(): Promise<string> {
+    const client = getGenAIClient();
+    if (!client) throw new Error("Gemini client unavailable");
+    const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt =
+      enrichedContext && typeof enrichedContext === "string"
+        ? `${SYSTEM_PROMPT}\n\nContexte: ${enrichedContext}\n\nUtilisateur: ${message}`
+        : `${SYSTEM_PROMPT}\n\nUtilisateur: ${message}`;
 
-  if (genAIClient) {
-    try {
-      const model = genAIClient.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const prompt =
-        context && typeof context === "string"
-          ? `${SYSTEM_PROMPT}\n\nContexte: ${context}\n\nUtilisateur: ${message}`
-          : `${SYSTEM_PROMPT}\n\nUtilisateur: ${message}`;
-
-      const result = await withTimeout(model.generateContentStream(prompt), "Gemini stream API");
-      let fullText = "";
-      for await (const chunk of result.stream) {
-        const text = chunk.text();
-        if (text) {
-          fullText += text;
-          onEvent({ event: "token", data: { text, provider: "gemini" } });
-        }
+    const result = await withTimeout(model.generateContentStream(prompt), "Gemini stream API");
+    let fullText = "";
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) {
+        fullText += text;
+        onEvent({ event: "token", data: { text, provider: "gemini" } });
       }
-
-      onEvent({ event: "done", data: { text: fullText, provider: "gemini" } });
-      return "gemini";
-    } catch (error) {
-      console.error("Gemini stream error:", error);
     }
+    return fullText;
   }
 
-  generateMockStreamResponse(message, context, onEvent);
-  return "none";
+  try {
+    const text = await groqCircuit.execute(streamGroq, streamGemini);
+    onEvent({ event: "done", data: { text, provider: "groq" } });
+    return "groq";
+  } catch (error) {
+    log.error("AI stream error", { error: error instanceof Error ? error.message : String(error) });
+    generateMockStreamResponse(message, enrichedContext, onEvent);
+    return "none";
+  }
 }

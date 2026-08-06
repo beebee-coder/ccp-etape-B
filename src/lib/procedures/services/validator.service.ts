@@ -67,6 +67,24 @@ export type TMediaRequirement = z.infer<typeof MediaRequirementSchema>;
 export type TAlarmConfig = z.infer<typeof AlarmConfigSchema>;
 export type TProcedure = z.infer<typeof ProcedureSchema>;
 
+export const ExecutionContextSchema = z.object({
+  currentStepIndex: z.number().int().min(0),
+  completedSteps: z.array(z.string()),
+  startedAt: z.number(),
+  finishedAt: z.number().optional(),
+  anomalies: z.array(z.string()),
+});
+
+export type TExecutionContext = z.infer<typeof ExecutionContextSchema>;
+
+export const ProcedureExecutionSchema = z.object({
+  procedureCode: z.string().min(1),
+  status: z.enum(["COMPLETED", "ABORTED"]),
+  context: ExecutionContextSchema,
+});
+
+export type TProcedureExecution = z.infer<typeof ProcedureExecutionSchema>;
+
 export function validateProcedure(data: unknown): TProcedure {
   return ProcedureSchema.parse(data);
 }

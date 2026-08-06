@@ -51,7 +51,25 @@ export default function GuideProcedurePage() {
       try {
         const data = await apiClient.get<TProcedure[]>("/api/procedures");
         setProcedures(data);
-      } catch {
+        console.log(
+          JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: "info",
+            module: "guide-procedure-page",
+            message: "Procedures loaded from API",
+            data: { count: data.length },
+          })
+        );
+      } catch (e) {
+        console.error(
+          JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: "error",
+            module: "guide-procedure-page",
+            message: "Failed to load procedures",
+            data: { error: e instanceof Error ? e.message : String(e) },
+          })
+        );
         toast.error("Erreur lors du chargement des procédures");
       }
     };
@@ -66,11 +84,29 @@ export default function GuideProcedurePage() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
+      console.log(
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: "info",
+          module: "guide-procedure-page",
+          message: "Importing procedure from JSON file",
+          data: { fileName: file.name, code: parsed?.metadata?.code },
+        })
+      );
       await apiClient.post("/api/procedures", parsed);
       const data = await apiClient.get<TProcedure[]>("/api/procedures");
       setProcedures(data);
       toast.success("Procédure importée avec succès");
     } catch (e) {
+      console.error(
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: "error",
+          module: "guide-procedure-page",
+          message: "Failed to import procedure",
+          data: { error: e instanceof Error ? e.message : String(e), fileName: file.name },
+        })
+      );
       toast.error(e instanceof Error ? e.message : "JSON invalide");
     } finally {
       setIsImporting(false);
@@ -79,17 +115,53 @@ export default function GuideProcedurePage() {
   }, []);
 
   const handleStartGuide = useCallback((procedure: TProcedure) => {
+    console.log(
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: "info",
+        module: "guide-procedure-page",
+        message: "Starting procedure guide",
+        data: { code: procedure.metadata.code, title: procedure.metadata.title },
+      })
+    );
     router.push(`/procedures/guide/${encodeURIComponent(procedure.metadata.code)}`);
   }, [router]);
 
   const handleDeleteProcedure = useCallback(
     async (code: string) => {
+      console.log(
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: "info",
+          module: "guide-procedure-page",
+          message: "Deleting procedure",
+          data: { code },
+        })
+      );
       try {
         await apiClient.delete(`/api/procedures/${encodeURIComponent(code)}`);
         const data = await apiClient.get<TProcedure[]>("/api/procedures");
         setProcedures(data);
         toast.success("Procédure supprimée");
-      } catch {
+        console.log(
+          JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: "info",
+            module: "guide-procedure-page",
+            message: "Procedure deleted",
+            data: { code, remainingCount: data.length },
+          })
+        );
+      } catch (e) {
+        console.error(
+          JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: "error",
+            module: "guide-procedure-page",
+            message: "Failed to delete procedure",
+            data: { code, error: e instanceof Error ? e.message : String(e) },
+          })
+        );
         toast.error("Erreur lors de la suppression de la procédure");
       }
     },

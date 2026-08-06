@@ -70,7 +70,35 @@ CREATE INDEX IF NOT EXISTS idx_procedure_steps_procedure ON procedure_steps(proc
 CREATE INDEX IF NOT EXISTS idx_procedure_steps_order ON procedure_steps(procedure_id, step_order);
 
 -- ============================================================
--- 3. ÉTAT DES LIEUX (actuel — server-store.ts)
+-- 3. EXÉCUTIONS DE PROCÉDURES
+-- ============================================================
+CREATE TABLE IF NOT EXISTS procedure_executions (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  procedure_id    UUID NOT NULL REFERENCES procedures(id) ON DELETE CASCADE,
+  procedure_code  VARCHAR(100) NOT NULL,
+  operator_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  start_time      TIMESTAMP NOT NULL DEFAULT NOW(),
+  end_time        TIMESTAMP,
+  status          VARCHAR(20) NOT NULL DEFAULT 'COMPLETED',
+  steps_status    JSONB NOT NULL DEFAULT '[]',
+  total_duration  INTEGER DEFAULT 0,
+  current_step    INTEGER,
+  alarms          JSONB DEFAULT '[]',
+  fallbacks       JSONB DEFAULT '[]',
+  events          JSONB DEFAULT '[]',
+  signature       TEXT,
+  created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_procedure_executions_procedure ON procedure_executions(procedure_id);
+CREATE INDEX IF NOT EXISTS idx_procedure_executions_operator ON procedure_executions(operator_id);
+CREATE INDEX IF NOT EXISTS idx_procedure_executions_status ON procedure_executions(status);
+CREATE INDEX IF NOT EXISTS idx_procedure_executions_created ON procedure_executions(created_at);
+CREATE INDEX IF NOT EXISTS idx_procedure_executions_procedure_code ON procedure_executions(procedure_code);
+
+-- ============================================================
+-- 4. ÉTAT DES LIEUX (actuel — server-store.ts)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS etat_des_lieux_reports (
   id              VARCHAR(100) PRIMARY KEY,
@@ -219,3 +247,220 @@ CREATE TABLE IF NOT EXISTS guardrail_rules (
 
 CREATE INDEX IF NOT EXISTS idx_guardrail_section ON guardrail_rules(section);
 CREATE INDEX IF NOT EXISTS idx_guardrail_active ON guardrail_rules(is_active);
+
+-- ============================================================
+-- 12. KNOWLEDGE ITEMS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS knowledge_items (
+  id        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type      VARCHAR(50) NOT NULL,
+  title     VARCHAR(255) NOT NULL,
+  question  TEXT,
+  answer    TEXT,
+  tags      TEXT[] NOT NULL DEFAULT '{}',
+  category  VARCHAR(100),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP,
+  content   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_user ON knowledge_items(user_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_type ON knowledge_items(type);
+CREATE INDEX IF NOT EXISTS idx_knowledge_user_type ON knowledge_items(user_id, type);
+
+-- ============================================================
+-- 13. Q/R UPLOADS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS q_r_uploads (
+  id        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id   UUID NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  set_name  VARCHAR(255) NOT NULL,
+  version   INTEGER NOT NULL DEFAULT 1,
+  directory VARCHAR(500) NOT NULL,
+  file_path VARCHAR(500) NOT NULL,
+  qa_count  INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_qr_uploads_user ON q_r_uploads(user_id);
+CREATE INDEX IF NOT EXISTS idx_qr_uploads_set_name ON q_r_uploads(set_name);
+
+-- ============================================================
+-- 14. SYSTÈME EMBARQUÉ / IOT
+-- ============================================================
+CREATE TABLE IF NOT EXISTS iot_devices (
+  id               VARCHAR(100) PRIMARY KEY,
+  name             VARCHAR(255) NOT NULL,
+  connection_type  VARCHAR(50) NOT NULL DEFAULT 'wireless',
+  connection_status VARCHAR(50) NOT NULL DEFAULT 'disconnected',
+  rssi             INTEGER,
+  sensors_json     JSONB NOT NULL DEFAULT '{}',
+  created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iot_devices_status ON iot_devices(connection_status);
+
+CREATE TABLE IF NOT EXISTS iot_actuators (
+  id          VARCHAR(100) PRIMARY KEY,
+  device_id   VARCHAR(100) NOT NULL REFERENCES iot_devices(id) ON DELETE CASCADE,
+  name        VARCHAR(255) NOT NULL,
+  type        VARCHAR(50) NOT NULL,
+  state       VARCHAR(20) NOT NULL DEFAULT 'idle',
+  enabled     BOOLEAN NOT NULL DEFAULT false,
+  updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iot_actuators_device ON iot_actuators(device_id);
+
+CREATE TABLE IF NOT EXISTS iot_sensor_readings (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  device_id    VARCHAR(100) NOT NULL REFERENCES iot_devices(id) ON DELETE CASCADE,
+  reading_json JSONB NOT NULL,
+  created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iot_readings_device ON iot_sensor_readings(device_id);
+CREATE INDEX IF NOT EXISTS idx_iot_readings_created ON iot_sensor_readings(created_at);
+
+-- ============================================================
+-- 15. MESSAGES DE CHAT IA
+-- ============================================================
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id             VARCHAR(100) PRIMARY KEY,
+  conversation_id  VARCHAR(100) NOT NULL,
+  user_id         VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+  role           VARCHAR(20) NOT NULL,
+  content        TEXT NOT NULL,
+  provider       VARCHAR(50),
+  timestamp      TIMESTAMP NOT NULL DEFAULT NOW(),
+  media          JSONB,
+  procedure_id   VARCHAR(100),
+  source         VARCHAR(100),
+  client_id      VARCHAR(100)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_timestamp ON chat_messages(timestamp);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_procedure ON chat_messages(procedure_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_client ON chat_messages(client_id);
+
+-- ============================================================
+-- 16. ÉQUIPES
+-- ============================================================
+CREATE TABLE IF NOT EXISTS teams (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(255) NOT NULL,
+  description TEXT,
+  color       VARCHAR(50) NOT NULL DEFAULT 'bg-blue-500',
+  created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_teams_name ON teams(name);
+
+-- Members of a team
+CREATE TABLE IF NOT EXISTS team_members (
+  id         SERIAL PRIMARY KEY,
+  team_id    INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  name       VARCHAR(255) NOT NULL,
+  email      VARCHAR(255),
+  role       VARCHAR(100) NOT NULL DEFAULT 'user',
+  status     VARCHAR(20) NOT NULL DEFAULT 'active',
+  avatar     VARCHAR(10),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id);
+CREATE INDEX IF NOT EXISTS idx_team_members_email ON team_members(email);
+
+-- ============================================================
+-- 17. RAPPORTS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS reports (
+  id         TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+  date       TEXT NOT NULL,
+  points     TEXT NOT NULL DEFAULT '[]',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_date ON reports(date);
+CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at);
+
+-- ============================================================
+-- 17. VISIOCONFÉRENCE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS meetings (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title           VARCHAR(255) NOT NULL,
+  started_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+  ended_at        TIMESTAMP,
+  created_by      VARCHAR(255) NOT NULL,
+  participants    JSONB NOT NULL DEFAULT '[]',
+  recording_url   VARCHAR(500),
+  created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_meetings_started ON meetings(started_at);
+CREATE INDEX IF NOT EXISTS idx_meetings_ended ON meetings(ended_at);
+CREATE INDEX IF NOT EXISTS idx_meetings_created_by ON meetings(created_by);
+
+CREATE TABLE IF NOT EXISTS meeting_chat_messages (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  meeting_id    UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  user_id       VARCHAR(255) NOT NULL,
+  user_name     VARCHAR(255) NOT NULL,
+  user_initials VARCHAR(10) NOT NULL,
+  is_self       BOOLEAN NOT NULL DEFAULT false,
+  text          TEXT NOT NULL,
+  timestamp     TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_meeting_chat_meeting ON meeting_chat_messages(meeting_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_chat_user ON meeting_chat_messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_chat_timestamp ON meeting_chat_messages(timestamp);
+
+-- ============================================================
+-- 17. SYSTÈME EMBARQUÉ / IOT
+-- ============================================================
+CREATE TABLE IF NOT EXISTS iot_devices (
+  id               VARCHAR(100) PRIMARY KEY,
+  name             VARCHAR(255) NOT NULL,
+  connection_type  VARCHAR(50) NOT NULL DEFAULT 'wireless',
+  connection_status VARCHAR(50) NOT NULL DEFAULT 'disconnected',
+  rssi             INTEGER,
+  sensors_json     JSONB NOT NULL DEFAULT '{}',
+  created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iot_devices_status ON iot_devices(connection_status);
+
+CREATE TABLE IF NOT EXISTS iot_actuators (
+  id          VARCHAR(100) PRIMARY KEY,
+  device_id   VARCHAR(100) NOT NULL REFERENCES iot_devices(id) ON DELETE CASCADE,
+  name        VARCHAR(255) NOT NULL,
+  type        VARCHAR(50) NOT NULL,
+  state       VARCHAR(20) NOT NULL DEFAULT 'idle',
+  enabled     BOOLEAN NOT NULL DEFAULT false,
+  updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iot_actuators_device ON iot_actuators(device_id);
+
+CREATE TABLE IF NOT EXISTS iot_sensor_readings (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  device_id    VARCHAR(100) NOT NULL REFERENCES iot_devices(id) ON DELETE CASCADE,
+  reading_json JSONB NOT NULL,
+  created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iot_readings_device ON iot_sensor_readings(device_id);
+CREATE INDEX IF NOT EXISTS idx_iot_readings_created ON iot_sensor_readings(created_at);

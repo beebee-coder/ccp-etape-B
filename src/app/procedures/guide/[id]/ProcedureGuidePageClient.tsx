@@ -23,8 +23,27 @@ export function ProcedureGuidePageClient({ id }: ProcedureGuidePageClientProps) 
     try {
       const data = await apiClient.get<TProcedure>(`/api/procedures/guide/${encodeURIComponent(id)}`);
       setProcedure(data);
+      console.log(
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: "info",
+          module: "ProcedureGuidePageClient",
+          message: "Procedure loaded from API",
+          data: { code: data.metadata.code, title: data.metadata.title, stepCount: data.steps.length },
+        })
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur inconnue.");
+      const errorMsg = e instanceof Error ? e.message : "Erreur inconnue.";
+      console.error(
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: "error",
+          module: "ProcedureGuidePageClient",
+          message: "Failed to load procedure",
+          data: { code: id, error: errorMsg },
+        })
+      );
+      setError(errorMsg);
     } finally {
       setIsLoading(false);
     }

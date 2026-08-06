@@ -49,9 +49,12 @@ interface ApiTreeNode {
   children?: ApiTreeNode[];
   stats?: { sizeBytes: number };
   vectorized?: boolean;
+  libelle?: string;
 }
 
-async function buildStructure(children: ApiTreeNode[]): Promise<DatabaseTreeNode[]> {
+async function buildStructure(
+  children: ApiTreeNode[],
+): Promise<DatabaseTreeNode[]> {
   const nodes: DatabaseTreeNode[] = [];
   for (const child of children) {
     const childPath = child.path;
@@ -62,7 +65,11 @@ async function buildStructure(children: ApiTreeNode[]): Promise<DatabaseTreeNode
       path: childPath,
       indexed: child.vectorized ?? false,
       vectorized: child.vectorized ?? false,
-      children: child.kind === "directory" ? await buildStructure(child.children || []) : undefined,
+      children:
+        child.kind === "directory"
+          ? await buildStructure(child.children || [])
+          : undefined,
+      ...(child.libelle ? { libelle: child.libelle } : {}),
     };
     nodes.push(node);
   }
@@ -72,20 +79,36 @@ async function buildStructure(children: ApiTreeNode[]): Promise<DatabaseTreeNode
 type ModalMode = "create" | "rename" | null;
 
 export function HolographicDatabaseExplorer() {
-  const [schemaStructure, setSchemaStructure] = useState<DatabaseStructure | null>(null);
+  const [schemaStructure, setSchemaStructure] =
+    useState<DatabaseStructure | null>(null);
   const [loading, setLoading] = useState(true);
-  const [preview, setPreview] = useState<{ path: string; content: string; name: string } | null>(null);
-  const [modal, setModal] = useState<{ mode: ModalMode; parentPath?: string; targetPath?: string; defaultName?: string } | null>(null);
+  const [preview, setPreview] = useState<{
+    path: string;
+    content: string;
+    name: string;
+    isImage?: boolean;
+  } | null>(null);
+  const [modal, setModal] = useState<{
+    mode: ModalMode;
+    parentPath?: string;
+    targetPath?: string;
+    defaultName?: string;
+  } | null>(null);
   const [modalName, setModalName] = useState("");
   const [modalKind, setModalKind] = useState<"file" | "directory">("file");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [vectorizedFiles, setVectorizedFiles] = useState<Set<string>>(() => new Set());
+  const [vectorizedFiles, setVectorizedFiles] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const loadStructure = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/local-db/fs?t=${Date.now()}`);
-      const data = (await res.json()) as { children?: ApiTreeNode[]; vectorizedPaths?: string[] };
+      const data = (await res.json()) as {
+        children?: ApiTreeNode[];
+        vectorizedPaths?: string[];
+      };
       const nodes = await buildStructure(data.children || []);
       setSchemaStructure({
         id: ".local-db",
@@ -122,14 +145,21 @@ export function HolographicDatabaseExplorer() {
         children: [],
       };
     }
-    const clone = JSON.parse(JSON.stringify(schemaStructure)) as DatabaseStructure;
+    const clone = JSON.parse(
+      JSON.stringify(schemaStructure),
+    ) as DatabaseStructure;
 
     const filterVectorized = (node: DatabaseTreeNode): DatabaseTreeNode => {
       if (node.kind === "document") {
         if (vectorizedFiles.has(node.path)) {
           node.indexed = true;
           node.vectorized = true;
-          node.stats = node.stats || { vectors: 1, chunks: 1, dimension: 384, sizeBytes: 1024 };
+          node.stats = node.stats || {
+            vectors: 1,
+            chunks: 1,
+            dimension: 384,
+            sizeBytes: 1024,
+          };
         } else {
           node.indexed = false;
           node.vectorized = false;
@@ -141,7 +171,7 @@ export function HolographicDatabaseExplorer() {
       if (node.children) {
         const filteredChildren = node.children.map(filterVectorized);
         const hasVectorized = filteredChildren.some(
-          (c) => c.kind === "document" && c.vectorized
+          (c) => c.kind === "document" && c.vectorized,
         );
         return {
           ...node,
@@ -163,7 +193,9 @@ export function HolographicDatabaseExplorer() {
     } as DatabaseStructure;
   }, [schemaStructure, vectorizedFiles]);
 
-  const vectorizationState = useMemo<"complete" | "pending" | "in-progress">(() => {
+  const vectorizationState = useMemo<
+    "complete" | "pending" | "in-progress"
+  >(() => {
     if (!schemaStructure) return "pending";
 
     const allFiles: string[] = [];
@@ -179,7 +211,9 @@ export function HolographicDatabaseExplorer() {
     return "in-progress";
   }, [schemaStructure, vectorizedFiles]);
 
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([".local-db"]));
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set([".local-db"]),
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -223,7 +257,9 @@ export function HolographicDatabaseExplorer() {
           body: formData,
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: "Erreur upload" }));
+          const err = await res
+            .json()
+            .catch(() => ({ error: "Erreur upload" }));
           throw new Error(err.error || "Erreur upload");
         }
         toast.success("Fichier uploadé");
@@ -242,7 +278,9 @@ export function HolographicDatabaseExplorer() {
           }),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: "Erreur création" }));
+          const err = await res
+            .json()
+            .catch(() => ({ error: "Erreur création" }));
           throw new Error(err.error || "Erreur création");
         }
         toast.success("Dossier créé");
@@ -252,7 +290,8 @@ export function HolographicDatabaseExplorer() {
       setSelectedFile(null);
       await refreshNode(modal.parentPath);
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Erreur lors de la création";
+      const message =
+        e instanceof Error ? e.message : "Erreur lors de la création";
       toast.error(message);
     }
   };
@@ -260,18 +299,24 @@ export function HolographicDatabaseExplorer() {
   const handleDelete = async (nodePath: string) => {
     if (!confirm("Supprimer ce fichier/dossier ?")) return;
     try {
-      const res = await fetch(`/api/local-db/fs?path=${encodeURIComponent(nodePath)}&t=${Date.now()}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/local-db/fs?path=${encodeURIComponent(nodePath)}&t=${Date.now()}`,
+        {
+          method: "DELETE",
+        },
+      );
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Erreur suppression" }));
+        const err = await res
+          .json()
+          .catch(() => ({ error: "Erreur suppression" }));
         throw new Error(err.error || "Erreur suppression");
       }
       toast.success("Élément supprimé");
       if (selectedId === nodePath) setSelectedId(null);
       await loadStructure();
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Erreur lors de la suppression";
+      const message =
+        e instanceof Error ? e.message : "Erreur lors de la suppression";
       toast.error(message);
     }
   };
@@ -288,7 +333,9 @@ export function HolographicDatabaseExplorer() {
         }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Erreur renommage" }));
+        const err = await res
+          .json()
+          .catch(() => ({ error: "Erreur renommage" }));
         throw new Error(err.error || "Erreur renommage");
       }
       toast.success("Élément renommé");
@@ -296,7 +343,8 @@ export function HolographicDatabaseExplorer() {
       setModalName("");
       await loadStructure();
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Erreur lors du renommage";
+      const message =
+        e instanceof Error ? e.message : "Erreur lors du renommage";
       toast.error(message);
     }
   };
@@ -304,12 +352,18 @@ export function HolographicDatabaseExplorer() {
   const handlePreview = async (node: DatabaseTreeNode) => {
     if (node.kind !== "document") return;
     try {
-      const res = await fetch(`/api/local-db/fs?path=${encodeURIComponent(node.path)}&read=true&t=${Date.now()}`);
+      const res = await fetch(
+        `/api/local-db/fs?path=${encodeURIComponent(node.path)}&read=true&t=${Date.now()}`,
+      );
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setPreview({ path: node.path, content: data.content, name: node.name });
+      setPreview({ path: node.path, content: data.content, name: node.name, isImage: data.isImage });
     } catch {
-      setPreview({ path: node.path, content: "[Impossible de lire le fichier]", name: node.name });
+      setPreview({
+        path: node.path,
+        content: "[Impossible de lire le fichier]",
+        name: node.name,
+      });
     }
   };
 
@@ -324,7 +378,9 @@ export function HolographicDatabaseExplorer() {
         }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Erreur vectorisation" }));
+        const err = await res
+          .json()
+          .catch(() => ({ error: "Erreur vectorisation" }));
         throw new Error(err.error || "Erreur vectorisation");
       }
       setVectorizedFiles((prev) => {
@@ -334,7 +390,8 @@ export function HolographicDatabaseExplorer() {
       });
       toast.success("Fichier vectorisé avec succès");
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Erreur lors de la vectorisation";
+      const message =
+        e instanceof Error ? e.message : "Erreur lors de la vectorisation";
       toast.error(message);
     }
   };
@@ -382,7 +439,8 @@ export function HolographicDatabaseExplorer() {
 
       toast.success(`${successCount} fichier(s) vectorisé(s)`);
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Erreur lors de la vectorisation";
+      const message =
+        e instanceof Error ? e.message : "Erreur lors de la vectorisation";
       toast.error(message);
     }
   };
@@ -392,7 +450,8 @@ export function HolographicDatabaseExplorer() {
     const set = new Set<string>();
     if (searchTerm) {
       findMatches(schemaStructure, searchTerm).forEach((id) => set.add(id));
-      if (indexedStructure) findMatches(indexedStructure, searchTerm).forEach((id) => set.add(id));
+      if (indexedStructure)
+        findMatches(indexedStructure, searchTerm).forEach((id) => set.add(id));
     }
     return Array.from(set);
   }, [schemaStructure, indexedStructure, searchTerm]);
@@ -401,8 +460,13 @@ export function HolographicDatabaseExplorer() {
     if (!schemaStructure) return [];
     const set = new Set<string>();
     if (searchTerm) {
-      matchingAncestors(schemaStructure, searchTerm).forEach((id) => set.add(id));
-      if (indexedStructure) matchingAncestors(indexedStructure, searchTerm).forEach((id) => set.add(id));
+      matchingAncestors(schemaStructure, searchTerm).forEach((id) =>
+        set.add(id),
+      );
+      if (indexedStructure)
+        matchingAncestors(indexedStructure, searchTerm).forEach((id) =>
+          set.add(id),
+        );
     }
     return Array.from(set);
   }, [schemaStructure, indexedStructure, searchTerm]);
@@ -431,8 +495,20 @@ export function HolographicDatabaseExplorer() {
 
   const selected = allNodes.find((n) => n.id === selectedId) ?? null;
 
-  const schemaStats = useMemo(() => schemaStructure ? aggregateStats(schemaStructure) : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [schemaStructure]);
-  const indexedStats = useMemo(() => indexedStructure ? aggregateStats(indexedStructure) : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [indexedStructure]);
+  const schemaStats = useMemo(
+    () =>
+      schemaStructure
+        ? aggregateStats(schemaStructure)
+        : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 },
+    [schemaStructure],
+  );
+  const indexedStats = useMemo(
+    () =>
+      indexedStructure
+        ? aggregateStats(indexedStructure)
+        : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 },
+    [indexedStructure],
+  );
 
   return (
     <section className="relative isolate">
@@ -500,8 +576,12 @@ export function HolographicDatabaseExplorer() {
               <div className="border-b border-border/50 px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
-                  <h3 className="text-sm font-semibold text-foreground">{preview.name}</h3>
-                  <span className="text-xs text-muted-foreground font-mono">{preview.path}</span>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {preview.name}
+                  </h3>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {preview.path}
+                  </span>
                 </div>
                 <Button
                   variant="ghost"
@@ -512,11 +592,22 @@ export function HolographicDatabaseExplorer() {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="max-h-80 overflow-y-auto bg-muted/20 p-4">
-                <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground/80">
-                  {preview.content}
-                </pre>
-              </div>
+              {preview?.isImage ? (
+                <div className="flex items-center justify-center bg-muted/20 p-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={preview.content}
+                    alt={preview.name}
+                    className="max-h-80 max-w-full rounded-lg object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="max-h-80 overflow-y-auto bg-muted/20 p-4">
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground/80">
+                    {preview.content}
+                  </pre>
+                </div>
+              )}
             </Card>
           )}
 
@@ -538,7 +629,11 @@ export function HolographicDatabaseExplorer() {
               onPreview={handlePreview}
               onDelete={handleDelete}
               onRename={(path, currentName) => {
-                setModal({ mode: "rename", targetPath: path, defaultName: currentName });
+                setModal({
+                  mode: "rename",
+                  targetPath: path,
+                  defaultName: currentName,
+                });
                 setModalName(currentName);
               }}
               onCreate={(parentPath) => {
@@ -551,7 +646,12 @@ export function HolographicDatabaseExplorer() {
             />
 
             <SyncSpine
-              syncSummary={{ synced: indexedStats.vectors, pending: 0, conflict: 0, "local-only": schemaStats.documents - indexedStats.vectors }}
+              syncSummary={{
+                synced: indexedStats.vectors,
+                pending: 0,
+                conflict: 0,
+                "local-only": schemaStats.documents - indexedStats.vectors,
+              }}
               vectorizationState={vectorizationState}
             />
 
@@ -572,7 +672,11 @@ export function HolographicDatabaseExplorer() {
               onPreview={handlePreview}
               onDelete={handleDelete}
               onRename={(path, currentName) => {
-                setModal({ mode: "rename", targetPath: path, defaultName: currentName });
+                setModal({
+                  mode: "rename",
+                  targetPath: path,
+                  defaultName: currentName,
+                });
                 setModalName(currentName);
               }}
               onCreate={(parentPath) => {
@@ -587,7 +691,8 @@ export function HolographicDatabaseExplorer() {
           <div className="relative mt-8 text-center text-xs text-muted-foreground/60">
             <span className="inline-flex items-center gap-1.5">
               <Layers className="h-3 w-3" />
-              Panneau gauche : schéma physique de .local-db. Panneau droit : même arborescence avec l’état d’indexation et de vectorisation.
+              Panneau gauche : schéma physique de .local-db. Panneau droit :
+              même arborescence avec l’état d’indexation et de vectorisation.
             </span>
           </div>
         </>
@@ -645,17 +750,32 @@ export function HolographicDatabaseExplorer() {
                 />
                 {selectedFile && (
                   <p className="text-xs text-muted-foreground">
-                    Fichier sélectionné : {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} Ko)
+                    Fichier sélectionné : {selectedFile.name} (
+                    {(selectedFile.size / 1024).toFixed(1)} Ko)
                   </p>
                 )}
               </div>
             )}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { setModal(null); setSelectedFile(null); }} className="rounded-xl">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setModal(null);
+                  setSelectedFile(null);
+                }}
+                className="rounded-xl"
+              >
                 Annuler
               </Button>
-              <Button onClick={modal.mode === "rename" ? handleRename : handleCreate} className="rounded-xl">
-                {modal.mode === "create" ? (modalKind === "directory" ? "Créer" : "Uploader") : "Renommer"}
+              <Button
+                onClick={modal.mode === "rename" ? handleRename : handleCreate}
+                className="rounded-xl"
+              >
+                {modal.mode === "create"
+                  ? modalKind === "directory"
+                    ? "Créer"
+                    : "Uploader"
+                  : "Renommer"}
               </Button>
             </div>
           </Card>
@@ -905,6 +1025,9 @@ function SelectedDetail({
         <span className="font-medium text-foreground">
           Sélection : {node.name}
         </span>
+        {node.libelle && (
+          <span className="text-muted-foreground/80">— {node.libelle}</span>
+        )}
         {node.kind === "document" && node.stats && (
           <>
             <span className="text-muted-foreground">≈ {sizeLabel}</span>
@@ -964,7 +1087,9 @@ function SyncSpine({
     <div className="relative col-span-1 col-start-2 flex flex-col items-center justify-between py-6">
       <div className="absolute inset-0 -z-10 flex justify-center">
         <div className="relative h-full w-px">
-          <div className={`absolute inset-0 bg-gradient-to-b ${vectorizationConfig.gradient}`} />
+          <div
+            className={`absolute inset-0 bg-gradient-to-b ${vectorizationConfig.gradient}`}
+          />
           <span
             className={`absolute top-0 left-1/2 -translate-x-1/2 block h-2.5 w-2.5 rounded-full ${vectorizationConfig.color} ${vectorizationConfig.shadow}`}
             style={{ animation: "spine-travel 4.2s linear infinite" }}

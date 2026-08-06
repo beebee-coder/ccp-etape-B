@@ -173,14 +173,21 @@ export default function ChatIAPage() {
             const lines = buffer.split("\n");
             buffer = lines.pop() || "";
 
+            let currentEvent = "";
+
             for (const line of lines) {
               const trimmed = line.trim();
               if (!trimmed || trimmed.startsWith(":")) continue;
 
+              if (trimmed.startsWith("event:")) {
+                currentEvent = trimmed.slice(6).trim();
+                continue;
+              }
+
               if (trimmed.startsWith("data: ")) {
                 try {
                   const data = JSON.parse(trimmed.slice(6));
-                  if (typeof data.text === "string") {
+                  if (currentEvent === "token" && typeof data.text === "string") {
                     fullText += data.text;
                     setMessages((prev) =>
                       prev.map((m) =>
@@ -188,6 +195,7 @@ export default function ChatIAPage() {
                       )
                     );
                   }
+                  currentEvent = "";
                 } catch {
                   // ignore malformed SSE data
                 }

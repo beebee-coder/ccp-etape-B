@@ -14,11 +14,13 @@ export const ReportSchema = z.object({
   points: z.array(ReportPointSchema),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   createdAt: z.string(),
+  updatedAt: z.string(),
 });
 export type Report = z.infer<typeof ReportSchema>;
 
 export const ReportInputSchema = ReportSchema.omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
 });
 export type ReportInput = z.infer<typeof ReportInputSchema>;

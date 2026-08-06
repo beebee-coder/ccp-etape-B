@@ -1,60 +1,486 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Pencil, Trash2, Upload, HelpCircle, Send, Plus } from "lucide-react";
+import {
+  Pencil,
+  Trash2,
+  Upload,
+  HelpCircle,
+  Send,
+  Plus,
+  Loader2,
+  FileJson,
+  FolderOpen,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { getCsrfTokenClient } from "@/lib/auth/cookies";
 
 interface QAItem {
+  id: string;
   question: string;
   answer: string;
+}
+
+interface UploadedFile {
+  id: string;
+  fileName: string;
+  setName: string;
+  version: number;
+  directory: string;
+  filePath: string;
+  qaCount: number;
+  createdAt: string;
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const csrfToken = getCsrfTokenClient();
+  if (csrfToken) {
+    headers["x-csrf-token"] = csrfToken;
+  }
+  return headers;
+}
+
+function handleAuthError(response: Response): boolean {
+  if (response.status === 401) {
+    window.location.href = "/login?callbackUrl=/q-r";
+    return true;
+  }
+  return false;
 }
 
 export default function QAPage() {
   const [items, setItems] = useState<QAItem[]>([]);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [sendFileName, setSendFileName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAdd = () => {
-    if (!question.trim() || !answer.trim()) return;
-    if (editingIndex !== null) {
-      const updated = [...items];
-      updated[editingIndex] = { question: question.trim(), answer: answer.trim() };
-      setItems(updated);
-      setEditingIndex(null);
-    } else {
-      setItems([...items, { question: question.trim(), answer: answer.trim() }]);
+  const fetchItems = useCallback(async () => {
+    console.log("[q-r-page] fetchItems: starting");
+    try {
+      const res = await fetch("/api/q-r", {
+        credentials: "include",
+        headers: getAuthHeaders(),
+      });
+      console.log("[q-r-page] fetchItems: response status", res.status);
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        throw new Error("Erreur de chargement");
+      }
+      const data = await res.json();
+      console.log("[q-r-page] fetchItems: data received", {
+        count: data.data?.length || 0,
+      });
+      setItems(data.data || []);
+    } catch (err) {
+      console.error("[q-r-page] fetchItems: error", err);
+      setError("Impossible de charger les Q/R");
+    } finally {
+      setLoading(false);
     }
-    setQuestion("");
-    setAnswer("");
-  };
+  }, []);
 
-  const handleEdit = (index: number) => {
-    setQuestion(items[index].question);
-    setAnswer(items[index].answer);
-    setEditingIndex(index);
-  };
+  const fetchUploadedFiles = useCallback(async () => {
+    console.log("[q-r-page] fetchUploadedFiles: starting");
+    try {
+      const res = await fetch("/api/q-r/upload", {
+        credentials: "include",
+        headers: getAuthHeaders(),
+      });
+      console.log("[q-r-page] fetchUploadedFiles: response status", res.status);
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        return;
+      }
+      const data = await res.json();
+      console.log("[q-r-page] fetchUploadedFiles: data received", {
+        count: data.data?.length || 0,
+      });
+      setUploadedFiles(data.data || []);
+    } catch (err) {
+      console.error("[q-r-page] fetchUploadedFiles: error", err);
+    }
+  }, []);
 
-  const handleDelete = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
-    if (editingIndex === index) {
-      setEditingIndex(null);
+  useEffect(() => {
+    fetchItems();
+    fetchUploadedFiles();
+  }, [fetchItems, fetchUploadedFiles]);
+
+  const handleAdd = async () => {
+    if (!question.trim() || !answer.trim()) return;
+    console.log("[q-r-page] handleAdd: adding new item", {
+      question: question.trim(),
+      answer: answer.trim(),
+    });
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/q-r", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          question: question.trim(),
+          answer: answer.trim(),
+        }),
+        credentials: "include",
+      });
+
+      console.log("[q-r-page] handleAdd: response status", res.status);
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        const err = await res.json();
+        throw new Error(err.error || "Erreur lors de l'ajout");
+      }
+
+      const data = await res.json();
+      console.log("[q-r-page] handleAdd: item created", { id: data.data?.id });
+      setItems((prev) => [data.data, ...prev]);
       setQuestion("");
       setAnswer("");
+    } catch (err) {
+      console.error("[q-r-page] handleAdd: error", err);
+      setError(err instanceof Error ? err.message : "Erreur inconnue");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!editingId || !question.trim() || !answer.trim()) return;
+    console.log("[q-r-page] handleUpdate: updating item", { id: editingId });
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/q-r", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          id: editingId,
+          question: question.trim(),
+          answer: answer.trim(),
+        }),
+        credentials: "include",
+      });
+
+      console.log("[q-r-page] handleUpdate: response status", res.status);
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        const err = await res.json();
+        throw new Error(err.error || "Erreur lors de la modification");
+      }
+
+      const data = await res.json();
+      console.log("[q-r-page] handleUpdate: item updated", {
+        id: data.data?.id,
+      });
+      setItems((prev) =>
+        prev.map((item) => (item.id === editingId ? data.data : item)),
+      );
+      setEditingId(null);
+      setQuestion("");
+      setAnswer("");
+    } catch (err) {
+      console.error("[q-r-page] handleUpdate: error", err);
+      setError(err instanceof Error ? err.message : "Erreur inconnue");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEdit = (item: QAItem) => {
+    setEditingId(item.id);
+    setQuestion(item.question);
+    setAnswer(item.answer);
+  };
+
+  const handleDelete = async (id: string) => {
+    console.log("[q-r-page] handleDelete: deleting item", { id });
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/q-r", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ id }),
+        credentials: "include",
+      });
+
+      console.log("[q-r-page] handleDelete: response status", res.status);
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        const err = await res.json();
+        throw new Error(err.error || "Erreur lors de la suppression");
+      }
+
+      console.log("[q-r-page] handleDelete: item deleted", { id });
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      if (editingId === id) {
+        setEditingId(null);
+        setQuestion("");
+        setAnswer("");
+      }
+    } catch (err) {
+      console.error("[q-r-page] handleDelete: error", err);
+      setError(err instanceof Error ? err.message : "Erreur inconnue");
+    } finally {
+      setSaving(false);
     }
   };
 
   const cancelEdit = () => {
-    setEditingIndex(null);
+    setEditingId(null);
     setQuestion("");
     setAnswer("");
+    setError(null);
   };
 
+  const handleClearAll = async () => {
+    console.log("[q-r-page] handleClearAll: clearing all items", {
+      count: items.length,
+    });
+    setSaving(true);
+    setError(null);
+
+    try {
+      const deletePromises = items.map((item) =>
+        fetch("/api/q-r", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({ id: item.id }),
+          credentials: "include",
+        }),
+      );
+
+      const results = await Promise.all(deletePromises);
+      const allOk = results.every((r) => r.ok);
+
+      console.log("[q-r-page] handleClearAll: all items cleared", {
+        success: allOk,
+      });
+
+      if (allOk) {
+        setItems([]);
+        setEditingId(null);
+        setQuestion("");
+        setAnswer("");
+      } else {
+        setError("Certaines suppressions ont échoué");
+      }
+    } catch (err) {
+      console.error("[q-r-page] handleClearAll: error", err);
+      setError("Erreur lors du vidage");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSend = async () => {
+    if (items.length === 0) {
+      setError("Aucune Q/R à envoyer");
+      return;
+    }
+    setSendFileName("");
+    setSendDialogOpen(true);
+  };
+
+  const handleConfirmSend = async () => {
+    const rawName = sendFileName.trim();
+    if (!rawName) {
+      setError("Nom de fichier requis");
+      return;
+    }
+
+    const fileName = rawName.endsWith(".json") ? rawName : `${rawName}.json`;
+    const targetPath = `items/${fileName}`;
+    const payload = {
+      pairs: items.map((item) => ({
+        question: item.question,
+        answer: item.answer,
+      })),
+    };
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/registry/fs?t=${Date.now()}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          path: targetPath,
+          content: JSON.stringify(payload, null, 2),
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur d'enregistrement" }));
+        throw new Error(err.error || "Erreur d'enregistrement");
+      }
+
+      alert(`Fichier enregistré dans .registry/items/${fileName}`);
+      setSendDialogOpen(false);
+    } catch (err) {
+      console.error("[q-r-page] handleConfirmSend: error", err);
+      setError(err instanceof Error ? err.message : "Erreur inconnue");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    console.log("[q-r-page] handleFileUpload: uploading file", {
+      fileName: file.name,
+      size: file.size,
+    });
+    setUploading(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/q-r/upload", {
+        method: "POST",
+        body: formData,
+        headers: getAuthHeaders(),
+        credentials: "include",
+      });
+
+      console.log("[q-r-page] handleFileUpload: response status", res.status);
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        const err = await res.json();
+        throw new Error(err.error || "Erreur lors de l'envoi");
+      }
+
+      const data = await res.json();
+      console.log("[q-r-page] handleFileUpload: file uploaded", data.data);
+      setError(null);
+      alert(data.data.message);
+      await fetchUploadedFiles();
+    } catch (err) {
+      console.error("[q-r-page] handleFileUpload: error", err);
+      setError(err instanceof Error ? err.message : "Erreur inconnue");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleLoadFile = async (fileId: string) => {
+    console.log("[q-r-page] handleLoadFile: loading file", { fileId });
+    try {
+      const res = await fetch(`/api/q-r/upload/${fileId}`, {
+        credentials: "include",
+        headers: getAuthHeaders(),
+      });
+      console.log("[q-r-page] handleLoadFile: response status", res.status);
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        throw new Error("Erreur de chargement du fichier");
+      }
+      const data = await res.json();
+
+      const qaPairs: QAItem[] = data.data.pairs || [];
+      console.log("[q-r-page] handleLoadFile: pairs loaded", {
+        count: qaPairs.length,
+      });
+      if (qaPairs.length === 0) {
+        setError("Aucune paire Q/R valide dans ce fichier");
+        return;
+      }
+
+      setItems((prev) => [...qaPairs, ...prev]);
+      setError(null);
+    } catch (err) {
+      console.error("[q-r-page] handleLoadFile: error", err);
+      setError(err instanceof Error ? err.message : "Erreur inconnue");
+    }
+  };
+
+  const handleDeleteUploadedFile = async (fileId: string) => {
+    console.log("[q-r-page] handleDeleteUploadedFile: deleting file", {
+      fileId,
+    });
+    try {
+      const res = await fetch(`/api/q-r/upload/${fileId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+        credentials: "include",
+      });
+
+      console.log(
+        "[q-r-page] handleDeleteUploadedFile: response status",
+        res.status,
+      );
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        const err = await res.json();
+        throw new Error(err.error || "Erreur lors de la suppression");
+      }
+
+      console.log("[q-r-page] handleDeleteUploadedFile: file deleted", {
+        fileId,
+      });
+      await fetchUploadedFiles();
+    } catch (err) {
+      console.error("[q-r-page] handleDeleteUploadedFile: error", err);
+      setError(err instanceof Error ? err.message : "Erreur inconnue");
+    }
+  };
+
+  const isEditing = editingId !== null;
+
   return (
-    <section className="py-8 sm:py-12">
-      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+    <>
+      <section className="py-8 sm:py-12">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
         {/* ── Page Header ── */}
         <div className="mb-8 flex items-center gap-4 animate-slide-in-3d">
           <div className="icon-glow">
@@ -67,17 +493,26 @@ export default function QAPage() {
               Questions / Réponses
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Collecte et gestion des questions fréquentes pour l&apos;assistant IA.
+              Collecte et gestion des questions fréquentes pour l&apos;assistant
+              IA.
             </p>
           </div>
         </div>
+
+        {/* ── Error banner ── */}
+        {error && (
+          <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
 
         {/* ── Form ── */}
         <div className="mt-8">
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              handleAdd();
+              if (isEditing) handleUpdate();
+              else handleAdd();
             }}
             className="dashboard-card p-6"
           >
@@ -95,6 +530,7 @@ export default function QAPage() {
                   onChange={(e) => setQuestion(e.target.value)}
                   placeholder="Tapez votre question ici..."
                   autoComplete="off"
+                  disabled={saving}
                   className="bg-background/60 border-border/60 rounded-xl focus:border-primary/50 focus:shadow-primary-glow transition-all duration-200"
                 />
               </div>
@@ -111,6 +547,7 @@ export default function QAPage() {
                   onChange={(e) => setAnswer(e.target.value)}
                   placeholder="Tapez la réponse correspondante..."
                   autoComplete="off"
+                  disabled={saving}
                   className="bg-background/60 border-border/60 rounded-xl focus:border-primary/50 focus:shadow-primary-glow transition-all duration-200"
                 />
               </div>
@@ -118,8 +555,10 @@ export default function QAPage() {
                 <Button
                   type="submit"
                   className="flex-1 btn-primary-gradient gap-2"
+                  disabled={saving || !question.trim() || !answer.trim()}
                 >
-                  {editingIndex !== null ? (
+                  {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {isEditing ? (
                     <>
                       <Pencil className="h-3.5 w-3.5" />
                       Modifier
@@ -131,11 +570,12 @@ export default function QAPage() {
                     </>
                   )}
                 </Button>
-                {editingIndex !== null && (
+                {isEditing && (
                   <Button
                     type="button"
                     onClick={cancelEdit}
                     variant="outline"
+                    disabled={saving}
                     className="flex-1 rounded-xl border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary transition-all duration-200"
                   >
                     Annuler
@@ -145,6 +585,112 @@ export default function QAPage() {
             </div>
           </form>
         </div>
+
+        {/* ── File Upload ── */}
+        <div className="mt-8">
+          <div className="dashboard-card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 border border-primary/20">
+                <FileJson className="h-4 w-4 text-primary" />
+              </div>
+              <h2 className="text-xl font-semibold text-foreground">
+                Import de fichiers Q/R
+              </h2>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleFileUpload}
+                disabled={uploading}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={uploading}
+                className="btn-primary-gradient gap-2"
+              >
+                {uploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                <Upload className="h-3.5 w-3.5" />
+                Envoyer le fichier
+              </Button>
+            </div>
+
+            <p className="mt-2 text-xs text-muted-foreground">
+              Upload un fichier JSON contenant des paires Q/R. Le nom du fichier
+              (sans .json) devient le nom du lot. En cas de doublon, l&apos;app
+              crée un dossier avec versionnage automatique.
+            </p>
+          </div>
+        </div>
+
+        {/* ── Uploaded files list ── */}
+        {uploadedFiles.length > 0 && (
+          <div className="mt-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 border border-primary/20">
+                <FolderOpen className="h-4 w-4 text-primary" />
+              </div>
+              <h2 className="text-xl font-semibold text-foreground">
+                Fichiers uploadés
+              </h2>
+              <Badge
+                variant="secondary"
+                className="rounded-md px-2 py-0.5 text-xs bg-primary/10 text-primary border-primary/20"
+              >
+                {uploadedFiles.length}
+              </Badge>
+            </div>
+
+            <div className="space-y-2">
+              {uploadedFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="group rounded-xl border border-border/50 bg-card/60 p-4 shadow-3d-sm transition-all duration-200 hover:shadow-3d-lg hover:border-primary/30"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1 text-sm">
+                      <span className="font-semibold text-foreground">
+                        {file.fileName}
+                      </span>
+                      <span className="mx-2 text-muted-foreground">|</span>
+                      <span className="text-muted-foreground">
+                        {file.qaCount} paire(s) Q/R
+                      </span>
+                      <span className="mx-2 text-muted-foreground">|</span>
+                      <span className="text-muted-foreground">
+                        v{file.version}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleLoadFile(file.id)}
+                        aria-label="Charger les Q/R"
+                        className="h-8 w-8 text-muted-foreground hover:text-primary rounded-lg"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteUploadedFile(file.id)}
+                        aria-label="Supprimer le fichier"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive rounded-lg"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── FAQ list ── */}
         <div className="mt-12">
@@ -168,12 +714,8 @@ export default function QAPage() {
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={() => {
-                  setItems([]);
-                  setEditingIndex(null);
-                  setQuestion("");
-                  setAnswer("");
-                }}
+                onClick={handleClearAll}
+                disabled={saving || items.length === 0}
                 className="rounded-xl border-border/60 bg-card/60 hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive transition-all duration-200"
               >
                 <Trash2 className="h-3.5 w-3.5 mr-1" />
@@ -182,7 +724,8 @@ export default function QAPage() {
               <Button
                 size="sm"
                 className="btn-primary-gradient gap-1.5"
-                onClick={() => alert("Envoi des Q/R en cours...")}
+                onClick={handleSend}
+                disabled={saving || items.length === 0}
               >
                 <Send className="h-3.5 w-3.5" />
                 Envoyer
@@ -191,7 +734,14 @@ export default function QAPage() {
           </div>
 
           <div className="mt-6">
-            {items.length === 0 ? (
+            {loading ? (
+              <div className="dashboard-card p-10 text-center">
+                <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">
+                  Chargement des Q/R...
+                </p>
+              </div>
+            ) : items.length === 0 ? (
               <div className="dashboard-card p-10 text-center">
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/30 border border-border/40">
                   <HelpCircle className="h-8 w-8 text-muted-foreground/40" />
@@ -202,24 +752,32 @@ export default function QAPage() {
               </div>
             ) : (
               <div className="space-y-2.5">
-                {items.map((item, i) => (
+                {items.map((item) => (
                   <div
-                    key={i}
+                    key={item.id}
                     className="group rounded-xl border border-border/50 bg-card/60 p-4 shadow-3d-sm transition-all duration-200 hover:shadow-3d-lg hover:border-primary/30"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 text-sm break-words leading-relaxed">
-                        <span className="font-semibold text-foreground">{"{Q:"}</span>
-                        <span className="mx-1 text-foreground">{item.question}</span>
+                        <span className="font-semibold text-foreground">
+                          {"{Q:"}
+                        </span>
+                        <span className="mx-1 text-foreground">
+                          {item.question}
+                        </span>
                         <span className="text-foreground">{"; R:"}</span>
-                        <span className="mx-1 text-muted-foreground">{item.answer}</span>
-                        <span className="font-semibold text-foreground">{"}"}</span>
+                        <span className="mx-1 text-muted-foreground">
+                          {item.answer}
+                        </span>
+                        <span className="font-semibold text-foreground">
+                          {"}"}
+                        </span>
                       </div>
                       <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleEdit(i)}
+                          onClick={() => handleEdit(item)}
                           aria-label="Modifier"
                           className="h-8 w-8 text-muted-foreground hover:text-primary rounded-lg"
                         >
@@ -228,7 +786,7 @@ export default function QAPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleDelete(i)}
+                          onClick={() => handleDelete(item.id)}
                           aria-label="Supprimer"
                           className="h-8 w-8 text-muted-foreground hover:text-destructive rounded-lg"
                         >
@@ -244,5 +802,43 @@ export default function QAPage() {
         </div>
       </div>
     </section>
+
+    <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Enregistrer la Q/R dans la BDD web</DialogTitle>
+          <DialogDescription>
+            Le fichier JSON sera généré et stocké dans <code>.registry/items/</code>.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <div className="grid gap-2">
+            <label htmlFor="qr-file-name" className="text-sm font-medium">
+              Nom du fichier
+            </label>
+            <Input
+              id="qr-file-name"
+              value={sendFileName}
+              onChange={(event) => setSendFileName(event.target.value)}
+              placeholder="ex: mon-fichier-qr"
+            />
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setSendDialogOpen(false)}
+            disabled={saving}
+          >
+            Annuler
+          </Button>
+          <Button onClick={handleConfirmSend} disabled={saving || items.length === 0}>
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Confirmer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

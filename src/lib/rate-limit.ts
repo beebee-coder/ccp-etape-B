@@ -23,6 +23,8 @@ const ROUTE_CONFIGS: Record<string, RateLimitConfig> = {
   "ai-advice": { points: 15, windowMs: 60 * 1000 },
   "ai-stream": { points: 5, windowMs: 60 * 1000 },
   procedures: { points: 10, windowMs: 60 * 1000 },
+  "procedures-executions": { points: 30, windowMs: 60 * 1000 },
+  "q-r": { points: 10, windowMs: 60 * 1000 },
   "auth-login": { points: 5, windowMs: 60 * 1000 },
   "auth-refresh": { points: 10, windowMs: 60 * 1000 },
   "auth-me": { points: 30, windowMs: 60 * 1000 },
@@ -67,10 +69,7 @@ export class InMemoryLimiter {
     }
   }
 
-  async check(
-    key: string,
-    config: RateLimitConfig
-  ): Promise<RateLimitResult> {
+  async check(key: string, config: RateLimitConfig): Promise<RateLimitResult> {
     const now = Date.now();
     this.evictExpired(now);
 
@@ -78,7 +77,11 @@ export class InMemoryLimiter {
 
     if (!entry || now > entry.resetTime) {
       this.store.set(key, { count: 1, resetTime: now + config.windowMs });
-      return { success: true, remaining: config.points - 1, resetTime: now + config.windowMs };
+      return {
+        success: true,
+        remaining: config.points - 1,
+        resetTime: now + config.windowMs,
+      };
     }
 
     if (entry.count >= config.points) {
@@ -86,7 +89,11 @@ export class InMemoryLimiter {
     }
 
     entry.count++;
-    return { success: true, remaining: config.points - entry.count, resetTime: entry.resetTime };
+    return {
+      success: true,
+      remaining: config.points - entry.count,
+      resetTime: entry.resetTime,
+    };
   }
 }
 
@@ -117,7 +124,10 @@ function getOrCreateRedisLimiter(config: RateLimitConfig): Ratelimit | null {
 
   const limiter = new Ratelimit({
     redis: redisClient,
-    limiter: Ratelimit.slidingWindow(config.points, `${config.windowMs / 1000} s`),
+    limiter: Ratelimit.slidingWindow(
+      config.points,
+      `${config.windowMs / 1000} s`,
+    ),
   });
   redisLimiterCache.set(cacheKey, limiter);
   return limiter;
@@ -127,7 +137,7 @@ let warnedInMemory = false;
 
 export async function rateLimit(
   identifier: string,
-  routeKey: string = "default"
+  routeKey: string = "default",
 ): Promise<RateLimitResult> {
   const config = getRateLimitConfig(routeKey);
 
@@ -149,29 +159,38 @@ export async function rateLimit(
     warnedInMemory = true;
     console.warn(
       "Rate limiting is using in-memory fallback. This is not shared across serverless instances. " +
-        "Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN for distributed rate limiting."
+        "Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN for distributed rate limiting.",
     );
   }
 
   return fallbackLimiter.check(identifier, config);
 }
 
-export function getRateLimitHeaders(result: RateLimitResult): Record<string, string> {
+export function getRateLimitHeaders(
+  result: RateLimitResult,
+): Record<string, string> {
   return {
     "X-RateLimit-Remaining": String(result.remaining),
     "X-RateLimit-Reset": String(result.resetTime),
-    "Retry-After": String(Math.max(1, Math.ceil((result.resetTime - Date.now()) / 1000))),
+    "Retry-After": String(
+      Math.max(1, Math.ceil((result.resetTime - Date.now()) / 1000)),
+    ),
   };
 }
 
 export function tooManyResponses(result: RateLimitResult): Response {
-  return new Response(JSON.stringify({ error: "Trop de requêtes. Réessayez plus tard." }), {
-    status: 429,
-    headers: {
-      "Content-Type": "application/json",
-      "X-RateLimit-Remaining": String(result.remaining),
-      "X-RateLimit-Reset": String(result.resetTime),
-      "Retry-After": String(Math.max(1, Math.ceil((result.resetTime - Date.now()) / 1000))),
+  return new Response(
+    JSON.stringify({ error: "Trop de requêtes. Réessayez plus tard." }),
+    {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "X-RateLimit-Remaining": String(result.remaining),
+        "X-RateLimit-Reset": String(result.resetTime),
+        "Retry-After": String(
+          Math.max(1, Math.ceil((result.resetTime - Date.now()) / 1000)),
+        ),
+      },
     },
-  });
+  );
 }

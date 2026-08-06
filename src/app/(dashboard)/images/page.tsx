@@ -45,12 +45,18 @@ import {
   CheckCircle2,
   Clock,
 } from "lucide-react";
-import { MediaItem, MediaKind, imageService } from "@/lib/images/image-service";
+import {
+  MediaItem,
+  MediaKind,
+  ImageStats,
+  imageService,
+} from "@/lib/images/image-service";
 import type { ChangeEvent } from "react";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 type FormData = {
   title: string;
-  category: string;
+  category?: string;
   description: string;
   tags: string;
   kind: MediaKind;
@@ -62,7 +68,7 @@ type FormData = {
 
 const emptyForm: FormData = {
   title: "",
-  category: "",
+  category: undefined,
   description: "",
   tags: "",
   kind: "image",
@@ -82,6 +88,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 export default function ImagesPage() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [categories, setCategories] = useState<string[]>(["Tous"]);
+  const [stats, setStats] = useState<ImageStats | null>(null);
   const [filterCategory, setFilterCategory] = useState("Tous");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -106,14 +113,22 @@ export default function ImagesPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      await imageService.init();
-      const [allItems, cats] = await Promise.all([
-        imageService.getAll(),
-        imageService.getCategories(),
+      const [allItems, statsData] = await Promise.all([
+        imageService.getAll({ limit: 50 }),
+        imageService.getStats(),
       ]);
       setItems(allItems);
-      setCategories(cats);
-    } catch {
+      const uniqueCategories = Array.from(
+        new Set(allItems.map((item) => item.category)),
+      );
+      const nextCategories = ["Tous", ...uniqueCategories];
+      console.log("[images-page] loadData: categories ->", nextCategories);
+      setCategories(nextCategories);
+      setStats(statsData);
+    } catch (error) {
+      console.error("[images-page] loadData: error fetching media data", {
+        error,
+      });
       toast.error("Erreur lors du chargement des médias");
     } finally {
       setLoading(false);
@@ -126,6 +141,9 @@ export default function ImagesPage() {
 
   useEffect(() => {
     return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -145,6 +163,7 @@ export default function ImagesPage() {
   });
 
   const resetForm = () => {
+    console.log("[form] reset");
     setFormData(emptyForm);
     setPreviewUrl(null);
     setPreviewKind(null);
@@ -155,6 +174,7 @@ export default function ImagesPage() {
   };
 
   const openEditDialog = async (item: MediaItem) => {
+    console.log("[form] openEditDialog ->", { id: item.id, title: item.title });
     setEditingItem(item);
     setFormData({
       title: item.title,
@@ -191,23 +211,38 @@ export default function ImagesPage() {
     });
   };
 
+  const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
   const handleFileSelect = async (file: File) => {
     if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
       toast.error("Format non supporté. Utilisez une image ou une vidéo.");
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`Fichier trop volumineux (max ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)} Mo)`);
       return;
     }
     const kind: MediaKind = file.type.startsWith("image/") ? "image" : "video";
     const dataUrl = await readFileAsDataUrl(file);
     const buffer = await readFileAsArrayBuffer(file);
 
-    setFormData((prev) => ({
-      ...prev,
-      kind,
-      dataUrl,
-      mimeType: file.type,
-      size: buffer.byteLength,
-      title: prev.title || file.name.replace(/\.[^/.]+$/, ""),
-    }));
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        kind,
+        dataUrl,
+        mimeType: file.type,
+        size: buffer.byteLength,
+        title: prev.title || file.name.replace(/\.[^/.]+$/, ""),
+      };
+      console.log("[form] fileSelected ->", {
+        kind: next.kind,
+        mimeType: next.mimeType,
+        size: next.size,
+        title: next.title,
+      });
+      return next;
+    });
     setPreviewUrl(dataUrl);
     setPreviewKind(kind);
     setSourceMode("upload");
@@ -272,20 +307,33 @@ export default function ImagesPage() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      toast.error("Flux vidéo non prêt. Patientez un instant.");
+      return;
+    }
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-    setFormData((prev) => ({
-      ...prev,
-      kind: "image",
-      dataUrl,
-      mimeType: "image/jpeg",
-      size: dataUrl.length,
-      title: prev.title || `Photo ${new Date().toLocaleString("fr-FR")}`,
-    }));
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        kind: "image" as MediaKind,
+        dataUrl,
+        mimeType: "image/jpeg",
+        size: dataUrl.length,
+        title: prev.title || `Photo ${new Date().toLocaleString("fr-FR")}`,
+      };
+      console.log("[form] capturePhoto ->", {
+        kind: next.kind,
+        mimeType: next.mimeType,
+        size: next.size,
+        title: next.title,
+      });
+      return next;
+    });
     setPreviewUrl(dataUrl);
     setPreviewKind("image");
     stopCamera();
@@ -293,26 +341,43 @@ export default function ImagesPage() {
   };
 
   const startVideoRecording = () => {
+    if (isRecording) return;
     const stream = streamRef.current;
     if (!stream) return;
+    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+      ? "video/webm;codecs=vp9"
+      : MediaRecorder.isTypeSupported("video/webm")
+        ? "video/webm"
+        : MediaRecorder.isTypeSupported("video/mp4")
+          ? "video/mp4"
+          : "video/webm";
     const chunks: Blob[] = [];
-    const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+    const recorder = new MediaRecorder(stream, { mimeType });
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
     };
     recorder.onstop = async () => {
-      const blob = new Blob(chunks, { type: "video/webm" });
+      const blob = new Blob(chunks, { type: mimeType });
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
-        setFormData((prev) => ({
-          ...prev,
-          kind: "video",
-          dataUrl,
-          mimeType: "video/webm",
-          size: blob.size,
-          title: prev.title || `Vidéo ${new Date().toLocaleString("fr-FR")}`,
-        }));
+        setFormData((prev) => {
+          const next = {
+            ...prev,
+            kind: "video" as MediaKind,
+            dataUrl,
+            mimeType: blob.type,
+            size: blob.size,
+            title: prev.title || `Vidéo ${new Date().toLocaleString("fr-FR")}`,
+          };
+          console.log("[form] videoRecorded ->", {
+            kind: next.kind,
+            mimeType: next.mimeType,
+            size: next.size,
+            title: next.title,
+          });
+          return next;
+        });
         setPreviewUrl(dataUrl);
         setPreviewKind("video");
       };
@@ -324,13 +389,29 @@ export default function ImagesPage() {
   };
 
   const stopVideoRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== "inactive"
+    ) {
       mediaRecorderRef.current.stop();
     }
     setIsRecording(false);
   };
 
   const handleSave = async () => {
+    console.log("[form] handleSave: start", {
+      hasPreviewUrl: !!previewUrl,
+      editing: !!editingItem,
+      title: formData.title,
+      category: formData.category,
+      description: formData.description,
+      tags: formData.tags,
+      kind: formData.kind,
+      mimeType: formData.mimeType,
+      size: formData.size,
+      hasDataUrl: !!formData.dataUrl,
+    });
+
     if (!formData.title.trim()) {
       toast.error("Le titre est requis");
       return;
@@ -349,10 +430,24 @@ export default function ImagesPage() {
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
 
+    console.log("[form] submit ->", {
+      editing: !!editingItem,
+      title: formData.title.trim(),
+      category: formData.category,
+      description: formData.description.trim(),
+      tags,
+      kind: formData.kind,
+      mimeType: formData.mimeType,
+      size: formData.size,
+      hasDataUrl: !!formData.dataUrl,
+      hasThumbnail: !!formData.thumbnailDataUrl,
+    });
+
     setSaving(true);
     try {
       if (editingItem) {
-        await imageService.update(editingItem.id, {
+        const updatedItem = {
+          ...editingItem,
           title: formData.title.trim(),
           category: formData.category,
           description: formData.description.trim(),
@@ -362,10 +457,60 @@ export default function ImagesPage() {
           thumbnailDataUrl: formData.thumbnailDataUrl,
           mimeType: formData.mimeType,
           size: formData.size,
+          updatedAt: new Date().toISOString(),
+        };
+
+        console.log("[form] update tempItem ->", {
+          id: updatedItem.id,
+          title: updatedItem.title,
+          category: updatedItem.category,
+          kind: updatedItem.kind,
         });
-        toast.success("Média mis à jour avec succès");
+
+        const prevItems = items;
+        setItems(
+          items.map((item) =>
+            item.id === editingItem.id ? updatedItem : item,
+          ),
+        );
+
+        try {
+          const result = await imageService.update(editingItem.id, {
+            title: formData.title.trim(),
+            category: formData.category,
+            description: formData.description.trim(),
+            tags,
+            kind: formData.kind,
+            dataUrl: formData.dataUrl,
+            thumbnailDataUrl: formData.thumbnailDataUrl,
+            mimeType: formData.mimeType,
+            size: formData.size,
+          });
+          console.log("[form] update success ->", { id: result?.id, title: result?.title });
+          if (result) {
+            setItems((prev) =>
+              prev.map((item) => (item.id === editingItem.id ? result : item)),
+            );
+          } else {
+            setItems(prevItems);
+          }
+          toast.success("Média mis à jour avec succès");
+        } catch (error) {
+          setItems(prevItems);
+          console.error("[form] update error ->", {
+            error,
+            id: editingItem.id,
+            title: formData.title,
+            category: formData.category,
+          });
+          toast.error(
+            error instanceof Error ? error.message : "Erreur lors de la mise à jour"
+          );
+          return;
+        }
       } else {
-        await imageService.create({
+        const tempItem: MediaItem = {
+          id: `temp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           title: formData.title.trim(),
           category: formData.category,
           description: formData.description.trim(),
@@ -375,59 +520,219 @@ export default function ImagesPage() {
           thumbnailDataUrl: formData.thumbnailDataUrl,
           mimeType: formData.mimeType,
           size: formData.size,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        console.log("[form] create tempItem ->", {
+          id: tempItem.id,
+          title: tempItem.title,
+          category: tempItem.category,
+          kind: tempItem.kind,
+          size: tempItem.size,
         });
-        toast.success("Média ajouté avec succès");
+
+        const prevItems = items;
+        setItems([tempItem, ...items]);
+
+        try {
+          const created = await imageService.create({
+            title: formData.title.trim(),
+            category: formData.category,
+            description: formData.description.trim(),
+            tags,
+            kind: formData.kind,
+            dataUrl: formData.dataUrl,
+            thumbnailDataUrl: formData.thumbnailDataUrl,
+            mimeType: formData.mimeType,
+            size: formData.size,
+          });
+          console.log("[form] create success ->", { id: created.id, title: created.title });
+          setItems((prev) =>
+            prev.map((item) => (item.id === tempItem.id ? created : item)),
+          );
+          try {
+            const freshStats = await imageService.getStats();
+            setStats(freshStats);
+          } catch {
+            const nextItems = [created, ...items];
+            const localStats: ImageStats = {
+              total: nextItems.length,
+              totalSize: nextItems.reduce((sum, item) => sum + item.size, 0),
+              totalImages: nextItems.filter((i) => i.kind === "image").length,
+              totalVideos: nextItems.filter((i) => i.kind === "video").length,
+              categories: Array.from(new Set(nextItems.map((i) => i.category))),
+            };
+            setStats(localStats);
+          }
+          toast.success("Média ajouté avec succès");
+        } catch (error) {
+          setItems(prevItems);
+          console.error("[form] create error ->", {
+            error,
+            title: formData.title,
+            category: formData.category,
+            kind: formData.kind,
+          });
+          toast.error(
+            error instanceof Error ? error.message : "Erreur lors de l'enregistrement"
+          );
+          return;
+        }
       }
       setDialogOpen(false);
       resetForm();
-      await loadData();
-    } catch {
-      toast.error("Erreur lors de l'enregistrement");
+    } catch (error) {
+      console.error("[form] handleSave: global error", {
+        error,
+        isEditing: !!editingItem,
+        formData: {
+          title: formData.title,
+          category: formData.category,
+          description: formData.description,
+          tags: formData.tags,
+          kind: formData.kind,
+          size: formData.size,
+          hasDataUrl: !!formData.dataUrl,
+        },
+      });
+      toast.error(
+        error instanceof Error ? error.message : "Erreur lors de l'enregistrement"
+      );
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
+    const deletedItem = items.find((item) => item.id === id);
+    if (!deletedItem) return;
+
+    const prevItems = items;
+    const prevStats = stats;
     setDeletingId(id);
-    const success = await imageService.delete(id);
-    setDeletingId(null);
-    if (success) {
+
+    const nextItems = items.filter((item) => item.id !== id);
+    setItems(nextItems);
+
+    try {
+      await imageService.delete(id);
+      try {
+        const freshStats = await imageService.getStats();
+        setStats(freshStats);
+      } catch {
+        const localStats: ImageStats = {
+          total: nextItems.length,
+          totalSize: nextItems.reduce((sum, item) => sum + item.size, 0),
+          totalImages: nextItems.filter((i) => i.kind === "image").length,
+          totalVideos: nextItems.filter((i) => i.kind === "video").length,
+          categories: Array.from(new Set(nextItems.map((i) => i.category))),
+        };
+        setStats(localStats);
+      }
       toast.success("Média supprimé");
-      await loadData();
-    } else {
+    } catch (error) {
+      setItems(prevItems);
+      setStats(prevStats);
+      console.error("[images-page] handleDelete: error deleting media item", {
+        error,
+        id,
+      });
       toast.error("Erreur lors de la suppression");
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  const handleDownload = (item: MediaItem) => {
+  const decodeBase64OffThread = (base64: string): Promise<Uint8Array> => {
+    return new Promise((resolve, reject) => {
+      const workerCode = `
+        self.onmessage = function(e) {
+          try {
+            const base64 = e.data;
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            self.postMessage({ success: true, buffer: byteArray.buffer }, [byteArray.buffer]);
+          } catch (err) {
+            self.postMessage({ success: false, error: err.message });
+          }
+        };
+      `;
+      const blob = new Blob([workerCode], { type: "application/javascript" });
+      const workerUrl = URL.createObjectURL(blob);
+      const worker = new Worker(workerUrl);
+      worker.onmessage = (e) => {
+        URL.revokeObjectURL(workerUrl);
+        if (e.data.success) {
+          resolve(new Uint8Array(e.data.buffer));
+        } else {
+          reject(new Error(e.data.error));
+        }
+        worker.terminate();
+      };
+      worker.onerror = () => {
+        URL.revokeObjectURL(workerUrl);
+        worker.terminate();
+        reject(new Error("Worker failed"));
+      };
+      worker.postMessage(base64);
+    });
+  };
+
+  const handleDownload = async (item: MediaItem) => {
     if (!item.dataUrl) {
       toast.error("Aucune donnée disponible pour le téléchargement");
       return;
     }
-    const link = document.createElement("a");
-    link.href = item.dataUrl;
-    link.download = item.title;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success("Téléchargement lancé");
+    try {
+      const base64 = item.dataUrl.split(",")[1];
+      if (base64 && base64.length > 2 * 1024 * 1024) {
+      const byteArray = await decodeBase64OffThread(base64);
+      const blob = new Blob([byteArray.buffer as ArrayBuffer], { type: item.mimeType });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = item.title;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        const link = document.createElement("a");
+        link.href = item.dataUrl;
+        link.download = item.title;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (error) {
+      console.error("[images-page] handleDownload: error downloading media item", {
+        error,
+        id: item.id,
+      });
+      toast.error("Erreur lors du téléchargement");
+    }
   };
 
-  const totalSize = items.reduce((acc, item) => acc + item.size, 0);
+  const imageCount =
+    stats?.totalImages ?? items.filter((i) => i.kind === "image").length;
+  const videoCount =
+    stats?.totalVideos ?? items.filter((i) => i.kind === "video").length;
+  const totalSizeBytes = stats?.totalSize ?? 0;
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const imageCount = items.filter((i) => i.kind === "image").length;
-  const videoCount = items.filter((i) => i.kind === "video").length;
-
   return (
-    <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+    <ErrorBoundary>
+      <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-6">
-
         {/* ── Page Header ── */}
         <div className="flex items-center gap-4 animate-slide-in-3d">
           <div className="relative flex-shrink-0">
@@ -459,21 +764,27 @@ export default function ImagesPage() {
             <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/20">
               <ImageIcon className="h-3.5 w-3.5 text-primary" />
             </div>
-            <span className="text-sm font-semibold text-foreground">{imageCount}</span>
+            <span className="text-sm font-semibold text-foreground">
+              {imageCount}
+            </span>
             <span className="text-xs text-muted-foreground">images</span>
           </div>
           <div className="flex items-center gap-2.5 rounded-xl border border-violet-500/15 bg-violet-500/8 px-4 py-2.5 shadow-3d-sm backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d">
             <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-500/20">
               <Film className="h-3.5 w-3.5 text-violet-500" />
             </div>
-            <span className="text-sm font-semibold text-foreground">{videoCount}</span>
+            <span className="text-sm font-semibold text-foreground">
+              {videoCount}
+            </span>
             <span className="text-xs text-muted-foreground">vidéos</span>
           </div>
           <div className="flex items-center gap-2.5 rounded-xl border border-border/40 bg-muted/40 px-4 py-2.5 shadow-3d-sm backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d">
             <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-muted">
               <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
-            <span className="text-xs text-muted-foreground">{formatSize(totalSize)}</span>
+            <span className="text-xs text-muted-foreground">
+              {formatSize(totalSizeBytes)}
+            </span>
           </div>
         </div>
 
@@ -508,7 +819,10 @@ export default function ImagesPage() {
         {loading ? (
           <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="overflow-hidden rounded-2xl border border-border/40 bg-card/60 shadow-3d-sm">
+              <div
+                key={i}
+                className="overflow-hidden rounded-2xl border border-border/40 bg-card/60 shadow-3d-sm"
+              >
                 <Skeleton className="aspect-square rounded-none" />
                 <div className="p-3 space-y-2">
                   <Skeleton className="h-4 w-3/4 rounded-lg shimmer" />
@@ -522,7 +836,9 @@ export default function ImagesPage() {
             <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-muted/50 border border-border/40 shadow-3d-sm">
               <FolderOpen className="h-10 w-10 text-muted-foreground/40" />
             </div>
-            <p className="text-sm font-bold text-foreground">Aucun média trouvé</p>
+            <p className="text-sm font-bold text-foreground">
+              Aucun média trouvé
+            </p>
             <p className="mt-1 text-sm text-muted-foreground max-w-xs">
               {search || filterCategory !== "Tous"
                 ? "Essayez de modifier vos filtres ou votre recherche."
@@ -547,17 +863,23 @@ export default function ImagesPage() {
                   {item.dataUrl ? (
                     item.kind === "image" ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.dataUrl}
-                        alt={item.title}
-                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
+                       <img
+                         src={item.dataUrl}
+                         alt={item.title}
+                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                         onError={(e) => {
+                           e.currentTarget.style.opacity = "0";
+                         }}
+                       />
                     ) : (
                       <div className="relative h-full w-full">
                         <video
                           src={item.dataUrl}
                           className="h-full w-full object-cover"
                           muted
+                          onError={(e) => {
+                            e.currentTarget.style.opacity = "0";
+                          }}
                         />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/25 group-hover:bg-black/50 transition-colors duration-300">
                           <div className="rounded-full bg-white/90 p-3 shadow-3d transition-transform duration-200 group-hover:scale-110">
@@ -569,28 +891,37 @@ export default function ImagesPage() {
                   ) : item.kind === "video" ? (
                     <div className="flex flex-col items-center gap-2 text-muted-foreground/40">
                       <Film className="h-8 w-8" />
-                      <span className="text-[10px] uppercase tracking-wider">Vidéo</span>
+                      <span className="text-[10px] uppercase tracking-wider">
+                        Vidéo
+                      </span>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-muted-foreground/40">
                       <ImageIcon className="h-8 w-8" />
-                      <span className="text-[10px] uppercase tracking-wider">Image</span>
+                      <span className="text-[10px] uppercase tracking-wider">
+                        Image
+                      </span>
                     </div>
                   )}
                 </div>
 
                 <div className="p-3">
-                  <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+                  <p className="truncate text-sm font-semibold text-foreground">
+                    {item.title}
+                  </p>
                   <div className="mt-1.5 flex items-center justify-between">
                     <Badge
                       variant="outline"
                       className={`text-[10px] border rounded-full ${
-                        CATEGORY_COLORS[item.category] || "bg-muted text-muted-foreground border-muted"
+                        CATEGORY_COLORS[item.category] ||
+                        "bg-muted text-muted-foreground border-muted"
                       }`}
                     >
                       {item.category}
                     </Badge>
-                    <span className="text-[10px] text-muted-foreground/70">{formatSize(item.size)}</span>
+                    <span className="text-[10px] text-muted-foreground/70">
+                      {formatSize(item.size)}
+                    </span>
                   </div>
                 </div>
 
@@ -645,7 +976,9 @@ export default function ImagesPage() {
                     <Plus className="h-3.5 w-3.5 text-primary" />
                   )}
                 </div>
-                <span className="gradient-text">{editingItem ? "Modifier le média" : "Ajouter un média"}</span>
+                <span className="gradient-text">
+                  {editingItem ? "Modifier le média" : "Ajouter un média"}
+                </span>
               </DialogTitle>
               <DialogDescription>
                 {editingItem
@@ -656,38 +989,40 @@ export default function ImagesPage() {
 
             <DialogBody>
               <div className="space-y-5">
-                <div className="space-y-2">
-                  <Label>Source du média</Label>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant={sourceMode === "upload" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
-                        stopCamera();
-                        setSourceMode("upload");
-                      }}
-                      className="gap-1.5 flex-1"
-                    >
-                      <FileUp className="h-4 w-4" />
-                      Importer
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={sourceMode === "camera" ? "default" : "outline"}
-                      size="sm"
-                      onClick={startCamera}
-                      className="gap-1.5 flex-1"
-                    >
-                      <Camera className="h-4 w-4" />
-                      Capturer
-                    </Button>
+                {!previewUrl && (
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">Source du média</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        variant={sourceMode === "upload" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          stopCamera();
+                          setSourceMode("upload");
+                        }}
+                        className="gap-2"
+                      >
+                        <FileUp className="h-4 w-4" />
+                        Importer
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={sourceMode === "camera" ? "default" : "outline"}
+                        size="sm"
+                        onClick={startCamera}
+                        className="gap-2"
+                      >
+                        <Camera className="h-4 w-4" />
+                        Capturer
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {sourceMode === "upload" && (
+                {sourceMode === "upload" && !previewUrl && (
                   <div
-                    className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed py-10 px-4 text-center transition-all duration-300 cursor-pointer ${
+                    className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed py-12 px-4 text-center transition-all duration-300 cursor-pointer ${
                       dragActive
                         ? "border-primary bg-primary/8 scale-[1.02] shadow-primary-glow"
                         : "border-border/50 bg-muted/20 hover:border-primary/40 hover:bg-primary/5 hover:shadow-3d-sm"
@@ -707,7 +1042,9 @@ export default function ImagesPage() {
                       <Upload className="h-7 w-7" />
                     </div>
                     <p className="mt-4 text-sm font-semibold text-foreground">
-                      {dragActive ? "Déposez le fichier ici ✨" : "Glissez-déposez un fichier"}
+                      {dragActive
+                        ? "Déposez le fichier ici"
+                        : "Glissez-déposez un fichier"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       ou parcourez vos fichiers — Images et vidéos acceptées
@@ -722,7 +1059,7 @@ export default function ImagesPage() {
                   </div>
                 )}
 
-                {sourceMode === "camera" && (
+                {sourceMode === "camera" && !previewUrl && (
                   <div className="space-y-3">
                     <div className="relative overflow-hidden rounded-xl bg-black">
                       <video
@@ -781,10 +1118,13 @@ export default function ImagesPage() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={stopCamera}
+                        onClick={() => {
+                          stopCamera();
+                          setSourceMode("upload");
+                        }}
                       >
                         <X className="h-4 w-4 mr-1" />
-                        Fermer
+                        Annuler
                       </Button>
                     </div>
                   </div>
@@ -792,147 +1132,195 @@ export default function ImagesPage() {
 
                 {previewUrl && (
                   <div className="space-y-2">
-                    <Label>Aperçu</Label>
+                    <div className="flex items-center justify-between">
+                      <Label>Aperçu du média</Label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setPreviewUrl(null);
+                          setPreviewKind(null);
+                          setSourceMode("upload");
+                        }}
+                        className="h-7 text-xs"
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        Changer
+                      </Button>
+                    </div>
                     <div className="relative overflow-hidden rounded-xl border border-border/60 bg-muted/20">
                       {previewKind === "image" ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={previewUrl}
                           alt="Aperçu"
-                          className="h-44 w-full object-contain"
+                          className="h-48 w-full object-contain"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
                         />
                       ) : (
                         <video
                           src={previewUrl}
                           controls
-                          className="h-44 w-full object-contain"
+                          className="h-48 w-full object-contain"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
                         />
                       )}
                     </div>
                   </div>
                 )}
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="title">Titre *</Label>
-                    <Input
-                      id="title"
-                      value={formData.title}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, title: e.target.value }))
-                      }
-                      placeholder="Nom du média"
-                      className="bg-background/60"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="category">Catégorie *</Label>
-                    <Select
-                      value={formData.category}
-                      onValueChange={(value) =>
-                        setFormData((prev) => ({ ...prev, category: value as string }))
-                      }
-                    >
-                      <SelectTrigger id="category">
-                        <SelectValue placeholder="Sélectionner" />
-                      </SelectTrigger>
-                      <SelectContent>
+                {previewUrl && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="title">Titre *</Label>
+                      <Input
+                        id="title"
+                        value={formData.title}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          console.log("[form] title:", value);
+                          setFormData((prev) => ({
+                            ...prev,
+                            title: value,
+                          }));
+                        }}
+                        placeholder="Nom du média"
+                        className="bg-background/60"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="category">Catégorie *</Label>
+                      <Input
+                        id="category"
+                        value={formData.category ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          console.log("[form] category:", value);
+                          setFormData((prev) => ({
+                            ...prev,
+                            category: value,
+                          }));
+                        }}
+                        placeholder="ex: production, inspection..."
+                        className="bg-background/60"
+                        list="category-list"
+                      />
+                      <datalist id="category-list">
                         {categories
                           .filter((c) => c !== "Tous")
                           .map((cat) => (
-                            <SelectItem key={cat} value={cat}>
-                              {cat}
-                            </SelectItem>
+                            <option key={cat} value={cat} />
                           ))}
-                      </SelectContent>
-                    </Select>
+                      </datalist>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        description: e.target.value,
-                      }))
-                    }
-                    placeholder="Décrire le média..."
-                    rows={3}
-                    className="bg-background/60"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="tags">
-                    <Tag className="h-3 w-3 inline mr-1" />
-                    Tags
-                  </Label>
-                  <Input
-                    id="tags"
-                    value={formData.tags}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, tags: e.target.value }))
-                    }
-                    placeholder="ex: équipement, bloc B, inspection"
-                    className="bg-background/60"
-                  />
-                  <p className="text-[10px] text-muted-foreground">
-                    Séparez les tags par des virgules
-                  </p>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
+                {previewUrl && (
                   <div className="space-y-2">
-                    <Label htmlFor="kind">Type de média</Label>
-                    <Select
-                      value={formData.kind}
-                      onValueChange={(value) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          kind: value as MediaKind,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="kind">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="image">
-                          <span className="flex items-center gap-2">
-                            <ImageIcon className="h-4 w-4" /> Image
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="video">
-                          <span className="flex items-center gap-2">
-                            <Film className="h-4 w-4" /> Vidéo
-                          </span>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="description">Description</Label>
+                      <Textarea
+                        id="description"
+                        value={formData.description}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          console.log("[form] description:", value);
+                          setFormData((prev) => ({
+                            ...prev,
+                            description: value,
+                          }));
+                        }}
+                        placeholder="Décrire le média..."
+                        rows={3}
+                        className="bg-background/60"
+                      />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Format MIME</Label>
-                    <Input
-                      value={formData.mimeType || "—"}
-                      readOnly
-                      className="bg-muted/30"
-                    />
-                  </div>
-                </div>
+                )}
 
-                <div className="flex items-center justify-between rounded-xl bg-muted/20 px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Taille</span>
+                {previewUrl && (
+                  <div className="space-y-2">
+                    <Label htmlFor="tags">
+                      <Tag className="h-3 w-3 inline mr-1" />
+                      Tags
+                    </Label>
+                      <Input
+                        id="tags"
+                        value={formData.tags}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          console.log("[form] tags:", value);
+                          setFormData((prev) => ({ ...prev, tags: value }));
+                        }}
+                        placeholder="ex: équipement, bloc B, inspection"
+                        className="bg-background/60"
+                      />
+                    <p className="text-[10px] text-muted-foreground">
+                      Séparez les tags par des virgules
+                    </p>
                   </div>
-                  <span className="text-sm font-medium text-foreground">
-                    {formatSize(formData.size || 0)}
-                  </span>
-                </div>
+                )}
+
+                {previewUrl && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="kind">Type de média</Label>
+                      <Select
+                        value={formData.kind}
+                        onValueChange={(value) => {
+                          const kind = value as MediaKind;
+                          console.log("[form] kind:", kind);
+                          setFormData((prev) => ({
+                            ...prev,
+                            kind,
+                          }));
+                        }}
+                      >
+                        <SelectTrigger id="kind">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="image">
+                            <span className="flex items-center gap-2">
+                              <ImageIcon className="h-4 w-4" /> Image
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="video">
+                            <span className="flex items-center gap-2">
+                              <Film className="h-4 w-4" /> Vidéo
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Format MIME</Label>
+                      <Input
+                        value={formData.mimeType || "—"}
+                        readOnly
+                        className="bg-muted/30"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {previewUrl && (
+                  <div className="flex items-center justify-between rounded-xl bg-muted/20 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">
+                        Taille du fichier
+                      </span>
+                    </div>
+                    <span className="text-sm font-medium text-foreground">
+                      {formatSize(formData.size || 0)}
+                    </span>
+                  </div>
+                )}
               </div>
             </DialogBody>
 
@@ -968,9 +1356,10 @@ export default function ImagesPage() {
                 )}
               </Button>
             </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        </DialogContent>
+      </Dialog>
       </div>
     </section>
+    </ErrorBoundary>
   );
 }

@@ -1,6 +1,14 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Plus, FileText, Trash2, Pencil, Wand2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  FileText,
+  Trash2,
+  Pencil,
+  Wand2,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import type { DatabaseTreeNode } from "@/lib/types/structure-bdd";
 import { cn } from "@/lib/utils";
@@ -86,8 +94,10 @@ export function TreeNode({
         onMouseLeave={() => onHover(null)}
         role="treeitem"
         aria-expanded={hasChildren ? isExpanded : undefined}
+        aria-label={node.libelle ? `${node.name} — ${node.libelle}` : undefined}
         aria-selected={isSelected}
         tabIndex={-1}
+        title={node.libelle ?? undefined}
       >
         <div className="flex items-center gap-1">
           {depth > 0 && (

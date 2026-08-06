@@ -22,11 +22,6 @@ export async function POST(request: Request) {
 
    log.info("Login request received", { clientIp, contentType: request.headers.get("content-type") });
  
-   console.log("[auth-login] DEBUG - clientIp:", clientIp);
-   console.log("[auth-login] DEBUG - method:", request.method);
-   console.log("[auth-login] DEBUG - url:", request.url);
-   console.log("[auth-login] DEBUG - content-type:", request.headers.get("content-type"));
- 
    const result = await validateApiRequest(request, {
      requireAuth: false,
      allowedContentTypes: ["application/json"],
@@ -35,37 +30,31 @@ export async function POST(request: Request) {
    });
  
    if (!result.ok) {
-     const status = result.response.status;
-     console.log("[auth-login] DEBUG - validation failed, status:", status);
-     try {
-       const errorBody = await result.response.clone().json();
-       console.log("[auth-login] DEBUG - validation error body:", JSON.stringify(errorBody));
-       log.warn("Login request validation failed", { clientIp, status, errorBody });
-     } catch {
-       console.log("[auth-login] DEBUG - validation failed, could not parse error body");
-       log.warn("Login request validation failed", { clientIp, status });
-     }
-     return result.response;
-   }
- 
-   const { username, password, callbackUrl } = result.ctx.body as z.infer<typeof LoginSchema>;
- 
-   console.log("[auth-login] DEBUG - validation passed, username:", username, "callbackUrl:", callbackUrl);
-   log.debug("Login credentials submitted", { username, callbackUrl, clientIp });
+      const status = result.response.status;
+      try {
+        const errorBody = await result.response.clone().json();
+        log.warn("Login request validation failed", { clientIp, status, errorBody });
+      } catch {
+        log.warn("Login request validation failed", { clientIp, status });
+      }
+      return result.response;
+    }
+  
+    const { username, password, callbackUrl } = result.ctx.body as z.infer<typeof LoginSchema>;
+  
+    log.debug("Login credentials submitted", { username, callbackUrl, clientIp });
 
    const user = await verifyAdminCredentials(username, password);
  
-   if (!user) {
-     console.log("[auth-login] DEBUG - credentials invalid for username:", username);
-     log.warn("Login failed: invalid credentials", { username, clientIp });
+    if (!user) {
+      log.warn("Login failed: invalid credentials", { username, clientIp });
      return NextResponse.json(
        { error: "Identifiants incorrects" },
        { status: 401 }
      );
    }
  
-   console.log("[auth-login] DEBUG - credentials verified, userId:", user.id, "role:", user.role);
-   log.info("Login credentials verified", { userId: user.id, username, role: user.role, clientIp });
+    log.info("Login credentials verified", { userId: user.id, username, role: user.role, clientIp });
  
    const accessToken = await signAccessToken({
      sub: user.id,
@@ -81,11 +70,9 @@ export async function POST(request: Request) {
      lastName: user.lastName,
    });
  
-   const csrfToken = generateCsrfToken();
- 
-   console.log("[auth-login] DEBUG - tokens generated, accessToken length:", accessToken.length);
- 
-   const response = NextResponse.json({
+    const csrfToken = generateCsrfToken();
+  
+    const response = NextResponse.json({
      token: accessToken,
      csrfToken: csrfToken,
      user: {
@@ -97,11 +84,10 @@ export async function POST(request: Request) {
      callbackUrl: callbackUrl ?? null,
    });
  
-   setAuthCookies(response, accessToken, refreshToken);
-   setCsrfCookie(response, csrfToken);
- 
-   console.log("[auth-login] DEBUG - login successful, cookies set");
-   log.info("Login successful", { userId: user.id, username, clientIp });
+    setAuthCookies(response, accessToken, refreshToken);
+    setCsrfCookie(response, csrfToken);
+  
+    log.info("Login successful", { userId: user.id, username, clientIp });
 
   return response;
 }

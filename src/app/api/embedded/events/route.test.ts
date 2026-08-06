@@ -5,6 +5,23 @@ vi.mock("@/lib/api/handlers", () => ({
   validateApiRequest: vi.fn(),
 }));
 
+vi.mock("@/lib/embedded/server-store", () => ({
+  getOrCreateDevice: vi.fn().mockResolvedValue(undefined),
+  getDeviceSnapshot: vi.fn().mockResolvedValue(null),
+  upsertDeviceConnection: vi.fn().mockResolvedValue(undefined),
+  upsertSensorReading: vi.fn().mockResolvedValue(undefined),
+  saveSensorReadingHistory: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/lib/logger", () => ({
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  }),
+}));
+
 import { validateApiRequest } from "@/lib/api/handlers";
 
 const mockRequest = {
@@ -23,7 +40,10 @@ beforeEach(() => {
 
 describe("GET /api/embedded/events", () => {
   it("returns 401 when auth fails", async () => {
-    vi.mocked(validateApiRequest).mockResolvedValue({ ok: false, response: new Response("Unauthorized", { status: 401 }) });
+    vi.mocked(validateApiRequest).mockResolvedValue({
+      ok: false,
+      response: new Response("Unauthorized", { status: 401 }),
+    });
 
     const response = await GET(mockRequest);
 
@@ -31,7 +51,10 @@ describe("GET /api/embedded/events", () => {
   });
 
   it("returns SSE stream on success", async () => {
-    vi.mocked(validateApiRequest).mockResolvedValue({ ok: true, ctx: { user: { sub: "1", role: "admin" }, body: null } });
+    vi.mocked(validateApiRequest).mockResolvedValue({
+      ok: true,
+      ctx: { user: { sub: "1", role: "admin" }, body: null },
+    });
 
     const response = await GET(mockRequest);
 
@@ -40,7 +63,10 @@ describe("GET /api/embedded/events", () => {
   });
 
   it("uses deviceId from query param", async () => {
-    vi.mocked(validateApiRequest).mockResolvedValue({ ok: true, ctx: { user: { sub: "1", role: "admin" }, body: null } });
+    vi.mocked(validateApiRequest).mockResolvedValue({
+      ok: true,
+      ctx: { user: { sub: "1", role: "admin" }, body: null },
+    });
 
     const requestWithDeviceId = {
       headers: new Headers(),

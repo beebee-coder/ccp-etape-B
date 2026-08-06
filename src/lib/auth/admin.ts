@@ -55,33 +55,28 @@ export async function verifyAdminCredentials(
  ): Promise<AdminUser | null> {
    const admin = getAdminUser();
  
-   const normalizedInput = username.trim().toLowerCase();
-   const candidates = [
-     admin.username.toLowerCase(),
-     "admin",
-     `${admin.firstName} ${admin.lastName}`.toLowerCase(),
-     `${admin.firstName.toLowerCase()}${admin.lastName.toLowerCase()}`,
-   ];
+  const normalizedInput = username.trim().toLowerCase();
+  const candidates = [
+    admin.username.toLowerCase(),
+    "admin",
+    `${admin.firstName} ${admin.lastName}`.toLowerCase(),
+    `${admin.firstName.toLowerCase()}${admin.lastName.toLowerCase()}`,
+  ];
+  
+  log.debug("Admin credential verification attempt", { username });
  
-   console.log("[auth-admin] DEBUG - verifying credentials");
-   console.log("[auth-admin] DEBUG - normalizedInput:", normalizedInput);
-   console.log("[auth-admin] DEBUG - candidates:", candidates);
-   console.log("[auth-admin] DEBUG - match found:", candidates.includes(normalizedInput));
+    if (!candidates.includes(normalizedInput)) {
+      log.warn("Admin credential verification failed: username not recognized", { username });
+      return null;
+    }
+  
+    const passwordHash = await getAdminPasswordHash();
+    const valid = await comparePassword(password, passwordHash);
  
-   if (!candidates.includes(normalizedInput)) {
-     console.log("[auth-admin] DEBUG - username not recognized");
-     log.warn("Admin credential verification failed: username not recognized", { username });
-     return null;
-   }
- 
-   const passwordHash = await getAdminPasswordHash();
-   const valid = await comparePassword(password, passwordHash);
- 
-   if (!valid) {
-     console.log("[auth-admin] DEBUG - password mismatch");
-     log.warn("Admin credential verification failed: password mismatch", { username });
-     return null;
-   }
+    if (!valid) {
+      log.warn("Admin credential verification failed: password mismatch", { username });
+      return null;
+    }
 
   log.info("Admin credentials verified successfully", { userId: admin.id, username });
   return admin;

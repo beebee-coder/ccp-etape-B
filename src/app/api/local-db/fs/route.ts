@@ -39,6 +39,23 @@ interface ApiTreeNode {
   children?: ApiTreeNode[];
   stats?: { sizeBytes: number };
   vectorized?: boolean;
+  libelle?: string;
+}
+
+function readMeta(fullPath: string): string | undefined {
+  const metaPath = path.join(fullPath, ".meta.json");
+  try {
+    if (fs.existsSync(metaPath) && fs.statSync(metaPath).isFile()) {
+      const content = fs.readFileSync(metaPath, "utf-8");
+      const parsed = JSON.parse(content);
+      if (parsed && typeof parsed.libelle === "string") {
+        return parsed.libelle;
+      }
+    }
+  } catch {
+    // ignore invalid meta files
+  }
+  return undefined;
 }
 
 function buildTree(relPath: string, vectorizedPaths: Set<string>): ApiTreeNode {
@@ -57,7 +74,10 @@ function buildTree(relPath: string, vectorizedPaths: Set<string>): ApiTreeNode {
     };
   }
 
-  const entries = fs.readdirSync(fullPath);
+  const entries = fs
+    .readdirSync(fullPath)
+    .filter((entry) => entry !== ".meta.json");
+  const libelle = readMeta(fullPath);
   const children = entries.map((entryName) => {
     const childRelPath = relPath ? `${relPath}/${entryName}` : entryName;
     return buildTree(childRelPath, vectorizedPaths);
@@ -69,6 +89,7 @@ function buildTree(relPath: string, vectorizedPaths: Set<string>): ApiTreeNode {
     kind: "directory",
     children,
     vectorized: false,
+    ...(libelle ? { libelle } : {}),
   };
 }
 
@@ -81,17 +102,38 @@ export async function GET(request: Request) {
     const fullPath = safeJoin(target);
 
     if (read) {
+      if (!fs.existsSync(fullPath) || fs.statSync(fullPath).isDirectory()) {
+        return NextResponse.json(
+          { error: "Fichier introuvable" },
+          { status: 404 },
+        );
+      }
+
+      const ext = path.extname(fullPath).toLowerCase();
+      const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"];
+
+      if (imageExtensions.includes(ext)) {
+        const buffer = fs.readFileSync(fullPath);
+        const base64 = buffer.toString("base64");
+        const mimeType = ext === ".svg" ? "image/svg+xml" : `image/${ext.slice(1)}`;
+        const dataUrl = `data:${mimeType};base64,${base64}`;
+        return NextResponse.json({ content: dataUrl, name: path.basename(fullPath), isImage: true });
+      }
+
       const content = fs.readFileSync(fullPath, "utf-8");
-      return NextResponse.json({ content });
+      return NextResponse.json({ content, name: path.basename(fullPath) });
     }
 
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
-      return NextResponse.json({ error: "Répertoire introuvable" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Répertoire introuvable" },
+        { status: 404 },
+      );
     }
 
     const vectorizedPaths = getVectorizedPaths();
     const tree = buildTree(target, vectorizedPaths);
-    return NextResponse.json({ 
+    return NextResponse.json({
       children: tree.children,
       vectorizedPaths: Array.from(vectorizedPaths),
     });
@@ -111,7 +153,10 @@ export async function POST(request: Request) {
       const target = formData.get("path") as string | null;
 
       if (!file || !target) {
-        return NextResponse.json({ error: "Fichier et chemin requis" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Fichier et chemin requis" },
+          { status: 400 },
+        );
       }
 
       const parentPath = safeJoin(target);
@@ -123,10 +168,17 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { path: target, name, kind } = body as { path?: string; name?: string; kind?: string };
+    const {
+      path: target,
+      name,
+      kind,
+    } = body as { path?: string; name?: string; kind?: string };
 
     if (!target || !name) {
-      return NextResponse.json({ error: "Chemin et nom requis" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Chemin et nom requis" },
+        { status: 400 },
+      );
     }
 
     const parentPath = safeJoin(target);
@@ -172,13 +224,37 @@ export async function DELETE(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { path: targetPath, action } = body as { path?: string; action?: string };
+    const { path: targetPath, action, content } = body as {
+      path?: string;
+      action?: string;
+      content?: string;
+    };
 
-    if (!targetPath || !action) {
-      return NextResponse.json({ error: "Chemin et action requis" }, { status: 400 });
+    if (!targetPath) {
+      return NextResponse.json(
+        { error: "Chemin requis" },
+        { status: 400 },
+      );
     }
 
     const fullPath = safeJoin(targetPath);
+
+    if (content !== undefined) {
+      const dir = path.dirname(fullPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(fullPath, content, "utf-8");
+      return NextResponse.json({ success: true });
+    }
+
+    if (!action) {
+      return NextResponse.json(
+        { error: "Action ou contenu requis" },
+        { status: 400 },
+      );
+    }
+
     const stat = fs.statSync(fullPath);
 
     if (action === "vectorize" && stat.isFile()) {
@@ -186,7 +262,10 @@ export async function PATCH(request: Request) {
       fs.mkdirSync(vectorDir, { recursive: true });
 
       const relPath = path.relative(LOCAL_DB_ROOT, fullPath);
-      const hash = Buffer.from(relPath).toString("base64").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24);
+      const hash = Buffer.from(relPath)
+        .toString("base64")
+        .replace(/[^a-zA-Z0-9_-]/g, "")
+        .slice(0, 24);
       const vectorFile = path.join(vectorDir, `${hash}.json`);
 
       const payload = {
@@ -201,7 +280,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: true, vectorized: true });
     }
 
-    return NextResponse.json({ error: "Action non supportée" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Action non supportée" },
+      { status: 400 },
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
     return NextResponse.json({ error: message }, { status: 400 });
@@ -211,10 +293,16 @@ export async function PATCH(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { path: oldPath, newName } = body as { path?: string; newName?: string };
+    const { path: oldPath, newName } = body as {
+      path?: string;
+      newName?: string;
+    };
 
     if (!oldPath || !newName) {
-      return NextResponse.json({ error: "Chemin et nouveau nom requis" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Chemin et nouveau nom requis" },
+        { status: 400 },
+      );
     }
 
     const fullOldPath = safeJoin(oldPath);
