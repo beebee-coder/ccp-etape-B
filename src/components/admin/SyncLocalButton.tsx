@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Download, RefreshCw, CheckCircle2, AlertTriangle, Database } from "lucide-react";
 import { toast } from "sonner";
 import { isTauriEnvironment, tauriPullAndPurge, type TauriPullResult } from "@/lib/tauri/commands";
+import { getCsrfTokenClient } from "@/lib/auth/cookies";
 
 export function SyncLocalButton() {
   const [isLoading, setIsLoading] = useState(false);
@@ -33,8 +34,13 @@ export function SyncLocalButton() {
           });
         }
       } else {
+        const csrfToken = getCsrfTokenClient();
         const response = await fetch("/api/local-db/sync-all", {
           method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+          },
         });
 
         if (!response.ok) {
