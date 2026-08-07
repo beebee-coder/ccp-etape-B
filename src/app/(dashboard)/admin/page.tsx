@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Users, FileText, Activity, AlertTriangle } from "lucide-react";
+import { Users, FileText, Activity, AlertTriangle, Trash2 } from "lucide-react";
+
+import { SyncLocalButton } from "@/components/admin/SyncLocalButton";
 
 export default function AdminDashboard() {
   const stats = [
@@ -59,11 +61,13 @@ export default function AdminDashboard() {
         >
           Exporter
         </Button>
+        <SyncLocalButton />
         <Button
           size="sm"
           onClick={() => alert("Données rafraîchies")}
           className="gap-1.5 rounded-xl border border-primary/30 bg-gradient-to-r from-primary to-purple-600 shadow-3d-sm text-white hover:-translate-y-0.5 hover:shadow-primary-glow active:translate-y-0 transition-all duration-200"
         >
+          <Trash2 className="h-4 w-4" />
           Rafraîchir
         </Button>
       </div>

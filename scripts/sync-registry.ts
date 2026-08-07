@@ -3,7 +3,14 @@ import path from "path";
 
 const LOCAL_DB_ROOT = path.join(process.cwd(), ".local-db");
 const REGISTRY_ROOT = path.join(process.cwd(), ".registry");
-const REGISTRY_TARGET = path.join(LOCAL_DB_ROOT, "registry");
+
+function getLocalTargetPath(relPath: string): string {
+  const normalized = relPath.replace(/\\/g, "/");
+  if (normalized.startsWith("Centrale/") || normalized.startsWith("Groupes/")) {
+    return path.join(LOCAL_DB_ROOT, normalized);
+  }
+  return path.join(LOCAL_DB_ROOT, "registry", relPath);
+}
 
 interface Entry {
   path: string;
@@ -35,8 +42,8 @@ const skipped: string[] = [];
 const failed: string[] = [];
 
 for (const entry of entries) {
-  const localFull = path.join(REGISTRY_TARGET, entry.path);
   const registryFull = path.join(REGISTRY_ROOT, entry.path);
+  const localFull = getLocalTargetPath(entry.path);
 
   try {
     if (entry.kind === "directory") {

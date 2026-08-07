@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { z } from "zod";
 import { createLogger } from "@/lib/logger";
+import { LocationRefSchema } from "@/lib/location/types";
 
 const log = createLogger({ module: "images-server-store" });
 
@@ -17,6 +18,7 @@ export const MediaItemSchema = z.object({
   thumbnailDataUrl: z.string().optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
+  location: LocationRefSchema.optional(),
 });
 
 export const MediaItemInputSchema = MediaItemSchema.omit({
@@ -42,6 +44,12 @@ export interface MediaItem {
   size: number;
   dataUrl: string;
   thumbnailDataUrl?: string;
+  location?: {
+    locationType: "centrale" | "groupe" | "global";
+    locationPath?: string;
+    blocCode?: string;
+    equipementCode?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -229,9 +237,9 @@ export async function create(
       created_at: string;
       updated_at: string;
     }>(
-      `INSERT INTO media_items (id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, created_at, updated_at`,
+      `INSERT INTO media_items (id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, location_type, location_path, bloc_code, equipement_code, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       RETURNING id, title, category, description, tags, kind, mime_type, size, data_url, thumbnail_url, location_type, location_path, bloc_code, equipement_code, created_at, updated_at`,
       [
         id,
         item.title,
@@ -243,6 +251,10 @@ export async function create(
         item.size,
         item.dataUrl,
         item.thumbnailDataUrl || null,
+        item.location?.locationType || null,
+        item.location?.locationPath || null,
+        item.location?.blocCode || null,
+        item.location?.equipementCode || null,
         now,
         now,
       ],

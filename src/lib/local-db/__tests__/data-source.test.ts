@@ -81,8 +81,9 @@ describe("LocalDataSource", () => {
 
     const pending = dataSource.getPendingSyncItems();
     expect(pending.length).toBeGreaterThanOrEqual(1);
-    expect(pending[0].entity).toBe("groupe");
-    expect(pending[0].entityId).toBe("TEST-1");
+    const item = pending.find((p) => p.entityId === "TEST-1");
+    expect(item).toBeDefined();
+    expect(item?.entity).toBe("groupe");
   });
 
   it("should manage sync manifest", () => {

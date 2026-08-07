@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (error) {
     log.error("POST /api/q-r: error creating item", { error });
-    return NextResponse.json({ error: "Erreur lors de la création du Q/R" }, { status: 400 });
+    return NextResponse.json({ error: "Erreur lors de la création du Q/R" }, { status: 500 });
   }
 }
 
@@ -91,7 +91,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ data: updated });
   } catch (error) {
     log.error("PUT /api/q-r: error updating item", { error, id });
-    return NextResponse.json({ error: "Erreur lors de la mise à jour du Q/R" }, { status: 400 });
+    return NextResponse.json({ error: "Erreur lors de la mise à jour du Q/R" }, { status: 500 });
   }
 }
 
@@ -121,6 +121,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ data: { success: true } });
   } catch (error) {
     log.error("DELETE /api/q-r: error deleting item", { error });
-    return NextResponse.json({ error: "Erreur lors de la suppression du Q/R" }, { status: 400 });
+    return NextResponse.json({ error: "Erreur lors de la suppression du Q/R" }, { status: 500 });
   }
 }

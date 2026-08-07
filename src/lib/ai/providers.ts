@@ -2,7 +2,8 @@ import Groq from "groq-sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createLogger } from "@/lib/logger";
 import { CircuitBreaker } from "./circuit-breaker";
-import { searchRagDocuments } from "./rag-search";
+import { searchRagDocuments, searchRagWithLocation, type RagDocument } from "./location-aware-rag";
+import { extractLocationFromQuery, formatLocation } from "@/lib/location/parser";
 
 const log = createLogger({ module: "ai-providers" });
 
@@ -192,8 +193,20 @@ async function buildEnrichedContext(
   existingContext?: string,
 ): Promise<string | undefined> {
   try {
-    const docs = await searchRagDocuments(message, 5);
-    if (docs.length === 0) return existingContext;
+    const locations = extractLocationFromQuery(message);
+    const locationHints = locations.length > 0 && locations[0].locationType !== "global"
+      ? `\nLocalisation détectée: ${locations.map(formatLocation).join(", ")}`
+      : "";
+
+    let docs: RagDocument[] = [];
+    if (locations.length > 0 && locations[0].locationType !== "global") {
+      docs = await searchRagWithLocation(message, locations, 5);
+    }
+    if (docs.length === 0) {
+      docs = await searchRagDocuments(message, 5);
+    }
+
+    if (docs.length === 0 && !locationHints) return existingContext;
 
     const ragBlock = docs
       .map(
@@ -202,9 +215,8 @@ async function buildEnrichedContext(
       )
       .join("\n");
 
-    return existingContext
-      ? `${existingContext}\n\nRAG:\n${ragBlock}`
-      : `RAG:\n${ragBlock}`;
+    const contextParts = [existingContext, `RAG:${locationHints}`, ragBlock].filter(Boolean);
+    return contextParts.join("\n\n");
   } catch {
     return existingContext;
   }

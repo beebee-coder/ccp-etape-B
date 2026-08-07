@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash   VARCHAR(255) NOT NULL,
   name            VARCHAR(100),
   role            VARCHAR(50) NOT NULL DEFAULT 'user',
-  is_active       BOOLEAN NOT NULL DEFAULT true,
+  is_active       BOOLEAN NOT NULL DEFAULT 1,
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      TIMESTAMP
 );
@@ -56,12 +56,12 @@ CREATE TABLE IF NOT EXISTS procedure_steps (
   subtitle          TEXT,
   instructions      TEXT NOT NULL,
   step_type         VARCHAR(50) NOT NULL DEFAULT 'consigne_simple',
-  is_mandatory      BOOLEAN NOT NULL DEFAULT false,
+  is_mandatory      BOOLEAN NOT NULL DEFAULT 0,
   dependencies      TEXT NOT NULL DEFAULT '[]',
   media_requirements TEXT NOT NULL DEFAULT '[]',
   alarms            TEXT NOT NULL DEFAULT '[]',
   attachments       TEXT NOT NULL DEFAULT '[]',
-  timer_enabled     BOOLEAN NOT NULL DEFAULT false,
+  timer_enabled     BOOLEAN NOT NULL DEFAULT 0,
   timer_seconds     INTEGER NOT NULL DEFAULT 0,
   created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at        TIMESTAMP
@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS integrations (
   user_id       TEXT NOT NULL,
   service       VARCHAR(50) NOT NULL,
   credentials   TEXT DEFAULT '{}',
-  is_active     BOOLEAN NOT NULL DEFAULT true,
+  is_active     BOOLEAN NOT NULL DEFAULT 1,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -241,7 +241,7 @@ CREATE TABLE IF NOT EXISTS guardrail_rules (
   id            TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
   section       VARCHAR(50) NOT NULL DEFAULT 'general',
   rule          TEXT NOT NULL,
-  is_active     BOOLEAN NOT NULL DEFAULT true,
+  is_active     BOOLEAN NOT NULL DEFAULT 1,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -261,6 +261,10 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
   answer    TEXT,
   tags      TEXT NOT NULL DEFAULT '[]',
   category  TEXT,
+  location_type VARCHAR(20) CHECK (location_type IN ('centrale','groupe','global')),
+  location_path VARCHAR(200),
+  bloc_code VARCHAR(10),
+  equipement_code VARCHAR(50),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP,
   content   TEXT
@@ -311,7 +315,7 @@ CREATE TABLE IF NOT EXISTS iot_actuators (
   name        VARCHAR(255) NOT NULL,
   type        VARCHAR(50) NOT NULL,
   state       VARCHAR(20) NOT NULL DEFAULT 'idle',
-  enabled     BOOLEAN NOT NULL DEFAULT false,
+  enabled     BOOLEAN NOT NULL DEFAULT 0,
   updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -418,7 +422,7 @@ CREATE TABLE IF NOT EXISTS meeting_chat_messages (
   user_id       VARCHAR(255) NOT NULL,
   user_name     VARCHAR(255) NOT NULL,
   user_initials VARCHAR(10) NOT NULL,
-  is_self       BOOLEAN NOT NULL DEFAULT false,
+  is_self       BOOLEAN NOT NULL DEFAULT 0,
   text          TEXT NOT NULL,
   timestamp     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -521,3 +525,85 @@ CREATE TABLE IF NOT EXISTS sync_manifest (
   synced_count  INTEGER NOT NULL DEFAULT 0,
   failed_count  INTEGER NOT NULL DEFAULT 0
 );
+
+-- ============================================================
+-- 18. ALARMES (premiere classe)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS alarms (
+   id            TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+   code          TEXT NOT NULL UNIQUE,
+   bloc_code     TEXT NOT NULL,
+   equipement_code TEXT NOT NULL,
+   location_type TEXT NOT NULL CHECK (location_type IN ('centrale','groupe','global')),
+   location_path TEXT NOT NULL,
+   groupe_path   TEXT,
+   type          TEXT NOT NULL,
+   severity      TEXT NOT NULL,
+   description   TEXT NOT NULL,
+   condition     TEXT,
+   remedy        TEXT DEFAULT '{}',
+   status        TEXT NOT NULL DEFAULT 'ACTIVE',
+   triggered_at  TIMESTAMP,
+   resolved_at   TIMESTAMP,
+   metadata      TEXT DEFAULT '{}',
+   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_alarms_location ON alarms(location_type, location_path);
+CREATE INDEX IF NOT EXISTS idx_alarms_bloc ON alarms(bloc_code);
+CREATE INDEX IF NOT EXISTS idx_alarms_code ON alarms(code);
+CREATE INDEX IF NOT EXISTS idx_alarms_status ON alarms(status);
+
+CREATE TABLE IF NOT EXISTS alarm_events (
+   id            TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+   alarm_id      TEXT NOT NULL,
+   event_type    TEXT NOT NULL,
+   occurred_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   operator_id   TEXT,
+   comment       TEXT,
+   metadata      TEXT DEFAULT '{}',
+   FOREIGN KEY (alarm_id) REFERENCES alarms(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_alarm_events_alarm ON alarm_events(alarm_id);
+CREATE INDEX IF NOT EXISTS idx_alarm_events_occurred ON alarm_events(occurred_at);
+
+-- ============================================================
+-- 19. NOEUDS DE LOCALISATION (referentiel)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS location_nodes (
+   id            TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+   location_type TEXT NOT NULL CHECK (location_type IN ('centrale','groupe','global')),
+   path          TEXT UNIQUE NOT NULL,
+   bloc_code     TEXT,
+   equipement_code TEXT,
+   groupe_code   TEXT,
+   libelle       TEXT,
+   parent_path   TEXT,
+   level         INTEGER NOT NULL DEFAULT 0,
+   metadata      TEXT DEFAULT '{}',
+   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_location_nodes_type ON location_nodes(location_type);
+CREATE INDEX IF NOT EXISTS idx_location_nodes_path ON location_nodes(path);
+CREATE INDEX IF NOT EXISTS idx_location_nodes_bloc ON location_nodes(bloc_code);
+
+-- ============================================================
+-- 20. ASSIGNATION DES DONNEES
+-- ============================================================
+CREATE TABLE IF NOT EXISTS data_assignments (
+   id            TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+   entity_type   TEXT NOT NULL,
+   entity_id     TEXT NOT NULL,
+   location_type TEXT NOT NULL,
+   location_path TEXT NOT NULL,
+   file_path     TEXT,
+   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_data_assignments_entity ON data_assignments(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_data_assignments_location ON data_assignments(location_type, location_path);

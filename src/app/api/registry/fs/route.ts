@@ -236,6 +236,10 @@ export async function PATCH(request: Request) {
     }
 
     const fullPath = safeJoin(targetPath);
+    const dir = path.dirname(fullPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     fs.writeFileSync(fullPath, content, "utf-8");
 
     return NextResponse.json({ success: true });

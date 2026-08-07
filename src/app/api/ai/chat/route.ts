@@ -5,6 +5,8 @@ import { AIChatRequestSchema, type AIChatRequest } from "@/lib/ai/chat-schema";
 import { getQAItemsForAI } from "@/lib/q-r/server-store";
 import { saveChatMessage } from "@/lib/ai/server-store";
 import { createLogger } from "@/lib/logger";
+import { extractLocationFromQuery } from "@/lib/location/parser";
+import { searchAlarmsByCode } from "@/lib/ai/location-aware-rag";
 import type { ChatMessage } from "@/lib/types/chat";
 
 const log = createLogger({ handler: "ai-chat-route" });
@@ -42,6 +44,21 @@ export async function POST(request: Request) {
       conversationId,
       error,
     });
+  }
+
+  try {
+    const locations = extractLocationFromQuery(message);
+    for (const loc of locations) {
+      if (loc.alarmCode) {
+        const alarm = await searchAlarmsByCode(loc.alarmCode);
+        if (alarm) {
+          const alarmContext = `ALARME ${loc.alarmCode}: ${alarm.description}\nCondition: ${alarm.condition || "N/A"}\nRemède: ${JSON.stringify(alarm.remedy || {})}`;
+          aiContext = aiContext ? `${aiContext}\n\n${alarmContext}` : alarmContext;
+        }
+      }
+    }
+  } catch {
+    // ignore alarm lookup failures
   }
 
   const userMessage: ChatMessage = {

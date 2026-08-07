@@ -10,6 +10,8 @@ export const metadata: Metadata = {
   description: "NexaFlow connects your tools, orchestrates your pipelines, and gives your team superpowers.",
 };
 
+import { TauriAutoInit } from "@/components/tauri/TauriAutoInit";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -18,6 +20,7 @@ export default function RootLayout({
   return (
     <html lang="fr" className={cn("font-sans antialiased h-full", inter.variable)}>
       <body className="min-h-screen h-full bg-background text-foreground">
+        <TauriAutoInit />
         {children}
       </body>
     </html>

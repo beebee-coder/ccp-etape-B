@@ -52,11 +52,9 @@ export async function POST(): Promise<NextResponse> {
     const registryEntries: { path: string; kind: "file" | "directory" }[] = [];
     walkRegistry("", registryEntries);
 
-    const registryTarget = path.join(LOCAL_DB_ROOT, "registry");
-
     for (const entry of registryEntries) {
-      const localFullPath = safeJoin(entry.path, registryTarget);
       const registryFullPath = safeJoin(entry.path, REGISTRY_ROOT);
+      const localFullPath = getLocalTargetPath(entry.path);
 
       try {
         if (entry.kind === "directory") {
@@ -100,4 +98,16 @@ export async function POST(): Promise<NextResponse> {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
     return NextResponse.json({ error: message, ...result }, { status: 500 });
   }
+}
+
+function getLocalTargetPath(relPath: string): string {
+  if (relPath.startsWith("Centrale/") || relPath.startsWith("Centrale\\")) {
+    const normalized = relPath.replace(/\\/g, "/");
+    return path.join(LOCAL_DB_ROOT, normalized);
+  }
+  if (relPath.startsWith("Groupes/") || relPath.startsWith("Groupes\\")) {
+    const normalized = relPath.replace(/\\/g, "/");
+    return path.join(LOCAL_DB_ROOT, normalized);
+  }
+  return path.join(LOCAL_DB_ROOT, "registry", relPath);
 }

@@ -22,6 +22,8 @@ interface GroupesData {
   Groupes: Record<string, { descendants: LeafNode[] }>;
 }
 
+const DATA_SUBDIRS = ["procedures", "qr", "images", "alarms", "media"] as const;
+
 function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -33,6 +35,12 @@ function writeMeta(dir: string, libelle: string): void {
   fs.writeFileSync(metaPath, JSON.stringify({ libelle }, null, 2), "utf-8");
 }
 
+function ensureDataDirs(leafDir: string): void {
+  for (const sub of DATA_SUBDIRS) {
+    ensureDir(path.join(leafDir, "data", sub));
+  }
+}
+
 function buildCentrale(basePath: string, data: CentraleData): void {
   for (const [key, branch] of Object.entries(data.Centrale)) {
     const dir = path.join(basePath, key);
@@ -42,6 +50,7 @@ function buildCentrale(basePath: string, data: CentraleData): void {
       const leafDir = path.join(dir, leaf.nom);
       ensureDir(leafDir);
       writeMeta(leafDir, leaf.libelle);
+      ensureDataDirs(leafDir);
     }
   }
 }
@@ -55,6 +64,7 @@ function buildGroupes(basePath: string, data: GroupesData): void {
       const leafDir = path.join(groupDir, leaf.nom);
       ensureDir(leafDir);
       writeMeta(leafDir, leaf.libelle);
+      ensureDataDirs(leafDir);
     }
   }
 }

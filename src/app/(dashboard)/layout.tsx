@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useLayoutEffect, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardTopNav } from "@/components/dashboard/top-nav";
 import { SidebarProvider } from "@/components/dashboard/sidebar-provider";
@@ -32,38 +32,32 @@ function deriveRoleFromPath(pathname: string): Role {
   return "rondier";
 }
 
+const ROLE_PREFIXES = ["/admin", "/chef-de-quart", "/chef-de-bloc", "/rondier"];
+
+function hasRolePrefix(pathname: string): boolean {
+  return ROLE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const pathRole = deriveRoleFromPath(pathname);
+  const [mounted, setMounted] = useState(false);
   const stored = getStoredRole();
-  const [role, setRole] = useState<Role>(pathRole);
-  const [hydrated, setHydrated] = useState(false);
   const hideSidebar = pathname.startsWith("/actions-ia");
 
-  useLayoutEffect(() => {
-    const next =
-      pathname.startsWith("/admin") ||
-      pathname.startsWith("/chef-de-quart") ||
-      pathname.startsWith("/chef-de-bloc") ||
-      pathname.startsWith("/rondier")
-        ? deriveRoleFromPath(pathname)
-        : stored;
-    setRole(next);
-    setHydrated(true);
-  }, [pathname, stored]);
+  const role: Role = hasRolePrefix(pathname)
+    ? deriveRoleFromPath(pathname)
+    : stored;
 
   useEffect(() => {
-    if (!hydrated) return;
-    const hasRolePrefix =
-      pathname.startsWith("/admin") ||
-      pathname.startsWith("/chef-de-quart") ||
-      pathname.startsWith("/chef-de-bloc") ||
-      pathname.startsWith("/rondier");
-    if (hasRolePrefix) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (hasRolePrefix(pathname)) {
       try {
         window.sessionStorage.setItem(
           "dashboardRole",
@@ -71,14 +65,14 @@ export default function DashboardLayout({
         );
       } catch {}
     }
-  }, [pathname, hydrated]);
+  }, [pathname]);
 
   return (
     <ThemeProvider>
       <SidebarProvider>
         <ErrorBoundary>
           <div className="flex h-screen overflow-hidden">
-            {!hideSidebar && <DashboardSidebar role={role} />}
+            {!hideSidebar && mounted && <DashboardSidebar role={role} />}
             <main
               className={`flex flex-1 flex-col overflow-hidden ${hideSidebar ? "w-full" : ""}`}
             >

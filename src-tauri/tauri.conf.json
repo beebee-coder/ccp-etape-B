@@ -1,0 +1,52 @@
+{
+  "productName": "CCP-Etape-B",
+  "version": "0.1.0",
+  "identifier": "com.ccp.etape-b",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../.next"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CCP-Etape-B",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 1024,
+        "minHeight": 768,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "withGlobalTauri": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "windows": {
+      "wix": {
+        "language": "fr-FR",
+        "dialogImagePath": "icons/dialog.bmp",
+        "bannerPath": "icons/banner.bmp",
+        "upgradeCode": "12345678-1234-1234-1234-123456789012"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["French"],
+        "headerImage": "icons/header.bmp",
+        "sidebarImage": "icons/sidebar.bmp"
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

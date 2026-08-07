@@ -4,13 +4,11 @@
 -- ============================================================
 
 -- Extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- ============================================================
 -- 1. UTILISATEURS (aspirational — structure-bdd)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS users (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id              TEXT PRIMARY KEY ,
   email           VARCHAR(255) NOT NULL UNIQUE,
   password_hash   VARCHAR(255) NOT NULL,
   name            VARCHAR(100),
@@ -27,18 +25,22 @@ CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 -- 2. PROCÉDURES (actuel — server-store.ts)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS procedures (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  code                VARCHAR(100) NOT NULL UNIQUE,
-  title               VARCHAR(255) NOT NULL,
-  description         TEXT,
-  category            VARCHAR(100) NOT NULL,
-  priority            VARCHAR(20) NOT NULL DEFAULT 'moyenne',
-  estimated_time_min  INTEGER NOT NULL DEFAULT 30,
-  required_roles      TEXT[] NOT NULL DEFAULT '{}',
-  global_safety_instructions TEXT[] NOT NULL DEFAULT '{}',
-  metadata_json       JSONB NOT NULL DEFAULT '{}',
-  created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMP
+   id                  TEXT PRIMARY KEY ,
+   code                VARCHAR(100) NOT NULL UNIQUE,
+   title               VARCHAR(255) NOT NULL,
+   description         TEXT,
+   category            VARCHAR(100) NOT NULL,
+   priority            VARCHAR(20) NOT NULL DEFAULT 'moyenne',
+   estimated_time_min  INTEGER NOT NULL DEFAULT 30,
+   required_roles      TEXT[] NOT NULL DEFAULT '{}',
+   global_safety_instructions TEXT[] NOT NULL DEFAULT '{}',
+   location_type       VARCHAR(20) CHECK (location_type IN ('centrale','groupe','global')),
+   location_path       VARCHAR(200),
+   bloc_code           VARCHAR(10),
+   equipement_code     VARCHAR(50),
+   metadata_json       JSONB NOT NULL DEFAULT '{}',
+   created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+   updated_at          TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_procedures_code ON procedures(code);
@@ -46,24 +48,25 @@ CREATE INDEX IF NOT EXISTS idx_procedures_category ON procedures(category);
 
 -- Étapes d'une procédure (normalisé depuis le JSON imbriqué)
 CREATE TABLE IF NOT EXISTS procedure_steps (
-  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  procedure_id      UUID NOT NULL REFERENCES procedures(id) ON DELETE CASCADE,
-  step_order        INTEGER NOT NULL,
-  step_id           VARCHAR(100) NOT NULL,
-  title             VARCHAR(255) NOT NULL,
-  subtitle          TEXT,
-  instructions      TEXT NOT NULL,
-  step_type         VARCHAR(50) NOT NULL DEFAULT 'consigne_simple',
-  is_mandatory      BOOLEAN NOT NULL DEFAULT false,
-  dependencies      TEXT[] NOT NULL DEFAULT '{}',
-  media_requirements JSONB NOT NULL DEFAULT '[]',
-  alarms            JSONB NOT NULL DEFAULT '[]',
-  attachments       TEXT[] NOT NULL DEFAULT '{}',
-  timer_enabled     BOOLEAN NOT NULL DEFAULT false,
-  timer_seconds     INTEGER NOT NULL DEFAULT 0,
-  created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMP,
-  UNIQUE(procedure_id, step_order)
+   id                TEXT PRIMARY KEY ,
+   procedure_id      TEXT NOT NULL REFERENCES procedures(id) ON DELETE CASCADE,
+   step_order        INTEGER NOT NULL,
+   step_id           VARCHAR(100) NOT NULL,
+   title             VARCHAR(255) NOT NULL,
+   subtitle          TEXT,
+   instructions      TEXT NOT NULL,
+   step_type         VARCHAR(50) NOT NULL DEFAULT 'consigne_simple',
+   is_mandatory      BOOLEAN NOT NULL DEFAULT false,
+   dependencies      TEXT[] NOT NULL DEFAULT '{}',
+   media_requirements JSONB NOT NULL DEFAULT '[]',
+   alarms            JSONB NOT NULL DEFAULT '[]',
+   alarm_codes       TEXT[] NOT NULL DEFAULT '{}',
+   attachments       TEXT[] NOT NULL DEFAULT '{}',
+   timer_enabled     BOOLEAN NOT NULL DEFAULT false,
+   timer_seconds     INTEGER NOT NULL DEFAULT 0,
+   created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+   updated_at        TIMESTAMP,
+   UNIQUE(procedure_id, step_order)
 );
 
 CREATE INDEX IF NOT EXISTS idx_procedure_steps_procedure ON procedure_steps(procedure_id);
@@ -73,10 +76,10 @@ CREATE INDEX IF NOT EXISTS idx_procedure_steps_order ON procedure_steps(procedur
 -- 3. EXÉCUTIONS DE PROCÉDURES
 -- ============================================================
 CREATE TABLE IF NOT EXISTS procedure_executions (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  procedure_id    UUID NOT NULL REFERENCES procedures(id) ON DELETE CASCADE,
+  id              TEXT PRIMARY KEY ,
+  procedure_id    TEXT NOT NULL REFERENCES procedures(id) ON DELETE CASCADE,
   procedure_code  VARCHAR(100) NOT NULL,
-  operator_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  operator_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   start_time      TIMESTAMP NOT NULL DEFAULT NOW(),
   end_time        TIMESTAMP,
   status          VARCHAR(20) NOT NULL DEFAULT 'COMPLETED',
@@ -120,18 +123,22 @@ CREATE INDEX IF NOT EXISTS idx_edl_author ON etat_des_lieux_reports(author_role)
 -- 4. MÉDIAS / IMAGES (actuel — server-store.ts)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS media_items (
-  id              VARCHAR(100) PRIMARY KEY,
-  title           VARCHAR(255) NOT NULL,
-  category        VARCHAR(100) NOT NULL,
-  description     TEXT DEFAULT '',
-  tags            TEXT[] NOT NULL DEFAULT '{}',
-  kind            VARCHAR(20) NOT NULL DEFAULT 'image',
-  mime_type       VARCHAR(100) NOT NULL,
-  size            INTEGER NOT NULL,
-  data_url        TEXT NOT NULL,
-  thumbnail_url   TEXT,
-  created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMP
+   id              VARCHAR(100) PRIMARY KEY,
+   title           VARCHAR(255) NOT NULL,
+   category        VARCHAR(100) NOT NULL,
+   description     TEXT DEFAULT '',
+   tags            TEXT[] NOT NULL DEFAULT '{}',
+   kind            VARCHAR(20) NOT NULL DEFAULT 'image',
+   mime_type       VARCHAR(100) NOT NULL,
+   size            INTEGER NOT NULL,
+   data_url        TEXT NOT NULL,
+   thumbnail_url   TEXT,
+   location_type   VARCHAR(20) CHECK (location_type IN ('centrale','groupe','global')),
+   location_path   VARCHAR(200),
+   bloc_code       VARCHAR(10),
+   equipement_code VARCHAR(50),
+   created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+   updated_at      TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_category ON media_items(category);
@@ -141,8 +148,8 @@ CREATE INDEX IF NOT EXISTS idx_media_kind ON media_items(kind);
 -- 5. WORKFLOWS (aspirational — structure-bdd)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS workflows (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id            TEXT PRIMARY KEY ,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name          VARCHAR(150) NOT NULL,
   status        VARCHAR(50) NOT NULL DEFAULT 'draft',
   trigger_type  VARCHAR(50),
@@ -158,12 +165,12 @@ CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
 -- 6. WORKFLOW_STEPS (aspirational — structure-bdd)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS workflow_steps (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  workflow_id   UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+  id            TEXT PRIMARY KEY ,
+  workflow_id   TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
   position      INTEGER NOT NULL DEFAULT 0,
   action_type   VARCHAR(50) NOT NULL,
   config        JSONB DEFAULT '{}',
-  next_step_id  UUID REFERENCES workflow_steps(id) ON DELETE SET NULL
+  next_step_id  TEXT REFERENCES workflow_steps(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow ON workflow_steps(workflow_id);
@@ -172,10 +179,10 @@ CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow ON workflow_steps(workflo
 -- 7. EXÉCUTIONS (aspirational — structure-bdd)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS executions (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  workflow_id     UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  current_step_id UUID,
+  id              TEXT PRIMARY KEY ,
+  workflow_id     TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  current_step_id TEXT,
   status          VARCHAR(50) NOT NULL DEFAULT 'running',
   started_at      TIMESTAMP NOT NULL DEFAULT NOW(),
   finished_at     TIMESTAMP,
@@ -190,8 +197,8 @@ CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status);
 -- 8. INTÉGRATIONS (aspirational — structure-bdd)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS integrations (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id            TEXT PRIMARY KEY ,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   service       VARCHAR(50) NOT NULL,
   credentials   JSONB DEFAULT '{}',
   is_active     BOOLEAN NOT NULL DEFAULT true,
@@ -204,11 +211,11 @@ CREATE INDEX IF NOT EXISTS idx_integrations_user ON integrations(user_id);
 -- 9. AUDIT_LOGS (aspirational — structure-bdd)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS audit_logs (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+  id            TEXT PRIMARY KEY ,
+  user_id       TEXT REFERENCES users(id) ON DELETE SET NULL,
   action        VARCHAR(100) NOT NULL,
   resource_type VARCHAR(50),
-  resource_id   UUID,
+  resource_id   TEXT,
   metadata      JSONB DEFAULT '{}',
   created_at    TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -221,7 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, 
 -- 10. CHROMA INDEX (vecteur / RAG)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS chroma_index (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id            TEXT PRIMARY KEY ,
   collection    VARCHAR(100) NOT NULL,
   document_id   VARCHAR(100) NOT NULL,
   content       TEXT NOT NULL,
@@ -237,7 +244,7 @@ CREATE INDEX IF NOT EXISTS idx_chroma_document ON chroma_index(document_id);
 -- 11. GARDE-FOUS IA (guardrails)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS guardrail_rules (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id            TEXT PRIMARY KEY ,
   section       VARCHAR(50) NOT NULL DEFAULT 'general',
   rule          TEXT NOT NULL,
   is_active     BOOLEAN NOT NULL DEFAULT true,
@@ -252,17 +259,21 @@ CREATE INDEX IF NOT EXISTS idx_guardrail_active ON guardrail_rules(is_active);
 -- 12. KNOWLEDGE ITEMS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS knowledge_items (
-  id        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type      VARCHAR(50) NOT NULL,
-  title     VARCHAR(255) NOT NULL,
-  question  TEXT,
-  answer    TEXT,
-  tags      TEXT[] NOT NULL DEFAULT '{}',
-  category  VARCHAR(100),
-  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP,
-  content   TEXT
+   id        TEXT PRIMARY KEY ,
+   user_id   TEXT NOT NULL,
+   type      VARCHAR(50) NOT NULL,
+   title     VARCHAR(255) NOT NULL,
+   question  TEXT,
+   answer    TEXT,
+   tags      TEXT[] NOT NULL DEFAULT '{}',
+   category  VARCHAR(100),
+   location_type VARCHAR(20) CHECK (location_type IN ('centrale','groupe','global')),
+   location_path VARCHAR(200),
+   bloc_code VARCHAR(10),
+   equipement_code VARCHAR(50),
+   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+   updated_at TIMESTAMP,
+   content   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_user ON knowledge_items(user_id);
@@ -273,8 +284,8 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_user_type ON knowledge_items(user_id, t
 -- 13. Q/R UPLOADS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS q_r_uploads (
-  id        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id   UUID NOT NULL,
+  id        TEXT PRIMARY KEY,
+  user_id   TEXT NOT NULL,
   file_name VARCHAR(255) NOT NULL,
   set_name  VARCHAR(255) NOT NULL,
   version   INTEGER NOT NULL DEFAULT 1,
@@ -317,7 +328,7 @@ CREATE TABLE IF NOT EXISTS iot_actuators (
 CREATE INDEX IF NOT EXISTS idx_iot_actuators_device ON iot_actuators(device_id);
 
 CREATE TABLE IF NOT EXISTS iot_sensor_readings (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id           TEXT PRIMARY KEY ,
   device_id    VARCHAR(100) NOT NULL REFERENCES iot_devices(id) ON DELETE CASCADE,
   reading_json JSONB NOT NULL,
   created_at   TIMESTAMP NOT NULL DEFAULT NOW()
@@ -383,7 +394,7 @@ CREATE INDEX IF NOT EXISTS idx_team_members_email ON team_members(email);
 -- 17. RAPPORTS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS reports (
-  id         TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
+  id         TEXT PRIMARY KEY,
   date       TEXT NOT NULL,
   points     TEXT NOT NULL DEFAULT '[]',
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -397,7 +408,7 @@ CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at);
 -- 17. VISIOCONFÉRENCE
 -- ============================================================
 CREATE TABLE IF NOT EXISTS meetings (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id              TEXT PRIMARY KEY ,
   title           VARCHAR(255) NOT NULL,
   started_at      TIMESTAMP NOT NULL DEFAULT NOW(),
   ended_at        TIMESTAMP,
@@ -413,8 +424,8 @@ CREATE INDEX IF NOT EXISTS idx_meetings_ended ON meetings(ended_at);
 CREATE INDEX IF NOT EXISTS idx_meetings_created_by ON meetings(created_by);
 
 CREATE TABLE IF NOT EXISTS meeting_chat_messages (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  meeting_id    UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  id            TEXT PRIMARY KEY ,
+  meeting_id    TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
   user_id       VARCHAR(255) NOT NULL,
   user_name     VARCHAR(255) NOT NULL,
   user_initials VARCHAR(10) NOT NULL,
@@ -456,7 +467,7 @@ CREATE TABLE IF NOT EXISTS iot_actuators (
 CREATE INDEX IF NOT EXISTS idx_iot_actuators_device ON iot_actuators(device_id);
 
 CREATE TABLE IF NOT EXISTS iot_sensor_readings (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id           TEXT PRIMARY KEY ,
   device_id    VARCHAR(100) NOT NULL REFERENCES iot_devices(id) ON DELETE CASCADE,
   reading_json JSONB NOT NULL,
   created_at   TIMESTAMP NOT NULL DEFAULT NOW()
@@ -464,3 +475,84 @@ CREATE TABLE IF NOT EXISTS iot_sensor_readings (
 
 CREATE INDEX IF NOT EXISTS idx_iot_readings_device ON iot_sensor_readings(device_id);
 CREATE INDEX IF NOT EXISTS idx_iot_readings_created ON iot_sensor_readings(created_at);
+
+-- ============================================================
+-- 18. ALARMES (premiere classe)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS alarms (
+   id            TEXT PRIMARY KEY ,
+   code          VARCHAR(50) UNIQUE NOT NULL,
+   bloc_code     VARCHAR(10) NOT NULL,
+   equipement_code VARCHAR(50) NOT NULL,
+   location_type VARCHAR(20) NOT NULL CHECK (location_type IN ('centrale','groupe','global')),
+   location_path VARCHAR(200) NOT NULL,
+   groupe_path   VARCHAR(200),
+   type          VARCHAR(20) NOT NULL,
+   severity      VARCHAR(10) NOT NULL,
+   description   TEXT NOT NULL,
+   condition     TEXT,
+   remedy        JSONB DEFAULT '{}',
+   status        VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+   triggered_at  TIMESTAMP,
+   resolved_at   TIMESTAMP,
+   metadata      JSONB DEFAULT '{}',
+   created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+   updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alarms_location ON alarms(location_type, location_path);
+CREATE INDEX IF NOT EXISTS idx_alarms_bloc ON alarms(bloc_code);
+CREATE INDEX IF NOT EXISTS idx_alarms_code ON alarms(code);
+CREATE INDEX IF NOT EXISTS idx_alarms_status ON alarms(status);
+
+CREATE TABLE IF NOT EXISTS alarm_events (
+   id            TEXT PRIMARY KEY ,
+   alarm_id      TEXT NOT NULL REFERENCES alarms(id) ON DELETE CASCADE,
+   event_type    VARCHAR(20) NOT NULL,
+   occurred_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+   operator_id   VARCHAR(100),
+   comment       TEXT,
+   metadata      JSONB DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_alarm_events_alarm ON alarm_events(alarm_id);
+CREATE INDEX IF NOT EXISTS idx_alarm_events_occurred ON alarm_events(occurred_at);
+
+-- ============================================================
+-- 19. NOEUDS DE LOCALISATION (referentiel)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS location_nodes (
+   id            TEXT PRIMARY KEY ,
+   location_type VARCHAR(20) NOT NULL CHECK (location_type IN ('centrale','groupe','global')),
+   path          VARCHAR(200) UNIQUE NOT NULL,
+   bloc_code     VARCHAR(10),
+   equipement_code VARCHAR(50),
+   groupe_code   VARCHAR(100),
+   libelle       VARCHAR(200),
+   parent_path   VARCHAR(200),
+   level         INTEGER NOT NULL DEFAULT 0,
+   metadata      JSONB DEFAULT '{}',
+   created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+   updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_location_nodes_type ON location_nodes(location_type);
+CREATE INDEX IF NOT EXISTS idx_location_nodes_path ON location_nodes(path);
+CREATE INDEX IF NOT EXISTS idx_location_nodes_bloc ON location_nodes(bloc_code);
+
+-- ============================================================
+-- 20. ASSIGNATION DES DONNEES
+-- ============================================================
+CREATE TABLE IF NOT EXISTS data_assignments (
+   id            TEXT PRIMARY KEY ,
+   entity_type   VARCHAR(20) NOT NULL,
+   entity_id     VARCHAR(100) NOT NULL,
+   location_type VARCHAR(20) NOT NULL,
+   location_path VARCHAR(200) NOT NULL,
+   file_path     TEXT,
+   created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+   updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_data_assignments_entity ON data_assignments(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_data_assignments_location ON data_assignments(location_type, location_path);

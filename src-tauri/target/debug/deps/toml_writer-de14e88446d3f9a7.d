@@ -1,0 +1,10 @@
+C:\ahmed\ETAPE-B-CCP\app\src-tauri\target\debug\deps\toml_writer-de14e88446d3f9a7.d: C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\lib.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\integer.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\key.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\string.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\value.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\write.rs
+
+C:\ahmed\ETAPE-B-CCP\app\src-tauri\target\debug\deps\libtoml_writer-de14e88446d3f9a7.rmeta: C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\lib.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\integer.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\key.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\string.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\value.rs C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\write.rs
+
+C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\lib.rs:
+C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\integer.rs:
+C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\key.rs:
+C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\string.rs:
+C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\value.rs:
+C:\Users\pc\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\toml_writer-1.1.2+spec-1.1.0\src\write.rs:

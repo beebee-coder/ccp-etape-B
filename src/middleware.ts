@@ -35,10 +35,12 @@ function isApiRoute(pathname: string): boolean {
   return pathname.startsWith("/api/");
 }
 
-function addCorsHeaders(response: NextResponse, request: NextRequest): NextResponse {
+function addCorsHeaders(
+  response: NextResponse,
+  request: NextRequest,
+): NextResponse {
   const origin = request.headers.get("origin");
-  const allowOrigin =
-    origin && CORS_ORIGIN === "*" ? origin : CORS_ORIGIN;
+  const allowOrigin = origin && CORS_ORIGIN === "*" ? origin : CORS_ORIGIN;
   response.headers.set("Access-Control-Allow-Origin", allowOrigin);
   response.headers.set(
     "Access-Control-Allow-Methods",
@@ -126,10 +128,24 @@ export async function middleware(request: NextRequest) {
   const method = request.method;
 
   if (isApiRoute(pathname) && method === "OPTIONS") {
-    return addCorsHeaders(
-      new NextResponse(null, { status: 200 }),
-      request,
-    );
+    return addCorsHeaders(new NextResponse(null, { status: 200 }), request);
+  }
+
+  const DEV_ONLY_PATHS = ["/admin/pipeline", "/api/pipeline"];
+
+  if (process.env.NODE_ENV === "production") {
+    if (
+      DEV_ONLY_PATHS.some(
+        (path) => pathname === path || pathname.startsWith(path + "/"),
+      )
+    ) {
+      log.debug("Dev-only path blocked in production", { pathname, clientIp });
+      const response = NextResponse.json(
+        { error: "Not Found" },
+        { status: 404 },
+      );
+      return addCorsHeaders(response, request);
+    }
   }
 
   if (!isProtectedPath(pathname)) {

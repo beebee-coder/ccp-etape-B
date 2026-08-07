@@ -123,9 +123,10 @@ describe("fallback behavior", () => {
   });
 
   it("falls back to Gemini when Groq is not configured", async () => {
+    delete process.env.GROQ_API_KEY;
     process.env.GOOGLE_GENAI_API_KEY = "gemini-key";
 
-    MockedGenAI.mockImplementationOnce(function () {
+    MockedGenAI.mockImplementation(function () {
       return makeMockGenAI("gemini-key") as unknown as GoogleGenerativeAI;
     });
 

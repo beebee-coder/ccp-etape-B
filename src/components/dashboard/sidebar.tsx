@@ -115,7 +115,13 @@ export function DashboardSidebar({
   const pathname = usePathname();
   const { collapsed, toggle } = useSidebar();
 
-  const items = navItems.filter((item) => item.roles.includes(role));
+  const items = navItems.filter(
+    (item) =>
+      item.roles.includes(role) &&
+      !(
+        process.env.NODE_ENV === "production" && item.href === "/admin/pipeline"
+      ),
+  );
 
   const isActive = (href: string) =>
     pathname === href ||

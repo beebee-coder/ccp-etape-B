@@ -2,8 +2,20 @@ import fs from "fs";
 import path from "path";
 import { logger } from "@/lib/logger";
 
-const SQL_SCHEMA_PATH = path.join(process.cwd(), "src", "lib", "db", "schema.sql");
-const SQLITE_SCHEMA_PATH = path.join(process.cwd(), "src", "lib", "db", "schema-sqlite.sql");
+const SQL_SCHEMA_PATH = path.join(
+  process.cwd(),
+  "src",
+  "lib",
+  "db",
+  "schema.sql",
+);
+const SQLITE_SCHEMA_PATH = path.join(
+  process.cwd(),
+  "src",
+  "lib",
+  "db",
+  "schema-sqlite.sql",
+);
 
 interface ColumnInfo {
   name: string;
@@ -40,10 +52,13 @@ function parseSqlSchema(filePath: string): IntrospectionResult | null {
   }
 
   const sql = fs.readFileSync(filePath, "utf-8");
-  logger.debug(`${label} SQL schema loaded (${sql.length} bytes)`, { filePath });
+  logger.debug(`${label} SQL schema loaded (${sql.length} bytes)`, {
+    filePath,
+  });
 
   const tables: TableInfo[] = [];
-  const tableRegex = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)\s*\(([\s\S]*?)\);/gi;
+  const tableRegex =
+    /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)\s*\(([\s\S]*?)\);/gi;
   let match: RegExpExecArray | null;
 
   while ((match = tableRegex.exec(sql)) !== null) {
@@ -56,22 +71,31 @@ function parseSqlSchema(filePath: string): IntrospectionResult | null {
     const indexes: string[] = [];
     const relations: string[] = [];
 
-    const lines = body.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    const lines = body
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
 
     for (const line of lines) {
-      if (line.startsWith("CREATE") || line.startsWith("ALTER") || line.startsWith("--")) {
+      if (
+        line.startsWith("CREATE") ||
+        line.startsWith("ALTER") ||
+        line.startsWith("--")
+      ) {
         continue;
       }
 
-      const colMatch = line.match(
-        /^(\w+)\s+(\w+(?:\([^)]*\))?)(?:\s+(.+))?$/i,
-      );
+      const colMatch = line.match(/^(\w+)\s+(\w+(?:\([^)]*\))?)(?:\s+(.+))?$/i);
       if (colMatch) {
         const colName = colMatch[1];
         const colType = colMatch[2];
         const rest = (colMatch[3] || "").toUpperCase();
 
-        if (colName.startsWith("FK_") || colName.startsWith("IX_") || colName.startsWith("IDX_")) {
+        if (
+          colName.startsWith("FK_") ||
+          colName.startsWith("IX_") ||
+          colName.startsWith("IDX_")
+        ) {
           indexes.push(colName);
           continue;
         }
@@ -80,10 +104,10 @@ function parseSqlSchema(filePath: string): IntrospectionResult | null {
         const isForeign = rest.includes("REFERENCES");
         const nullable = !rest.includes("NOT") || rest.includes("NULL");
         const defaultValue = rest.includes("DEFAULT")
-          ? rest.match(/DEFAULT\s+([^\s,]+)/i)?.[1] ?? null
+          ? (rest.match(/DEFAULT\s+([^\s,]+)/i)?.[1] ?? null)
           : null;
         const references = isForeign
-          ? rest.match(/REFERENCES\s+(\w+)\s*\((\w+)\)/i)?.[0] ?? null
+          ? (rest.match(/REFERENCES\s+(\w+)\s*\((\w+)\)/i)?.[0] ?? null)
           : null;
 
         if (references) {
@@ -102,7 +126,8 @@ function parseSqlSchema(filePath: string): IntrospectionResult | null {
       }
     }
 
-    const createIdxRegex = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(\w+)\s+ON\s+(\w+)/gi;
+    const createIdxRegex =
+      /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(\w+)\s+ON\s+(\w+)/gi;
     let idxMatch: RegExpExecArray | null;
     while ((idxMatch = createIdxRegex.exec(sql)) !== null) {
       if (idxMatch[2].toLowerCase() === tableName.toLowerCase()) {
@@ -119,7 +144,9 @@ function parseSqlSchema(filePath: string): IntrospectionResult | null {
     });
   }
 
-  logger.info(`${label} Parsed ${tables.length} tables from SQL schema`, { tableCount: tables.length });
+  logger.info(`${label} Parsed ${tables.length} tables from SQL schema`, {
+    tableCount: tables.length,
+  });
 
   return {
     databaseName: "nexaflow_prod",
@@ -141,27 +168,39 @@ export function introspectSchema(): IntrospectionResult {
       sqlPath: SQL_SCHEMA_PATH,
       sqlitePath: SQLITE_SCHEMA_PATH,
     });
-    throw new Error("Unable to introspect schema: neither SQL nor SQLite schema could be parsed");
+    throw new Error(
+      "Unable to introspect schema: neither SQL nor SQLite schema could be parsed",
+    );
   }
 
   let combined: IntrospectionResult;
 
   if (sqlResult && sqliteResult) {
-    const sqliteTableNames = new Set(sqliteResult.tables.map((t) => t.name.toLowerCase()));
-    const sqlTables = sqlResult.tables.filter((t) => !sqliteTableNames.has(t.name.toLowerCase()));
+    const sqliteTableNames = new Set(
+      sqliteResult.tables.map((t) => t.name.toLowerCase()),
+    );
+    const sqlTables = sqlResult.tables.filter(
+      (t) => !sqliteTableNames.has(t.name.toLowerCase()),
+    );
     combined = {
       databaseName: sqlResult.databaseName,
       tables: [...sqliteResult.tables, ...sqlTables],
       source: "combined",
       parsedAt: new Date().toISOString(),
     };
-    logger.info(`${label} Combined introspection: ${combined.tables.length} tables (sqlite=${sqliteResult.tables.length}, pg-only=${sqlTables.length})`);
+    logger.info(
+      `${label} Combined introspection: ${combined.tables.length} tables (sqlite=${sqliteResult.tables.length}, pg-only=${sqlTables.length})`,
+    );
   } else if (sqliteResult) {
     combined = sqliteResult;
-    logger.info(`${label} Using SQLite schema only (${combined.tables.length} tables)`);
+    logger.info(
+      `${label} Using SQLite schema only (${combined.tables.length} tables)`,
+    );
   } else {
     combined = sqlResult!;
-    logger.info(`${label} Using PostgreSQL schema only (${combined.tables.length} tables)`);
+    logger.info(
+      `${label} Using PostgreSQL schema only (${combined.tables.length} tables)`,
+    );
   }
 
   logger.debug(`${label} Introspection complete`, {
@@ -176,7 +215,9 @@ export function introspectSchema(): IntrospectionResult {
 export function getTableSchema(tableName: string): TableInfo | null {
   const label = "[schema-introspector]";
   const schema = introspectSchema();
-  const table = schema.tables.find((t) => t.name.toLowerCase() === tableName.toLowerCase());
+  const table = schema.tables.find(
+    (t) => t.name.toLowerCase() === tableName.toLowerCase(),
+  );
 
   if (!table) {
     logger.warn(`${label} Table "${tableName}" not found in schema`, {

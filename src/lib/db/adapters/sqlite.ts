@@ -66,10 +66,6 @@ function translateSql(sql: string): string {
 
   translated = translateJsonAgg(translated);
 
-  translated = translated.replace(/\bNOW\(\)/g, "datetime('now')");
-
-  translated = translated.replace(/\bCURRENT_TIMESTAMP\b/gi, "datetime('now')");
-
   translated = translated.replace(/\bTRUE\b/gi, "1");
   translated = translated.replace(/\bFALSE\b/gi, "0");
 
@@ -174,7 +170,7 @@ function executeQuery(
 
   const stmt = db.prepare(translatedSql);
 
-  const isSelect = /^\s*SELECT/i.test(translatedSql);
+  const isSelect = /^\s*(SELECT|PRAGMA)/i.test(translatedSql);
   const hasReturning = /RETURNING/i.test(translatedSql);
 
   if (isSelect || hasReturning) {

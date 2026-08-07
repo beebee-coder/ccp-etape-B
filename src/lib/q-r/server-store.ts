@@ -23,6 +23,10 @@ interface KnowledgeItemRow {
   createdAt: string;
   updatedAt: string | null;
   content: string | null;
+  locationType: string | null;
+  locationPath: string | null;
+  blocCode: string | null;
+  equipementCode: string | null;
 }
 
 function generateId(): string {
@@ -33,6 +37,42 @@ function deriveTitle(question: string): string {
   return question.length > 80 ? question.slice(0, 77) + "..." : question;
 }
 
+function buildLocalFilePath(location: { locationType: string; locationPath?: string; blocCode?: string; equipementCode?: string; groupePath?: string } | undefined): string {
+  const root = path.join(process.cwd(), ".local-db");
+  if (!location || !location.locationPath) {
+    return path.join(root, "registry", "items", `global-qa-${Date.now()}.json`);
+  }
+
+  if (location.locationType === "centrale" && location.blocCode && location.equipementCode) {
+    return path.join(root, "Centrale", location.blocCode, location.equipementCode, "data", "qr", `qa-${Date.now()}.json`);
+  }
+  if (location.locationType === "groupe" && location.groupePath) {
+    return path.join(root, "Groupes", location.groupePath, "data", "qr", `qa-${Date.now()}.json`);
+  }
+  return path.join(root, "registry", "items", `global-qa-${Date.now()}.json`);
+}
+
+function writeQAFile(filePath: string, question: string, answer: string, title: string, location: { locationType: string; locationPath?: string; blocCode?: string; equipementCode?: string; groupePath?: string } | undefined): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const payload = {
+    type: "qa",
+    title,
+    location: location
+      ? {
+          type: location.locationType,
+          path: location.locationPath,
+          bloc: location.blocCode,
+          equipement: location.equipementCode,
+        }
+      : undefined,
+    pairs: [{ question, answer }],
+  };
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf-8");
+}
+
 function rowToQA(row: KnowledgeItemRow): QAItem {
   return {
     id: row.id,
@@ -41,6 +81,14 @@ function rowToQA(row: KnowledgeItemRow): QAItem {
     title: row.title || deriveTitle(row.question),
     category: row.category || undefined,
     tags: parseTags(row.tags),
+    location: row.locationType
+      ? {
+          locationType: row.locationType as "centrale" | "groupe" | "global",
+          locationPath: row.locationPath || undefined,
+          blocCode: row.blocCode || undefined,
+          equipementCode: row.equipementCode || undefined,
+        }
+      : undefined,
   };
 }
 
@@ -62,10 +110,10 @@ function parseTags(tags: string | unknown[]): string[] {
 export async function getAllQAItems(): Promise<QAItem[]> {
   log.debug("getAllQAItems: fetching all Q/R items");
   const result = await query<KnowledgeItemRow>(
-    `SELECT id, question, answer, title, category, tags
+    `SELECT id, question, answer, title, category, tags, location_type, location_path, bloc_code, equipement_code
       FROM knowledge_items
       WHERE type = 'qa'
-      ORDER BY "createdAt" DESC`,
+      ORDER BY created_at DESC`,
   );
 
   log.debug("getAllQAItems: fetched items", { count: result.rows.length });
@@ -75,7 +123,7 @@ export async function getAllQAItems(): Promise<QAItem[]> {
 export async function getQAItemById(id: string): Promise<QAItem | null> {
   log.debug("getQAItemById: fetching item", { id });
   const result = await query<KnowledgeItemRow>(
-    `SELECT id, question, answer, title, category, tags
+    `SELECT id, question, answer, title, category, tags, location_type, location_path, bloc_code, equipement_code
       FROM knowledge_items
       WHERE id = $1 AND type = 'qa'`,
     [id],
@@ -101,11 +149,16 @@ export async function createQAItem(
   const now = new Date().toISOString();
   const title = payload.title || deriveTitle(payload.question);
   const tags = provider === "sqlite" ? JSON.stringify(payload.tags || []) : (payload.tags || []);
+  const location = payload.location;
+  const locationType = location?.locationType || null;
+  const locationPath = location?.locationPath || null;
+  const blocCode = location?.blocCode || null;
+  const equipementCode = location?.equipementCode || null;
 
   const result = await query<KnowledgeItemRow>(
-    `INSERT INTO knowledge_items (id, "userId", type, title, question, answer, tags, category, "createdAt", "updatedAt")
-      VALUES ($1, $2, 'qa', $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id, question, answer, title, category, tags`,
+    `INSERT INTO knowledge_items (id, user_id, type, title, question, answer, tags, category, location_type, location_path, bloc_code, equipement_code, created_at, updated_at)
+      VALUES ($1, $2, 'qa', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING id, question, answer, title, category, tags, location_type, location_path, bloc_code, equipement_code`,
     [
       id,
       userId,
@@ -114,12 +167,19 @@ export async function createQAItem(
       payload.answer,
       tags,
       payload.category || null,
+      locationType,
+      locationPath,
+      blocCode,
+      equipementCode,
       now,
       now,
     ],
   );
 
   log.debug("createQAItem: item created", { id, title });
+
+  const filePath = buildLocalFilePath(location);
+  writeQAFile(filePath, payload.question, payload.answer, title, location);
 
   await SyncEngine.getInstance().enqueue("create", "qa", id, {
     id,
@@ -129,6 +189,11 @@ export async function createQAItem(
     title,
     category: payload.category || null,
     tags: payload.tags || [],
+    locationType,
+    locationPath,
+    blocCode,
+    equipementCode,
+    filePath,
   });
 
   return rowToQA(result.rows[0]);
@@ -175,7 +240,7 @@ export async function updateQAItem(
     return getQAItemById(id);
   }
 
-  setClauses.push(`"updatedAt" = $${paramIndex++}`);
+  setClauses.push(`updated_at = $${paramIndex++}`);
   values.push(now);
   values.push(id);
 
@@ -183,13 +248,13 @@ export async function updateQAItem(
   if (isAdmin) {
     whereClause = `WHERE id = $${paramIndex++} AND type = 'qa'`;
   } else {
-    whereClause = `WHERE id = $${paramIndex++} AND "userId" = $${paramIndex++} AND type = 'qa'`;
+    whereClause = `WHERE id = $${paramIndex++} AND user_id = $${paramIndex++} AND type = 'qa'`;
     values.push(userId);
   }
 
   const result = await query<KnowledgeItemRow>(
     `UPDATE knowledge_items SET ${setClauses.join(", ")} ${whereClause}
-      RETURNING id, question, answer, title, category, tags`,
+      RETURNING id, question, answer, title, category, tags, location_type, location_path, bloc_code, equipement_code`,
     values,
   );
 
@@ -207,6 +272,7 @@ export async function updateQAItem(
     title: payload.title,
     category: payload.category,
     tags: payload.tags,
+    location: payload.location,
   });
 
   return rowToQA(result.rows[0]);
@@ -229,7 +295,7 @@ export async function deleteQAItem(
   } else {
     result = await query<{ id: string }>(
       `DELETE FROM knowledge_items
-        WHERE id = $1 AND "userId" = $2 AND type = 'qa'
+        WHERE id = $1 AND user_id = $2 AND type = 'qa'
         RETURNING id`,
       [id, userId],
     );
@@ -296,20 +362,27 @@ async function getRegistryQRPairs(): Promise<Array<{ question: string; answer: s
     path.join(process.cwd(), ".local-db", "registry", "items"),
   ];
 
-  for (const root of roots) {
-    if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
-      continue;
+  function walkDir(dir: string, relativePrefix = ""): void {
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      return;
     }
 
-    const entries = fs.readdirSync(root);
+    const entries = fs.readdirSync(dir);
     for (const entry of entries) {
+      const fullPath = path.join(dir, entry);
+      const stat = fs.statSync(fullPath);
+
+      if (stat.isDirectory()) {
+        walkDir(fullPath, relativePrefix ? `${relativePrefix}/${entry}` : entry);
+        continue;
+      }
+
       if (!entry.endsWith(".json")) continue;
 
-      const fullPath = path.join(root, entry);
       try {
         const raw = fs.readFileSync(fullPath, "utf-8");
         const parsed = JSON.parse(raw);
-        const source = entry.replace(/\.json$/i, "");
+        const source = relativePrefix ? `${relativePrefix}/${entry.replace(/\.json$/i, "")}` : entry.replace(/\.json$/i, "");
 
         if (Array.isArray(parsed)) {
           for (const item of parsed) {
@@ -328,6 +401,10 @@ async function getRegistryQRPairs(): Promise<Array<{ question: string; answer: s
         // ignore invalid registry files
       }
     }
+  }
+
+  for (const root of roots) {
+    walkDir(root);
   }
 
   return pairs;

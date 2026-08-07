@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LocationRefSchema } from "@/lib/location/types";
 
 export const QAItemSchema = z.object({
   id: z.string().uuid().optional(),
@@ -7,6 +8,7 @@ export const QAItemSchema = z.object({
   title: z.string().min(1, "Le titre est requis").max(255).optional(),
   category: z.string().max(100).optional(),
   tags: z.array(z.string()).optional(),
+  location: LocationRefSchema.optional(),
 });
 
 export const QAItemCreatePayloadSchema = QAItemSchema.omit({
@@ -15,6 +17,7 @@ export const QAItemCreatePayloadSchema = QAItemSchema.omit({
   tags: z.array(z.string()).optional(),
   category: z.string().max(100).optional(),
   title: z.string().min(1, "Le titre est requis").max(255).optional(),
+  location: LocationRefSchema.optional(),
 });
 
 export const QAItemUpdatePayloadSchema = QAItemSchema.omit({

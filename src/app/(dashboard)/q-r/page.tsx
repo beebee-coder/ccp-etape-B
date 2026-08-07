@@ -14,6 +14,7 @@ import {
   Loader2,
   FileJson,
   FolderOpen,
+  ChevronDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -25,6 +26,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { getCsrfTokenClient } from "@/lib/auth/cookies";
+import { LOCATION_REGISTRY, getAllBlocCodes, getAllGroupeNames } from "@/lib/location";
 
 interface QAItem {
   id: string;
@@ -72,6 +74,14 @@ export default function QAPage() {
   const [uploading, setUploading] = useState(false);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [sendFileName, setSendFileName] = useState("");
+  const [sendTag, setSendTag] = useState<string | null>(null);
+  const [sendTagType, setSendTagType] = useState<"centrale" | "groupe" | null>(null);
+  const [sendBlocCode, setSendBlocCode] = useState<string | null>(null);
+  const [sendEquipCode, setSendEquipCode] = useState<string | null>(null);
+  const [sendGroupeName, setSendGroupeName] = useState<string | null>(null);
+  const [sendVueCode, setSendVueCode] = useState<string | null>(null);
+  const [tagsExpanded, setTagsExpanded] = useState(false);
+  const [expandedBlocs, setExpandedBlocs] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchItems = useCallback(async () => {
@@ -326,7 +336,16 @@ export default function QAPage() {
     }
 
     const fileName = rawName.endsWith(".json") ? rawName : `${rawName}.json`;
-    const targetPath = `items/${fileName}`;
+    let targetPath: string;
+
+    if (sendTagType === "centrale" && sendBlocCode && sendEquipCode) {
+      targetPath = `Centrale/${sendBlocCode}/${sendEquipCode}/data/qr/${fileName}`;
+    } else if (sendTagType === "groupe" && sendGroupeName && sendVueCode) {
+      targetPath = `Groupes/${sendGroupeName}/${sendVueCode}/data/qr/${fileName}`;
+    } else {
+      targetPath = `items/${fileName}`;
+    }
+
     const payload = {
       pairs: items.map((item) => ({
         question: item.question,
@@ -356,8 +375,15 @@ export default function QAPage() {
         throw new Error(err.error || "Erreur d'enregistrement");
       }
 
-      alert(`Fichier enregistré dans .registry/items/${fileName}`);
+      alert(`Fichier enregistré dans .registry/${targetPath}`);
       setSendDialogOpen(false);
+      setSendTag(null);
+      setSendTagType(null);
+      setSendBlocCode(null);
+      setSendEquipCode(null);
+      setSendGroupeName(null);
+      setSendVueCode(null);
+      setSendFileName("");
     } catch (err) {
       console.error("[q-r-page] handleConfirmSend: error", err);
       setError(err instanceof Error ? err.message : "Erreur inconnue");
@@ -476,6 +502,18 @@ export default function QAPage() {
   };
 
   const isEditing = editingId !== null;
+
+  const toggleBloc = (blocCode: string) => {
+    setExpandedBlocs((prev) => {
+      const next = new Set(prev);
+      if (next.has(blocCode)) {
+        next.delete(blocCode);
+      } else {
+        next.add(blocCode);
+      }
+      return next;
+    });
+  };
 
   return (
     <>
@@ -803,12 +841,27 @@ export default function QAPage() {
       </div>
     </section>
 
-    <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+    <Dialog open={sendDialogOpen} onOpenChange={(open) => {
+      if (!open) {
+        setSendTag(null);
+        setSendTagType(null);
+        setSendBlocCode(null);
+        setSendEquipCode(null);
+        setSendGroupeName(null);
+        setSendVueCode(null);
+        setSendFileName("");
+        setTagsExpanded(false);
+      }
+      setSendDialogOpen(open);
+    }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Enregistrer la Q/R dans la BDD web</DialogTitle>
           <DialogDescription>
-            Le fichier JSON sera généré et stocké dans <code>.registry/items/</code>.
+            Le fichier JSON sera généré et stocké dans .registry/.
+            Sans tag : items/nom.json.
+            Avec tag Centrale : Centrale/bloc/tag/data/qr/nom.json.
+            Avec tag Groupe : Groupes/groupe/vue/data/qr/nom.json.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -822,6 +875,114 @@ export default function QAPage() {
               onChange={(event) => setSendFileName(event.target.value)}
               placeholder="ex: mon-fichier-qr"
             />
+          </div>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setTagsExpanded(!tagsExpanded)}
+              className="flex w-full items-center justify-between rounded-lg border border-border/60 bg-card/60 px-4 py-2.5 text-sm font-medium transition-all hover:bg-primary/8 hover:border-primary/30"
+            >
+              <span>
+                {sendTag ? `Tag sélectionné : ${sendTag}` : "Choisir un équipement (tag)"}
+              </span>
+              <ChevronDown className={`h-4 w-4 transition-transform ${tagsExpanded ? "rotate-180" : ""}`} />
+            </button>
+
+            {tagsExpanded && (
+              <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-border/60 bg-background/60 p-2">
+                {getAllBlocCodes().map((blocCode) => {
+                  const bloc = LOCATION_REGISTRY.Centrale[blocCode];
+                  if (!bloc) return null;
+                  const isBlocExpanded = expandedBlocs.has(blocCode);
+                  return (
+                    <div key={blocCode} className="mb-1 last:mb-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleBloc(blocCode)}
+                        className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent transition-colors"
+                      >
+                        <span>
+                          {blocCode} — {bloc.libelle}
+                        </span>
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isBlocExpanded ? "rotate-180" : ""}`} />
+                      </button>
+                      {isBlocExpanded && (
+                        <div className="ml-4 mt-1 grid grid-cols-2 gap-1">
+                          {bloc.descendants.map((desc) => (
+                            <button
+                              key={`${blocCode}-${desc.nom}`}
+                              type="button"
+                              onClick={() => {
+                                setSendTagType("centrale");
+                                setSendBlocCode(blocCode);
+                                setSendEquipCode(desc.nom);
+                                setSendTag(`${blocCode}/${desc.nom}`);
+                                setSendGroupeName(null);
+                                setSendVueCode(null);
+                              }}
+                              className={`rounded-md px-2 py-1.5 text-left text-xs transition-colors truncate ${
+                                sendTagType === "centrale" && sendEquipCode === desc.nom && sendBlocCode === blocCode
+                                  ? "bg-primary/20 text-primary border border-primary/30"
+                                  : "bg-muted/30 hover:bg-accent border border-transparent"
+                              }`}
+                            >
+                              <span className="font-mono font-medium">{desc.nom}</span>
+                              <span className="ml-1.5 text-muted-foreground">{desc.libelle}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {getAllGroupeNames().map((groupeName) => {
+                  const groupe = LOCATION_REGISTRY.Groupes[groupeName];
+                  if (!groupe) return null;
+                  const isGroupeExpanded = expandedBlocs.has(`groupe-${groupeName}`);
+                  return (
+                    <div key={`groupe-${groupeName}`} className="mb-1 last:mb-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleBloc(`groupe-${groupeName}`)}
+                        className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent transition-colors"
+                      >
+                        <span className="truncate">
+                          {groupeName}
+                        </span>
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isGroupeExpanded ? "rotate-180" : ""}`} />
+                      </button>
+                      {isGroupeExpanded && (
+                        <div className="ml-4 mt-1 grid grid-cols-2 gap-1">
+                          {groupe.descendants.map((desc) => (
+                            <button
+                              key={`${groupeName}-${desc.nom}`}
+                              type="button"
+                              onClick={() => {
+                                setSendTagType("groupe");
+                                setSendGroupeName(groupeName);
+                                setSendVueCode(desc.nom);
+                                setSendTag(`${groupeName}/${desc.nom}`);
+                                setSendBlocCode(null);
+                                setSendEquipCode(null);
+                              }}
+                              className={`rounded-md px-2 py-1.5 text-left text-xs transition-colors truncate ${
+                                sendTagType === "groupe" && sendVueCode === desc.nom && sendGroupeName === groupeName
+                                  ? "bg-primary/20 text-primary border border-primary/30"
+                                  : "bg-muted/30 hover:bg-accent border border-transparent"
+                              }`}
+                            >
+                              <span className="font-mono font-medium">{desc.nom}</span>
+                              <span className="ml-1.5 text-muted-foreground">{desc.libelle}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </DialogBody>
         <DialogFooter>

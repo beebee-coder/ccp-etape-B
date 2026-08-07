@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "Capabilities for CCP-Etape-B desktop app",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-close",
+    "core:app:allow-app-show",
+    "core:app:allow-app-hide",
+    "shell:allow-open"
+  ]
+}
