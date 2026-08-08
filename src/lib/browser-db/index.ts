@@ -191,6 +191,34 @@ export class BrowserDb {
   }
 
   /**
+   * Supprime les médias les plus anciens au-delà d'un seuil de conservation.
+   * Utilisé pour éviter que la BDD locale ne dépasse la limite de stockage.
+   */
+  cleanupOldMedia(keepLimit: number): number {
+    if (!this.db) return 0;
+    const result = this.db.exec({
+      sql: `DELETE FROM media_items WHERE id NOT IN (
+        SELECT id FROM media_items ORDER BY created_at DESC LIMIT ?
+      )`,
+      bind: [keepLimit],
+      rowMode: "object",
+      callback: () => {},
+    });
+    return result?.rowsAffected ?? 0;
+  }
+
+  /**
+   * Retourne la taille approximative de la BDD locale en octets.
+   */
+  getApproximateSize(): number {
+    if (!this.db) return 0;
+    const rows = this.query<{ size: number }>(
+      `SELECT SUM(LENGTH(COALESCE(data_url, '') || COALESCE(thumbnail_url, '') || COALESCE(content, ''))) as size FROM media_items`,
+    );
+    return rows[0]?.size ?? 0;
+  }
+
+  /**
    * Ferme la connexion à la base.
    */
   close(): void {

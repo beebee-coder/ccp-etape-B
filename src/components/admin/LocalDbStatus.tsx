@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { HardDrive, CheckCircle2, XCircle, Info } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { HardDrive, CheckCircle2, XCircle, Info, Download, Trash2 } from "lucide-react";
 import { browserDb } from "@/lib/browser-db";
 import { opfsStorage } from "@/lib/browser-db/opfs-storage";
+import { toast } from "sonner";
 
 type LocalDbStatus = {
   opfsSupported: boolean;
@@ -13,6 +15,7 @@ type LocalDbStatus = {
   dbReady: boolean;
   storageMode: "opfs" | "memory" | "unknown";
   fileCount: number;
+  approximateSizeBytes: number;
 };
 
 export function LocalDbStatus() {
@@ -22,6 +25,7 @@ export function LocalDbStatus() {
     dbReady: false,
     storageMode: "unknown",
     fileCount: 0,
+    approximateSizeBytes: 0,
   });
 
   useEffect(() => {
@@ -34,10 +38,19 @@ export function LocalDbStatus() {
       const storageMode = browserDb.getStorageMode();
 
       let fileCount = 0;
+      let approximateSizeBytes = 0;
       if (opfsSupported) {
         try {
           const tree = await opfsStorage.getTree();
           fileCount = tree.length;
+        } catch {
+          // ignore
+        }
+      }
+
+      if (dbReady) {
+        try {
+          approximateSizeBytes = browserDb.getApproximateSize();
         } catch {
           // ignore
         }
@@ -50,6 +63,7 @@ export function LocalDbStatus() {
           dbReady,
           storageMode,
           fileCount,
+          approximateSizeBytes,
         });
       }
     }
@@ -64,6 +78,52 @@ export function LocalDbStatus() {
   }, []);
 
   const isFullyOperational = status.opfsSupported && status.sharedArrayBuffer && status.dbReady;
+  const sizeLabel =
+    status.approximateSizeBytes >= 1024 * 1024
+      ? `${(status.approximateSizeBytes / 1024 / 1024).toFixed(2)} Mo`
+      : `${status.approximateSizeBytes} o`;
+
+  async function handleCleanup() {
+    try {
+      await browserDb.init();
+      const beforeCount = browserDb.count("media_items");
+      browserDb.cleanupOldMedia(100);
+      const afterCount = browserDb.count("media_items");
+      const removed = beforeCount - afterCount;
+      if (removed > 0) {
+        toast.success(`Nettoyage effectué`, {
+          description: `${removed} média(s) ancien(s) supprimé(s).`,
+        });
+      } else {
+        toast.info("Aucun média à supprimer");
+      }
+    } catch (error) {
+      toast.error("Échec du nettoyage", {
+        description: error instanceof Error ? error.message : "Erreur inconnue",
+      });
+    }
+  }
+
+  async function handleExport() {
+    try {
+      const blob = await opfsStorage.exportSqliteFile("visionode-local.sqlite");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `visionode-local-${new Date().toISOString().slice(0, 10)}.sqlite`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("BDD locale exportée", {
+        description: `Taille: ${(blob.size / 1024 / 1024).toFixed(2)} Mo`,
+      });
+    } catch (error) {
+      toast.error("Échec de l'export", {
+        description: error instanceof Error ? error.message : "Erreur inconnue",
+      });
+    }
+  }
 
   return (
     <Card className="mb-4 p-3">
@@ -95,6 +155,10 @@ export function LocalDbStatus() {
           Fichiers OPFS: {status.fileCount}
         </Badge>
 
+        <Badge variant="outline" className="text-[10px]">
+          Taille: {sizeLabel}
+        </Badge>
+
         <div className="flex items-center gap-1 text-muted-foreground ml-auto">
           {isFullyOperational ? (
             <>
@@ -115,6 +179,30 @@ export function LocalDbStatus() {
           )}
         </div>
       </div>
+
+      {isFullyOperational && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleCleanup}
+            className="h-7 gap-1 rounded-lg border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary transition-all duration-200 text-[11px]"
+          >
+            <Trash2 className="h-3 w-3" />
+            Nettoyer médias anciens
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExport}
+            className="h-7 gap-1 rounded-lg border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary transition-all duration-200 text-[11px]"
+          >
+            <Download className="h-3 w-3" />
+            Exporter BDD locale
+          </Button>
+        </div>
+      )}
 
       {!isFullyOperational && (
         <div className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-500/10 p-2 text-[11px] text-amber-700">

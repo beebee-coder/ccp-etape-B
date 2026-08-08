@@ -10,6 +10,9 @@ const nextConfig = {
    * Headers COOP / COEP requis pour SQLite-WASM (SharedArrayBuffer).
    * Nécessaires quand le mode browser utilise @sqlite.org/sqlite-wasm avec OPFS.
    * https://sqlite.org/wasm/doc/tip/persistence.md#coop-coep
+   *
+   * Ces headers sont appliqués sur toutes les routes, y compris /api/local-db/*
+   * pour garantir le bon fonctionnement de la BDD locale en mode Vercel.
    */
   async headers() {
     return [

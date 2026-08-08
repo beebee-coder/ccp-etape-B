@@ -165,6 +165,16 @@ export class OpfsStorageManager {
     return { content: text, isImage: false };
   }
 
+  /**
+   * Exporte un fichier depuis OPFS sous forme de Blob pour téléchargement.
+   */
+  async exportSqliteFile(fileName: string): Promise<Blob> {
+    const root = await this.getRoot();
+    const fileHandle = await root.getFileHandle(fileName);
+    const file = await fileHandle.getFile();
+    return file;
+  }
+
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
     const chunks = [];

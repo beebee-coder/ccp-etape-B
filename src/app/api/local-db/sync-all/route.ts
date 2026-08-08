@@ -11,6 +11,10 @@
  *
  * ⚠️  L'import SQLite se fait EXCLUSIVEMENT côté client (BrowserDb / SQLite-WASM + OPFS).
  *     Ce handler ne doit JAMAIS importer better-sqlite3 ou LocalDataSource.
+ *
+ * Pagination :
+ *  - ?page=N&limit=M pour charger les tables volumineuses par paquets.
+ *  - Par défaut, limite les médias et l'index chroma à 500 lignes par page.
  */
 
 import { NextResponse } from "next/server";
@@ -18,10 +22,42 @@ import { query } from "@/lib/db";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger({ module: "api-local-db-sync-all" });
+const DEFAULT_LIMIT = 500;
+
+function getPageLimit(searchParams: URLSearchParams): number {
+  const limit = searchParams.get("limit");
+  if (limit) {
+    const parsed = parseInt(limit, 10);
+    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 2000) {
+      return parsed;
+    }
+  }
+  return DEFAULT_LIMIT;
+}
+
+function getPage(searchParams: URLSearchParams): number {
+  const page = searchParams.get("page");
+  if (page) {
+    const parsed = parseInt(page, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return 1;
+}
+
+function offset(page: number, limit: number): number {
+  return (page - 1) * limit;
+}
 
 export async function POST(request: Request) {
   try {
     log.info("POST /api/local-db/sync-all: starting export");
+
+    const { searchParams } = new URL(request.url);
+    const limit = getPageLimit(searchParams);
+    const page = getPage(searchParams);
+    const off = offset(page, limit);
 
     // ── 1. Lecture des données depuis la BDD web ──────────────────────────
     const [
@@ -40,18 +76,20 @@ export async function POST(request: Request) {
       query("SELECT * FROM procedure_steps ORDER BY procedure_id, step_order ASC"),
       query("SELECT * FROM alarms ORDER BY created_at ASC"),
       query("SELECT * FROM alarm_events ORDER BY occurred_at ASC"),
-      query("SELECT * FROM media_items ORDER BY created_at ASC"),
+      query(`SELECT * FROM media_items ORDER BY created_at ASC LIMIT ${limit} OFFSET ${off}`),
       query("SELECT * FROM knowledge_items ORDER BY created_at ASC"),
       query("SELECT * FROM location_nodes ORDER BY created_at ASC"),
       query("SELECT * FROM data_assignments ORDER BY created_at ASC"),
       query("SELECT * FROM guardrail_rules ORDER BY created_at ASC"),
       query(
-        "SELECT id, collection, document_id, content, metadata_json, embedding, created_at FROM chroma_index ORDER BY created_at ASC",
+        `SELECT id, collection, document_id, content, metadata_json, embedding, created_at FROM chroma_index ORDER BY created_at ASC LIMIT ${limit} OFFSET ${off}`,
       ),
     ]);
 
     const payload = {
       exportedAt: new Date().toISOString(),
+      page,
+      limit,
       tables: {
         procedures:      procedures.rows      as Record<string, unknown>[],
         procedureSteps:  procedureSteps.rows  as Record<string, unknown>[],
@@ -81,6 +119,8 @@ export async function POST(request: Request) {
     const totalRows = Object.values(payload.counts).reduce((a, b) => a + b, 0);
     log.info("POST /api/local-db/sync-all: export ready", {
       totalRows,
+      page,
+      limit,
       counts: payload.counts,
     });
 
@@ -132,10 +172,16 @@ export async function POST(request: Request) {
     // ── 3. Retour du payload au client ────────────────────────────────────
     //    Le client (SyncLocalButton / BrowserDb) se charge d'insérer
     //    les données dans SQLite-WASM via l'API OPFS.
+    const hasMore =
+      (mediaItems.rowCount ?? 0) >= limit || (chromaIndex.rowCount ?? 0) >= limit;
+
     return NextResponse.json({
       ok: true,
       purged,
       totalRows,
+      page,
+      limit,
+      hasMore,
       counts: payload.counts,
       payload,
     });

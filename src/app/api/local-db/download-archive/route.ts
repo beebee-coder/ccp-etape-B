@@ -1,9 +1,17 @@
 /**
  * Route API GET /api/local-db/download-archive
  *
- * Zippe récursivement et envoie l'intégralité du dossier physique `.local-db`
- * avec tous ses sous-dossiers (Centrale, Groupes, procedures, etc.) et tous
- * ses fichiers (PDF, images, SQLite, JSON, etc.) au navigateur client.
+ * Reconstruit et envoie l'intégralité de l'arborescence `.local-db`
+ * au format ZIP, en se basant sur :
+ *  1. Le filesystem local si disponible (mode dev)
+ *  2. La base de données web (Neon) pour reconstruire la structure
+ *     en mode déploiement Vercel où `.local-db` n'existe pas sur le serveur.
+ *
+ * La structure reconstruite respecte scrupuleusement l'arborescence dev :
+ *  - Centrale/ et Groupes/ avec leurs .meta.json
+ *  - procedures/ avec sous-répertoires par code
+ *  - registry/ (bank, items, procedures, ressources humaines)
+ *  - ressources humaines/ avec équipes
  */
 
 import { NextResponse } from "next/server";
@@ -36,71 +44,196 @@ function addDirToZip(zip: JSZip, dirPath: string, relZipPath: string) {
   }
 }
 
+function ensureDirectory(zip: JSZip, dirPath: string) {
+  const parts = dirPath.split("/").filter(Boolean);
+  let current = "";
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : part;
+    if (!zip.folder(current)) {
+      zip.folder(current);
+    }
+  }
+}
+
+function buildLocationTree(nodes: Array<{ path: string; [key: string]: unknown }>): string[] {
+  const dirs = new Set<string>();
+  for (const node of nodes) {
+    const cleanPath = node.path.replace(/^\/+/, "").replace(/\/+$/, "");
+    if (!cleanPath) continue;
+    const parts = cleanPath.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      dirs.add(parts.slice(0, i).join("/"));
+    }
+  }
+  return Array.from(dirs);
+}
+
 export async function GET() {
   try {
     log.info("GET /api/local-db/download-archive: Packaging .local-db...");
     const zip = new JSZip();
 
-    // 1. Inclure le système de fichiers .local-db s'il existe sur le serveur
-    if (fs.existsSync(LOCAL_DB_ROOT)) {
+    const useFilesystem = fs.existsSync(LOCAL_DB_ROOT);
+
+    if (useFilesystem) {
       addDirToZip(zip, LOCAL_DB_ROOT, "");
-    }
+    } else {
+      const defaultDirs = [
+        "Centrale",
+        "Groupes",
+        "procedures",
+        "bank",
+        "registry",
+        "ressources humaines",
+        ".vector-index",
+      ];
 
-    // 2. Assurer la présence des dossiers et fichiers de référence s'ils ne sont pas sur le disque
-    const defaultDirs = [
-      "Centrale",
-      "Groupes",
-      "procedures",
-      "bank",
-      "registry",
-      "ressources humaines",
-      ".vector-index",
-    ];
-
-    for (const dir of defaultDirs) {
-      if (!zip.folder(dir)) {
+      for (const dir of defaultDirs) {
         zip.folder(dir);
       }
     }
 
-    // Fichier manifeste maître
-    const manifest = {
-      version: "1.0.0",
-      generatedAt: new Date().toISOString(),
-      source: "Vercel Cloud Deployment",
-      tables: {} as Record<string, number>,
-    };
-
     try {
-      const [procedures, locationNodes] = await Promise.all([
-        query("SELECT code, title, category FROM procedures").catch(() => ({ rows: [] as { code: string; title: string; category?: string }[], rowCount: 0 })),
-        query("SELECT path, libelle FROM location_nodes").catch(() => ({ rows: [] as { path: string; libelle?: string }[], rowCount: 0 })),
+      const [
+        procedures,
+        locationNodes,
+        mediaItems,
+        knowledgeItems,
+        teams,
+      ] = await Promise.all([
+        query("SELECT code, title, category, description, priority FROM procedures").catch(() => ({ rows: [] as Array<{ code: string; title: string; category?: string; description?: string; priority?: string }>, rowCount: 0 })),
+        query("SELECT path, libelle, location_type, bloc_code, equipement_code, groupe_code, level, metadata FROM location_nodes ORDER BY level ASC, path ASC").catch(() => ({ rows: [] as Array<{ path: string; libelle?: string; location_type?: string; bloc_code?: string; equipement_code?: string; groupe_code?: string; level?: number; metadata?: unknown }>, rowCount: 0 })),
+        query("SELECT id, title, category, kind, mime_type, data_url, thumbnail_url, location_path FROM media_items WHERE data_url IS NOT NULL OR thumbnail_url IS NOT NULL").catch(() => ({ rows: [] as Array<{ id: string; title: string; category?: string; kind?: string; mime_type?: string; data_url?: string; thumbnail_url?: string; location_path?: string }>, rowCount: 0 })),
+        query("SELECT id, title, type, category, location_path, content, answer FROM knowledge_items").catch(() => ({ rows: [] as Array<{ id: string; title?: string; type?: string; category?: string; location_path?: string; content?: string; answer?: string }>, rowCount: 0 })),
+        query("SELECT id, name, groupe_path FROM teams").catch(() => ({ rows: [] as Array<{ id: string; name?: string; groupe_path?: string }>, rowCount: 0 })),
       ]);
 
-      manifest.tables.procedures = procedures.rowCount ?? 0;
-      manifest.tables.locationNodes = locationNodes.rowCount ?? 0;
+      const proceduresRows = procedures.rows as Array<{ code: string; title: string; category?: string; description?: string; priority?: string }>;
+      const locationNodesRows = locationNodes.rows as Array<{ path: string; libelle?: string; location_type?: string; bloc_code?: string; equipement_code?: string; groupe_code?: string; level?: number; metadata?: unknown }>;
+      const mediaItemsRows = mediaItems.rows as Array<{ id: string; title: string; category?: string; kind?: string; mime_type?: string; data_url?: string; thumbnail_url?: string; location_path?: string }>;
+      const knowledgeItemsRows = knowledgeItems.rows as Array<{ id: string; title?: string; type?: string; category?: string; location_path?: string; content?: string; answer?: string }>;
+      const teamsRows = teams.rows as Array<{ id: string; name?: string; groupe_path?: string }>;
 
-      for (const proc of procedures.rows as { code: string; title: string; category?: string }[]) {
-        const procPath = `procedures/${proc.code}.json`;
-        if (!zip.file(procPath)) {
-          zip.file(procPath, JSON.stringify(proc, null, 2));
+      if (!useFilesystem) {
+        const allDirs = buildLocationTree(locationNodesRows);
+        for (const dir of allDirs) {
+          ensureDirectory(zip, dir);
+        }
+
+        for (const node of locationNodesRows) {
+          const cleanPath = node.path.replace(/^\/+/, "").replace(/\/+$/, "");
+          if (!cleanPath) continue;
+
+          const metaPath = `${cleanPath}/.meta.json`;
+          if (!zip.file(metaPath)) {
+            zip.file(metaPath, JSON.stringify({
+              libelle: node.libelle,
+              code: cleanPath.split("/").pop(),
+              type: node.location_type,
+              bloc_code: node.bloc_code,
+              equipement_code: node.equipement_code,
+              groupe_code: node.groupe_code,
+              level: node.level,
+              metadata: node.metadata,
+            }, null, 2));
+          }
         }
       }
 
-      for (const node of locationNodes.rows as { path: string; libelle?: string }[]) {
-        const cleanPath = node.path.replace(/^\/+/, "");
-        const filePath = `${cleanPath}/meta.json`;
-        if (!zip.file(filePath)) {
-          zip.file(filePath, JSON.stringify(node, null, 2));
+      for (const proc of proceduresRows) {
+        const procDir = `procedures/${proc.code}`;
+        ensureDirectory(zip, procDir);
+
+        const procJsonPath = `${procDir}/procedure.json`;
+        if (!zip.file(procJsonPath)) {
+          zip.file(procJsonPath, JSON.stringify(proc, null, 2));
+        }
+
+        const registryProcDir = `registry/procedures/${proc.code}`;
+        ensureDirectory(zip, registryProcDir);
+        const registryProcPath = `${registryProcDir}/procedure.json`;
+        if (!zip.file(registryProcPath)) {
+          zip.file(registryProcPath, JSON.stringify(proc, null, 2));
+        }
+      }
+
+      for (const media of mediaItemsRows) {
+        if (media.data_url) {
+          const ext = media.mime_type?.split("/").pop() || "bin";
+          const fileName = `registry/media/${media.id}.${ext}`;
+          ensureDirectory(zip, "registry/media");
+          if (!zip.file(fileName)) {
+            try {
+              const base64 = media.data_url.split(",")[1];
+              if (base64) {
+                const buffer = Buffer.from(base64, "base64");
+                zip.file(fileName, buffer);
+              }
+            } catch {
+              // ignore invalid base64
+            }
+          }
+        }
+      }
+
+      for (const item of knowledgeItemsRows) {
+        if (item.location_path) {
+          const cleanPath = item.location_path.replace(/^\/+/, "");
+          const fileName = `${cleanPath}/${item.id}.json`;
+          ensureDirectory(zip, cleanPath);
+          if (!zip.file(fileName)) {
+            zip.file(fileName, JSON.stringify({
+              id: item.id,
+              title: item.title,
+              type: item.type,
+              category: item.category,
+              content: item.content,
+              answer: item.answer,
+            }, null, 2));
+          }
+        }
+
+        const registryItemPath = `registry/items/${item.id}.json`;
+        if (!zip.file(registryItemPath)) {
+          zip.file(registryItemPath, JSON.stringify({
+            id: item.id,
+            title: item.title,
+            type: item.type,
+            category: item.category,
+            content: item.content,
+            answer: item.answer,
+          }, null, 2));
+        }
+      }
+
+      for (const team of teamsRows) {
+        if (team.groupe_path) {
+          const cleanPath = team.groupe_path.replace(/^\/+/, "");
+          const teamDir = `ressources humaines/${cleanPath}`;
+          ensureDirectory(zip, teamDir);
+
+          const teamJsonPath = `${teamDir}/${team.name || team.id}.json`;
+          if (!zip.file(teamJsonPath)) {
+            zip.file(teamJsonPath, JSON.stringify({
+              id: team.id,
+              name: team.name,
+              groupe_path: team.groupe_path,
+            }, null, 2));
+          }
         }
       }
     } catch (e) {
       log.warn("Non-fatal: Error fetching web DB tables for ZIP structure", { error: e });
     }
 
-    if (!zip.file("local-db-manifest.json")) {
-      zip.file("local-db-manifest.json", JSON.stringify(manifest, null, 2));
-    }
+    const manifest = {
+      version: "1.0.0",
+      generatedAt: new Date().toISOString(),
+      source: useFilesystem ? "Dev Filesystem" : "Vercel Cloud Deployment",
+      structure: "full-dev-parity",
+    };
+
+    zip.file("local-db-manifest.json", JSON.stringify(manifest, null, 2));
 
     const archiveBuffer = await zip.generateAsync({
       type: "nodebuffer",
@@ -110,6 +243,7 @@ export async function GET() {
 
     log.info("GET /api/local-db/download-archive: Archive generated", {
       sizeBytes: archiveBuffer.length,
+      useFilesystem,
     });
 
     return new NextResponse(new Uint8Array(archiveBuffer), {
