@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getProjectRoot } from "@/lib/project-root";
+import { query } from "@/lib/db";
 
 const PROJECT_ROOT = getProjectRoot();
 const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
@@ -129,6 +130,248 @@ function buildDbFallbackTree(): ApiTreeNode {
   };
 }
 
+interface LocationNodeRow {
+  path: string;
+  libelle?: string;
+  location_type?: string;
+  bloc_code?: string;
+  equipement_code?: string;
+  groupe_code?: string;
+  level?: number;
+}
+
+interface ProcedureRow {
+  code: string;
+  title: string;
+  category?: string;
+  description?: string;
+  priority?: string;
+}
+
+interface KnowledgeItemRow {
+  id: string;
+  title?: string;
+  type?: string;
+  category?: string;
+  location_path?: string;
+}
+
+interface TeamRow {
+  id: string;
+  name?: string;
+  groupe_path?: string;
+}
+
+interface MediaItemRow {
+  id: string;
+  title?: string;
+  category?: string;
+  kind?: string;
+  mime_type?: string;
+  location_path?: string;
+}
+
+function ensurePath(
+  root: ApiTreeNode,
+  segments: string[],
+): ApiTreeNode {
+  let current = root;
+  for (const segment of segments) {
+    let child = current.children?.find((c) => c.name === segment && c.kind === "directory");
+    if (!child) {
+      child = {
+        name: segment,
+        path: current.path ? `${current.path}/${segment}` : segment,
+        kind: "directory",
+        children: [],
+        vectorized: false,
+      };
+      current.children = current.children || [];
+      current.children.push(child);
+    }
+    current = child;
+  }
+  return current;
+}
+
+async function buildReconstructedTreeFromDb(): Promise<ApiTreeNode> {
+  const root: ApiTreeNode = {
+    name: ".local-db",
+    path: ".local-db",
+    kind: "directory",
+    children: [],
+    vectorized: false,
+  };
+
+  try {
+    const [
+      locationNodesResult,
+      proceduresResult,
+      knowledgeItemsResult,
+      teamsResult,
+      mediaItemsResult,
+    ] = await Promise.all([
+      query<LocationNodeRow>("SELECT path, libelle, location_type, bloc_code, equipement_code, groupe_code, level FROM location_nodes ORDER BY level ASC, path ASC").catch(() => ({ rows: [] as LocationNodeRow[], rowCount: 0 })),
+      query<ProcedureRow>("SELECT code, title, category, description, priority FROM procedures").catch(() => ({ rows: [] as ProcedureRow[], rowCount: 0 })),
+      query<KnowledgeItemRow>("SELECT id, title, type, category, location_path FROM knowledge_items").catch(() => ({ rows: [] as KnowledgeItemRow[], rowCount: 0 })),
+      query<TeamRow>("SELECT id, name, groupe_path FROM teams").catch(() => ({ rows: [] as TeamRow[], rowCount: 0 })),
+      query<MediaItemRow>("SELECT id, title, category, kind, mime_type, location_path FROM media_items WHERE location_path IS NOT NULL").catch(() => ({ rows: [] as MediaItemRow[], rowCount: 0 })),
+    ]);
+
+    const locationNodesRows = locationNodesResult.rows as LocationNodeRow[];
+    const proceduresRows = proceduresResult.rows as ProcedureRow[];
+    const knowledgeItemsRows = knowledgeItemsResult.rows as KnowledgeItemRow[];
+    const teamsRows = teamsResult.rows as TeamRow[];
+    const mediaItemsRows = mediaItemsResult.rows as MediaItemRow[];
+
+    const processedPaths = new Set<string>();
+
+    for (const node of locationNodesRows) {
+      const cleanPath = normalizePath(node.path);
+      if (!cleanPath || processedPaths.has(cleanPath)) continue;
+      processedPaths.add(cleanPath);
+
+      const segments = cleanPath.split("/").filter(Boolean);
+      if (segments.length === 0) continue;
+
+      const parent = ensurePath(root, segments.slice(0, -1));
+      const name = segments[segments.length - 1];
+      const fullPath = normalizePath(node.path);
+
+      const existing = parent.children?.find((c) => c.name === name);
+      if (!existing) {
+        parent.children = parent.children || [];
+        parent.children.push({
+          name,
+          path: fullPath,
+          kind: "directory",
+          children: [],
+          vectorized: false,
+          libelle: node.libelle,
+        });
+      }
+    }
+
+    for (const proc of proceduresRows) {
+      const segments = ["procedures", proc.code];
+      const parent = ensurePath(root, segments.slice(0, -1));
+      const name = segments[segments.length - 1];
+      const fullPath = segments.join("/");
+
+      const existing = parent.children?.find((c) => c.name === name);
+      if (!existing) {
+        parent.children = parent.children || [];
+        parent.children.push({
+          name,
+          path: fullPath,
+          kind: "directory",
+          children: [
+            {
+              name: "procedure.json",
+              path: `${fullPath}/procedure.json`,
+              kind: "document",
+              stats: { sizeBytes: JSON.stringify(proc).length },
+              vectorized: false,
+            },
+          ],
+          vectorized: false,
+          libelle: proc.title,
+        });
+      }
+    }
+
+    for (const item of knowledgeItemsRows) {
+      if (item.location_path) {
+        const cleanPath = normalizePath(item.location_path);
+        const segments = cleanPath.split("/").filter(Boolean);
+        if (segments.length === 0) continue;
+
+        const parent = ensurePath(root, segments.slice(0, -1));
+        const fullPath = `${cleanPath}/${item.id}.json`;
+
+        parent.children = parent.children || [];
+        const existing = parent.children.find((c) => c.name === `${item.id}.json`);
+        if (!existing) {
+          parent.children.push({
+            name: `${item.id}.json`,
+            path: fullPath,
+            kind: "document",
+            stats: { sizeBytes: JSON.stringify(item).length },
+            vectorized: false,
+          });
+        }
+      }
+
+      const registryParent = ensurePath(root, ["registry", "items"]);
+      registryParent.children = registryParent.children || [];
+      const registryExisting = registryParent.children.find((c) => c.name === `${item.id}.json`);
+      if (!registryExisting) {
+        registryParent.children.push({
+          name: `${item.id}.json`,
+          path: `registry/items/${item.id}.json`,
+          kind: "document",
+          stats: { sizeBytes: JSON.stringify(item).length },
+          vectorized: false,
+        });
+      }
+    }
+
+    for (const team of teamsRows) {
+      if (team.groupe_path) {
+        const cleanPath = normalizePath(team.groupe_path);
+        const segments = ["ressources humaines", ...cleanPath.split("/").filter(Boolean)];
+        const parent = ensurePath(root, segments);
+        const name = team.name || team.id;
+        const fullPath = `${segments.join("/")}/${name}.json`;
+
+        parent.children = parent.children || [];
+        const existing = parent.children.find((c) => c.name === `${name}.json`);
+        if (!existing) {
+          parent.children.push({
+            name: `${name}.json`,
+            path: fullPath,
+            kind: "document",
+            stats: { sizeBytes: JSON.stringify(team).length },
+            vectorized: false,
+          });
+        }
+      }
+    }
+
+    for (const media of mediaItemsRows) {
+      if (media.location_path) {
+        const cleanPath = normalizePath(media.location_path);
+        const segments = cleanPath.split("/").filter(Boolean);
+        if (segments.length > 0) {
+          const parent = ensurePath(root, segments);
+          const ext = media.mime_type?.split("/").pop() || "bin";
+          const name = `${media.id}.${ext}`;
+          parent.children = parent.children || [];
+          const existing = parent.children.find((c) => c.name === name);
+          if (!existing) {
+            parent.children.push({
+              name,
+              path: `${cleanPath}/${name}`,
+              kind: "document",
+              stats: { sizeBytes: 1024 },
+              vectorized: false,
+            });
+          }
+        }
+      }
+    }
+
+    console.info("[API /api/local-db/fs] reconstructed tree from DB", {
+      childrenCount: root.children?.length ?? 0,
+      childrenNames: root.children?.map((c) => c.name),
+    });
+  } catch (e) {
+    console.error("[API /api/local-db/fs] reconstruction error", e);
+  }
+
+  return root;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const target = searchParams.get("path") || "";
@@ -161,6 +404,19 @@ export async function GET(request: Request) {
     }
 
     if (!fs.existsSync(LOCAL_DB_ROOT)) {
+      const reconstructed = await buildReconstructedTreeFromDb();
+      const hasReconstructedData = (reconstructed.children?.length ?? 0) > 0;
+      if (hasReconstructedData) {
+        console.info("[API /api/local-db/fs] db-reconstructed", {
+          childrenCount: reconstructed.children?.length ?? 0,
+          childrenNames: reconstructed.children?.map((c) => c.name),
+        });
+        return NextResponse.json({
+          children: reconstructed.children,
+          vectorizedPaths: [] as string[],
+          source: "db-reconstructed",
+        });
+      }
       const tree = buildDbFallbackTree();
       console.info("[API /api/local-db/fs] db-fallback", {
         target,

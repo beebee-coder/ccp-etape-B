@@ -6,6 +6,12 @@ import { getProjectRoot } from "@/lib/project-root";
 const PROJECT_ROOT = getProjectRoot();
 const REGISTRY_ROOT = path.join(PROJECT_ROOT, ".registry");
 
+console.info("[API /api/registry/fs] init", {
+  PROJECT_ROOT,
+  REGISTRY_ROOT,
+  exists: fs.existsSync(REGISTRY_ROOT),
+});
+
 function safeJoin(targetPath: string): string {
   const resolved = path.resolve(REGISTRY_ROOT, targetPath);
   if (!resolved.startsWith(REGISTRY_ROOT)) {
@@ -71,6 +77,30 @@ function buildTree(relPath: string): ApiTreeNode {
   };
 }
 
+function buildRegistryFallbackTree(): ApiTreeNode {
+  const defaultDirs = [
+    "bank",
+    "items",
+    "procedures",
+    "Centrale",
+    "ressources humaines",
+  ];
+
+  const children = defaultDirs.map((name) => ({
+    name,
+    path: name,
+    kind: "directory" as const,
+    children: [],
+  }));
+
+  return {
+    name: ".registry",
+    path: ".registry",
+    kind: "directory",
+    children,
+  };
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const target = searchParams.get("path") || "";
@@ -102,6 +132,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ content, name: path.basename(fullPath) });
     }
 
+    if (!fs.existsSync(REGISTRY_ROOT)) {
+      const tree = buildRegistryFallbackTree();
+      console.info("[API /api/registry/fs] registry-missing fallback", {
+        target,
+        childrenCount: tree.children?.length ?? 0,
+        childrenNames: tree.children?.map((c) => c.name),
+      });
+      return NextResponse.json({
+        children: tree.children,
+        source: "registry-missing",
+      });
+    }
+
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
       return NextResponse.json(
         { error: "Répertoire introuvable" },
@@ -110,9 +153,15 @@ export async function GET(request: Request) {
     }
 
     const tree = buildTree(target);
+    console.info("[API /api/registry/fs] tree response", {
+      target,
+      childrenCount: tree.children?.length ?? 0,
+      childrenNames: tree.children?.map((c) => c.name),
+    });
     return NextResponse.json({ children: tree.children });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
+    console.error("[API /api/registry/fs] error", { target, message, error });
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

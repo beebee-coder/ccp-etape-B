@@ -104,8 +104,21 @@ export function RegistryExplorer() {
     setError(null);
     try {
       const res = await fetch(`/api/registry/fs?t=${Date.now()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { children?: RegistryNode[] };
+      console.info("[RegistryExplorer] API response", {
+        status: res.status,
+        ok: res.ok,
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[RegistryExplorer] API error body", errText);
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { children?: RegistryNode[]; source?: string };
+      console.info("[RegistryExplorer] API data", {
+        source: data.source,
+        childrenCount: data.children?.length ?? 0,
+        childrenNames: data.children?.map((c) => c.name),
+      });
       const nodes = (data.children ?? []).map(buildDatabaseTreeNode);
       setStructure({
         id: "BDD web",
@@ -118,6 +131,7 @@ export function RegistryExplorer() {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      console.error("[RegistryExplorer] loadStructure error", err);
       setError(msg);
     } finally {
       setLoading(false);

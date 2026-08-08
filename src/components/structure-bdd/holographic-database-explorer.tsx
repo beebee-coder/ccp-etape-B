@@ -216,7 +216,7 @@ export function HolographicDatabaseExplorer() {
       const nodes = await buildStructure(data.children || []);
       setSchemaStructure({
         id: ".local-db",
-        name: data.source === "db-fallback" ? ".local-db (reconstitué depuis DB web)" : ".local-db",
+        name: data.source === "db-fallback" ? ".local-db (reconstitué depuis DB web)" : data.source === "db-reconstructed" ? ".local-db (reconstitué depuis DB web)" : ".local-db",
         kind: "database",
         path: ".local-db",
         indexed: false,
