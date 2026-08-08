@@ -55,19 +55,6 @@ function ensureDirectory(zip: JSZip, dirPath: string) {
   }
 }
 
-function buildLocationTree(nodes: Array<{ path: string; [key: string]: unknown }>): string[] {
-  const dirs = new Set<string>();
-  for (const node of nodes) {
-    const cleanPath = node.path.replace(/^\/+/, "").replace(/\/+$/, "");
-    if (!cleanPath) continue;
-    const parts = cleanPath.split("/");
-    for (let i = 1; i < parts.length; i++) {
-      dirs.add(parts.slice(0, i).join("/"));
-    }
-  }
-  return Array.from(dirs);
-}
-
 export async function GET() {
   try {
     log.info("GET /api/local-db/download-archive: Packaging .local-db...");
@@ -95,11 +82,11 @@ export async function GET() {
 
     try {
       const [
-        procedures,
-        locationNodes,
-        mediaItems,
-        knowledgeItems,
-        teams,
+        proceduresResult,
+        locationNodesResult,
+        mediaItemsResult,
+        knowledgeItemsResult,
+        teamsResult,
       ] = await Promise.all([
         query("SELECT code, title, category, description, priority FROM procedures").catch(() => ({ rows: [] as Array<{ code: string; title: string; category?: string; description?: string; priority?: string }>, rowCount: 0 })),
         query("SELECT path, libelle, location_type, bloc_code, equipement_code, groupe_code, level, metadata FROM location_nodes ORDER BY level ASC, path ASC").catch(() => ({ rows: [] as Array<{ path: string; libelle?: string; location_type?: string; bloc_code?: string; equipement_code?: string; groupe_code?: string; level?: number; metadata?: unknown }>, rowCount: 0 })),
@@ -108,15 +95,67 @@ export async function GET() {
         query("SELECT id, name, groupe_path FROM teams").catch(() => ({ rows: [] as Array<{ id: string; name?: string; groupe_path?: string }>, rowCount: 0 })),
       ]);
 
-      const proceduresRows = procedures.rows as Array<{ code: string; title: string; category?: string; description?: string; priority?: string }>;
-      const locationNodesRows = locationNodes.rows as Array<{ path: string; libelle?: string; location_type?: string; bloc_code?: string; equipement_code?: string; groupe_code?: string; level?: number; metadata?: unknown }>;
-      const mediaItemsRows = mediaItems.rows as Array<{ id: string; title: string; category?: string; kind?: string; mime_type?: string; data_url?: string; thumbnail_url?: string; location_path?: string }>;
-      const knowledgeItemsRows = knowledgeItems.rows as Array<{ id: string; title?: string; type?: string; category?: string; location_path?: string; content?: string; answer?: string }>;
-      const teamsRows = teams.rows as Array<{ id: string; name?: string; groupe_path?: string }>;
+      const proceduresRows = proceduresResult.rows as Array<{ code: string; title: string; category?: string; description?: string; priority?: string }>;
+      const locationNodesRows = locationNodesResult.rows as Array<{ path: string; libelle?: string; location_type?: string; bloc_code?: string; equipement_code?: string; groupe_code?: string; level?: number; metadata?: unknown }>;
+      const mediaItemsRows = mediaItemsResult.rows as Array<{ id: string; title: string; category?: string; kind?: string; mime_type?: string; data_url?: string; thumbnail_url?: string; location_path?: string }>;
+      const knowledgeItemsRows = knowledgeItemsResult.rows as Array<{ id: string; title?: string; type?: string; category?: string; location_path?: string; content?: string; answer?: string }>;
+      const teamsRows = teamsResult.rows as Array<{ id: string; name?: string; groupe_path?: string }>;
+
+      log.info("GET /api/local-db/download-archive: DB counts", {
+        procedures: proceduresRows.length,
+        locationNodes: locationNodesRows.length,
+        mediaItems: mediaItemsRows.length,
+        knowledgeItems: knowledgeItemsRows.length,
+        teams: teamsRows.length,
+        useFilesystem,
+      });
 
       if (!useFilesystem) {
-        const allDirs = buildLocationTree(locationNodesRows);
-        for (const dir of allDirs) {
+        const allPaths = new Set<string>();
+        const allDirs = new Set<string>();
+
+        for (const node of locationNodesRows) {
+          const cleanPath = node.path.replace(/^\/+/, "").replace(/\/+$/, "");
+          if (!cleanPath) continue;
+
+          const parts = cleanPath.split("/");
+          for (let i = 1; i < parts.length; i++) {
+            allDirs.add(parts.slice(0, i).join("/"));
+          }
+          allPaths.add(cleanPath);
+        }
+
+        log.info("GET /api/local-db/download-archive: location paths", {
+          sample: Array.from(allPaths).slice(0, 10),
+          total: allPaths.size,
+          dirs: Array.from(allDirs).slice(0, 10),
+          totalDirs: allDirs.size,
+        });
+
+        for (const proc of proceduresRows) {
+          ensureDirectory(zip, `procedures/${proc.code}`);
+          ensureDirectory(zip, `registry/procedures/${proc.code}`);
+        }
+
+        for (const item of knowledgeItemsRows) {
+          if (item.location_path) {
+            const cleanPath = item.location_path.replace(/^\/+/, "");
+            ensureDirectory(zip, cleanPath);
+          }
+        }
+
+        if (mediaItemsRows.length > 0) {
+          ensureDirectory(zip, "registry/media");
+        }
+
+        for (const team of teamsRows) {
+          if (team.groupe_path) {
+            const cleanPath = team.groupe_path.replace(/^\/+/, "");
+            ensureDirectory(zip, `ressources humaines/${cleanPath}`);
+          }
+        }
+
+        for (const dir of Array.from(allDirs)) {
           ensureDirectory(zip, dir);
         }
 
@@ -142,15 +181,12 @@ export async function GET() {
 
       for (const proc of proceduresRows) {
         const procDir = `procedures/${proc.code}`;
-        ensureDirectory(zip, procDir);
-
         const procJsonPath = `${procDir}/procedure.json`;
         if (!zip.file(procJsonPath)) {
           zip.file(procJsonPath, JSON.stringify(proc, null, 2));
         }
 
         const registryProcDir = `registry/procedures/${proc.code}`;
-        ensureDirectory(zip, registryProcDir);
         const registryProcPath = `${registryProcDir}/procedure.json`;
         if (!zip.file(registryProcPath)) {
           zip.file(registryProcPath, JSON.stringify(proc, null, 2));
@@ -161,7 +197,6 @@ export async function GET() {
         if (media.data_url) {
           const ext = media.mime_type?.split("/").pop() || "bin";
           const fileName = `registry/media/${media.id}.${ext}`;
-          ensureDirectory(zip, "registry/media");
           if (!zip.file(fileName)) {
             try {
               const base64 = media.data_url.split(",")[1];
@@ -180,7 +215,6 @@ export async function GET() {
         if (item.location_path) {
           const cleanPath = item.location_path.replace(/^\/+/, "");
           const fileName = `${cleanPath}/${item.id}.json`;
-          ensureDirectory(zip, cleanPath);
           if (!zip.file(fileName)) {
             zip.file(fileName, JSON.stringify({
               id: item.id,
@@ -210,8 +244,6 @@ export async function GET() {
         if (team.groupe_path) {
           const cleanPath = team.groupe_path.replace(/^\/+/, "");
           const teamDir = `ressources humaines/${cleanPath}`;
-          ensureDirectory(zip, teamDir);
-
           const teamJsonPath = `${teamDir}/${team.name || team.id}.json`;
           if (!zip.file(teamJsonPath)) {
             zip.file(teamJsonPath, JSON.stringify({
@@ -234,6 +266,15 @@ export async function GET() {
     };
 
     zip.file("local-db-manifest.json", JSON.stringify(manifest, null, 2));
+
+    const zipFiles = Object.keys(zip.files).filter((name) => !zip.files[name].dir);
+    const zipDirs = Object.keys(zip.files).filter((name) => zip.files[name].dir);
+    log.info("GET /api/local-db/download-archive: ZIP contents", {
+      files: zipFiles.length,
+      dirs: zipDirs.length,
+      sampleFiles: zipFiles.slice(0, 20),
+      sampleDirs: zipDirs.slice(0, 20),
+    });
 
     const archiveBuffer = await zip.generateAsync({
       type: "nodebuffer",

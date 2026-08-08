@@ -131,6 +131,15 @@ export class OpfsStorageManager {
       }
     }
 
+    if (relPath === "") {
+      console.info("[OpfsStorage] getTree root", {
+        totalNodes: nodes.length,
+        dirs: nodes.filter((n) => n.kind === "directory").length,
+        files: nodes.filter((n) => n.kind === "document").length,
+        sample: nodes.slice(0, 10).map((n) => ({ name: n.name, kind: n.kind, children: n.children?.length ?? 0 })),
+      });
+    }
+
     return nodes;
   }
 

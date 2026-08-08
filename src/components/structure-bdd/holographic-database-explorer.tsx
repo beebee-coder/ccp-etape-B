@@ -125,6 +125,13 @@ export function HolographicDatabaseExplorer() {
 
           const convertedNodes = buildNodes(opfsNodes);
 
+          console.info("[HolographicDatabaseExplorer] OPFS tree loaded", {
+            totalNodes: convertedNodes.length,
+            dirs: convertedNodes.filter((n) => n.kind === "directory").length,
+            files: convertedNodes.filter((n) => n.kind === "document").length,
+            sample: convertedNodes.slice(0, 10).map((n) => ({ name: n.name, kind: n.kind, children: n.children?.length ?? 0 })),
+          });
+
           if (convertedNodes.length > 0) {
             setSchemaStructure({
               id: ".local-db",
