@@ -93,6 +93,10 @@ export function SyncWebToLocalButton() {
           description: `${totalImported} élément(s) importé(s) en ${pagesFetched} page(s)`,
         });
       }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("local-db-synced"));
+      }
     } catch (error) {
       toast.error("Échec de la synchronisation", {
         id: toastId,

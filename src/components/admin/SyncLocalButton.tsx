@@ -113,6 +113,10 @@ export function SyncLocalButton() {
           id: toastId,
           description: `Arborescence physique (${filesExtracted} éléments) installée sur votre device [OPFS]`,
         });
+
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("local-db-synced"));
+        }
       }
     } catch (error) {
       toast.error("Échec de la synchronisation", {

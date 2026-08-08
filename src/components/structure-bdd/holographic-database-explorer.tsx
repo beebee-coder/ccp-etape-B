@@ -171,6 +171,19 @@ export function HolographicDatabaseExplorer() {
     loadStructure();
   }, [loadStructure]);
 
+  useEffect(() => {
+    function handleLocalDbSynced() {
+      loadStructure();
+    }
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("local-db-synced", handleLocalDbSynced);
+      return () => {
+        window.removeEventListener("local-db-synced", handleLocalDbSynced);
+      };
+    }
+  }, [loadStructure]);
+
   const indexedStructure = useMemo<DatabaseStructure>(() => {
     if (!schemaStructure) {
       return {
