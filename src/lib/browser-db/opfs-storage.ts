@@ -57,6 +57,12 @@ export class OpfsStorageManager {
     const fileEntries = Object.keys(zip.files);
     let count = 0;
 
+    console.info("[OpfsStorage] extractZipToOpfs start", {
+      totalEntries: fileEntries.length,
+      zipSize: zipBuffer.byteLength,
+      sample: fileEntries.slice(0, 20),
+    });
+
     for (const relativePath of fileEntries) {
       const entry = zip.files[relativePath];
       count++;
@@ -81,6 +87,10 @@ export class OpfsStorageManager {
         await writable.close();
       }
     }
+
+    console.info("[OpfsStorage] extractZipToOpfs done", {
+      filesExtracted: count,
+    });
 
     return { filesExtracted: count };
   }

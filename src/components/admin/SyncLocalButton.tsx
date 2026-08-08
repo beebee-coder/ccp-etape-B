@@ -71,6 +71,11 @@ export function SyncLocalButton() {
           }
         );
 
+        console.info("[SyncLocalButton] ZIP extraction done", {
+          zipBufferSize: zipBuffer.byteLength,
+          filesExtracted,
+        });
+
         // Déclencher aussi l'export JSON pour SQLite WASM
         const csrfToken = getCsrfTokenClient();
         const response = await fetch("/api/local-db/sync-all", {

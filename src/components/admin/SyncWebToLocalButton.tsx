@@ -82,6 +82,13 @@ export function SyncWebToLocalButton() {
 
       const totalImported = Object.values(allPulled).reduce((a, b) => a + b, 0);
 
+      console.info("[SyncWebToLocalButton] Import done", {
+        totalImported,
+        pagesFetched,
+        totalFailed,
+        pulled: allPulled,
+      });
+
       if (totalFailed > 0) {
         toast.warning("Synchronisation terminée avec des erreurs", {
           id: toastId,
