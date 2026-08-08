@@ -6,8 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Users, FileText, Activity, AlertTriangle, Trash2 } from "lucide-react";
 
-import { SyncRegistryButton } from "@/components/admin/SyncRegistryButton";
-
 export default function AdminDashboard() {
   const stats = [
     { title: "Utilisateurs", value: "1 248", change: "+12%", trend: "up", icon: Users },
@@ -61,7 +59,6 @@ export default function AdminDashboard() {
         >
           Exporter
         </Button>
-        <SyncRegistryButton />
         <Button
           size="sm"
           onClick={() => alert("Données rafraîchies")}

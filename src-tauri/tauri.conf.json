@@ -47,6 +47,18 @@
   "plugins": {
     "shell": {
       "open": true
+    },
+    "fs": {
+      "all": true,
+      "scope": {
+        "allow": [
+          "$APPDATA/CCP-Etape-B/**",
+          "$APPDATA/CCP-Etape-B/*"
+        ],
+        "deny": [
+          "**"
+        ]
+      }
     }
   }
 }

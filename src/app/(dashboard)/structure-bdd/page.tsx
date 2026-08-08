@@ -4,8 +4,6 @@ import { Database, Layers } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HolographicDatabaseExplorer } from "@/components/structure-bdd/holographic-database-explorer";
 import { RegistryExplorer } from "@/components/structure-bdd/registry-explorer";
-import { SyncRegistryButton } from "@/components/admin/SyncRegistryButton";
-import { LocalDbStatus } from "@/components/admin/LocalDbStatus";
 
 export default function StructureBDDPage() {
   return (
@@ -28,8 +26,6 @@ export default function StructureBDDPage() {
       </div>
 
       {/* ── Tabs ── */}
-      <LocalDbStatus />
-
       <Tabs defaultValue="schema" className="space-y-1">
         <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-border/30 bg-background/80 pb-3 pt-1.5 backdrop-blur-sm">
           <TabsList className="inline-flex h-10 items-center gap-1 rounded-xl border border-border/60 bg-card/60 p-1 text-sm text-muted-foreground">
@@ -48,8 +44,6 @@ export default function StructureBDDPage() {
               BDD locale
             </TabsTrigger>
           </TabsList>
-
-          <SyncRegistryButton />
         </div>
 
         <TabsContent value="schema" className="mt-0">

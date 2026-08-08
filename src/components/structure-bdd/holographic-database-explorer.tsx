@@ -11,7 +11,6 @@ import {
   FileText,
   X,
   Wand2,
-  Trash2,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { Card } from "@/components/ui/card";
@@ -563,34 +562,6 @@ export function HolographicDatabaseExplorer() {
     }
   };
 
-  const handleClearOpfs = async () => {
-    try {
-      const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-      if (!opfsStorage.isSupported()) {
-        toast.error("OPFS non supporté");
-        return;
-      }
-      const root = await opfsStorage.getRoot();
-      const entries = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for await (const [name, handle] of (root as any).entries()) {
-        entries.push({ name, kind: handle.kind });
-      }
-      for (const entry of entries) {
-        try {
-          await root.removeEntry(entry.name, { recursive: true });
-        } catch {
-          // ignore removal errors
-        }
-      }
-      toast.success("OPFS vidé, rechargement...");
-      await loadStructure();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Erreur vidage OPFS";
-      toast.error(message);
-    }
-  };
-
   const matchIds = useMemo<string[]>(() => {
     if (!schemaStructure) return [];
     const set = new Set<string>();
@@ -693,15 +664,6 @@ export function HolographicDatabaseExplorer() {
           >
             <Wand2 className="h-4 w-4 mr-2" />
             Vectoriser tout
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleClearOpfs}
-            className="h-8 rounded-xl border-border/60 bg-card/60 hover:bg-destructive/10 hover:border-destructive/40 hover:text-destructive"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Vider OPFS
           </Button>
         </div>
       </div>

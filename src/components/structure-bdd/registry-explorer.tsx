@@ -290,32 +290,6 @@ export function RegistryExplorer() {
     }
   }, [structure, preview]);
 
-  const handleSync = useCallback(async () => {
-    if (!structure) return;
-    try {
-      const res = await fetch(`/api/local-db/sync-registry?t=${Date.now()}`, {
-        method: "POST",
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Erreur synchronisation" }));
-        throw new Error(err.error || "Erreur synchronisation");
-      }
-
-      const data = await res.json();
-      const parts: string[] = [];
-      if (data.added?.length) parts.push(`${data.added.length} ajouté(s)`);
-      if (data.updated?.length) parts.push(`${data.updated.length} mis à jour(s)`);
-      if (data.skipped?.length) parts.push(`${data.skipped.length} déjà existant(s)`);
-      if (data.failed?.length) parts.push(`${data.failed.length} échoué(s)`);
-      toast.success(parts.length > 0 ? parts.join(", ") : "Aucun changement");
-      await loadStructure();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Erreur lors de la synchronisation";
-      toast.error(message);
-    }
-  }, [structure, loadStructure]);
-
   const handleDelete = async (nodePath: string) => {
     if (!confirm("Supprimer ce fichier/dossier ?")) return;
     try {
@@ -483,16 +457,6 @@ export function RegistryExplorer() {
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualiser
-          </Button>
-
-          <Button
-            variant="default"
-            size="sm"
-            onClick={handleSync}
-            className="h-8 rounded-xl bg-primary/80 hover:bg-primary text-primary-foreground"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Synchroniser
           </Button>
         </div>
       </div>

@@ -224,20 +224,23 @@ export class SqliteAdapter implements DbAdapter {
       this.db = new Database(dbPath);
 
       this.db.function("uuid_generate_v4", () => {
-        if (typeof crypto !== "undefined" && crypto.randomUUID) {
-          return crypto.randomUUID();
-        }
         const bytes = new Uint8Array(16);
+        if (typeof crypto !== "undefined" && crypto.randomUUID) {
+          const uuid = crypto.randomUUID();
+          return uuid.replace(/-/g, "").toLowerCase();
+        }
         for (let i = 0; i < 16; i++) {
           bytes[i] = Math.floor(Math.random() * 256);
         }
         bytes[6] = (bytes[6] & 0x0f) | 0x40;
         bytes[8] = (bytes[8] & 0x3f) | 0x80;
-        const hex = Array.from(bytes, (b) =>
+        return Array.from(bytes, (b) =>
           b.toString(16).padStart(2, "0"),
         ).join("");
-        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
       });
+
+      this.db.pragma("journal_mode = WAL");
+      this.db.pragma("foreign_keys = ON");
 
       this.db.function("now", () => {
         return new Date().toISOString().slice(0, 19).replace("T", " ");
