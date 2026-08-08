@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getProjectRoot } from "@/lib/project-root";
+import { registryTreeCache } from "@/lib/api/tree-cache";
+import { withFileLock } from "@/lib/api/file-lock";
 
 const PROJECT_ROOT = getProjectRoot();
 const REGISTRY_ROOT = path.join(PROJECT_ROOT, ".registry");
+const REGISTRY_LOCK = path.join(REGISTRY_ROOT, ".registry.lock");
+const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
 
 console.info("[API /api/registry/fs] init", {
   PROJECT_ROOT,
@@ -126,6 +130,13 @@ export async function GET(request: Request) {
       const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"];
 
       if (imageExtensions.includes(ext)) {
+        const stat = fs.statSync(fullPath);
+        if (stat.size > MAX_IMAGE_BASE64_BYTES) {
+          return NextResponse.json(
+            { error: `Fichier image trop volumineux (max ${MAX_IMAGE_BASE64_BYTES / 1024 / 1024}MB)` },
+            { status: 413 },
+          );
+        }
         const buffer = fs.readFileSync(fullPath);
         const base64 = buffer.toString("base64");
         const mimeType = ext === ".svg" ? "image/svg+xml" : `image/${ext.slice(1)}`;
@@ -160,6 +171,22 @@ export async function GET(request: Request) {
       });
     }
 
+    const cacheKey = `tree:${target || "."}`;
+    const cached = registryTreeCache.get<ApiTreeNode>(cacheKey);
+    if (cached) {
+      console.info("[API /api/registry/fs] cache hit", { target });
+      return NextResponse.json({
+        children: cached.children,
+        debug: {
+          target,
+          fullPath: safeJoin(target),
+          childrenCount: cached.children?.length ?? 0,
+          childrenNames: cached.children?.map((c) => c.name),
+          cached: true,
+        },
+      });
+    }
+
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
       console.info("[API /api/registry/fs] not-found", {
         fullPath,
@@ -172,10 +199,12 @@ export async function GET(request: Request) {
     }
 
     const tree = buildTree(target);
+    registryTreeCache.set(cacheKey, tree);
     console.info("[API /api/registry/fs] tree response", {
       target,
       childrenCount: tree.children?.length ?? 0,
       childrenNames: tree.children?.map((c) => c.name),
+      cached: false,
     });
     return NextResponse.json({
       children: tree.children,
@@ -209,11 +238,14 @@ export async function POST(request: Request) {
         );
       }
 
-      const parentPath = safeJoin(target);
-      const newPath = path.join(parentPath, file.name);
-      const buffer = Buffer.from(await file.arrayBuffer());
-      fs.writeFileSync(newPath, buffer);
+      await withFileLock(REGISTRY_LOCK, async () => {
+        const parentPath = safeJoin(target);
+        const newPath = path.join(parentPath, file.name);
+        const buffer = Buffer.from(await file.arrayBuffer());
+        fs.writeFileSync(newPath, buffer);
+      });
 
+      registryTreeCache.invalidate("tree:");
       return NextResponse.json({ success: true });
     }
 
@@ -231,15 +263,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const parentPath = safeJoin(target);
-    const newPath = path.join(parentPath, name);
+    await withFileLock(REGISTRY_LOCK, async () => {
+      const parentPath = safeJoin(target);
+      const newPath = path.join(parentPath, name);
 
-    if (kind === "directory") {
-      fs.mkdirSync(newPath, { recursive: true });
-    } else {
-      fs.writeFileSync(newPath, "", "utf-8");
-    }
+      if (kind === "directory") {
+        fs.mkdirSync(newPath, { recursive: true });
+      } else {
+        fs.writeFileSync(newPath, "", "utf-8");
+      }
+    });
 
+    registryTreeCache.invalidate("tree:");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
@@ -255,15 +290,18 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Chemin requis" }, { status: 400 });
     }
 
-    const fullPath = safeJoin(target);
-    const stat = fs.statSync(fullPath);
+    await withFileLock(REGISTRY_LOCK, async () => {
+      const fullPath = safeJoin(target);
+      const stat = fs.statSync(fullPath);
 
-    if (stat.isDirectory()) {
-      fs.rmSync(fullPath, { recursive: true, force: true });
-    } else {
-      fs.unlinkSync(fullPath);
-    }
+      if (stat.isDirectory()) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(fullPath);
+      }
+    });
 
+    registryTreeCache.invalidate("tree:");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
@@ -286,11 +324,14 @@ export async function PUT(request: Request) {
       );
     }
 
-    const fullOldPath = safeJoin(oldPath);
-    const fullNewPath = path.join(path.dirname(fullOldPath), newName);
+    await withFileLock(REGISTRY_LOCK, async () => {
+      const fullOldPath = safeJoin(oldPath);
+      const fullNewPath = path.join(path.dirname(fullOldPath), newName);
 
-    fs.renameSync(fullOldPath, fullNewPath);
+      fs.renameSync(fullOldPath, fullNewPath);
+    });
 
+    registryTreeCache.invalidate("tree:");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
@@ -313,13 +354,16 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const fullPath = safeJoin(targetPath);
-    const dir = path.dirname(fullPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(fullPath, content, "utf-8");
+    await withFileLock(REGISTRY_LOCK, async () => {
+      const fullPath = safeJoin(targetPath);
+      const dir = path.dirname(fullPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(fullPath, content, "utf-8");
+    });
 
+    registryTreeCache.invalidate("tree:");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";

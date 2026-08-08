@@ -35,11 +35,23 @@ export function getRateLimitConfig(routeKey: string): RateLimitConfig {
 }
 
 export function getClientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
+  const xForwardedFor = request.headers.get("x-forwarded-for");
+  if (xForwardedFor) {
+    const first = xForwardedFor.split(",")[0].trim();
+    if (first) return first;
   }
-  return request.headers.get("x-real-ip")?.trim() ?? "unknown";
+
+  const cfConnectingIp = request.headers.get("cf-connecting-ip");
+  if (cfConnectingIp) {
+    return cfConnectingIp.trim();
+  }
+
+  const xRealIp = request.headers.get("x-real-ip");
+  if (xRealIp) {
+    return xRealIp.trim();
+  }
+
+  return "unknown";
 }
 
 const MAX_MEMORY_ENTRIES = 1000;

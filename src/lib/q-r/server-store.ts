@@ -315,8 +315,13 @@ export async function deleteQAItem(
   return true;
 }
 
-export async function getQAItemsForAI(): Promise<string> {
-  log.debug("getQAItemsForAI: building FAQ context for AI");
+export async function getQAItemsForAI(
+  options?: {
+    limit?: number;
+    searchQuery?: string;
+  },
+): Promise<string> {
+  log.debug("getQAItemsForAI: building FAQ context for AI", options);
   const items = await getAllQAItems();
 
   const registryPairs = await getRegistryQRPairs();
@@ -326,21 +331,44 @@ export async function getQAItemsForAI(): Promise<string> {
     return "";
   }
 
+  const limit = options?.limit ?? 50;
+  const searchQuery = options?.searchQuery?.trim().toLowerCase();
+
+  const filteredItems = searchQuery
+    ? items.filter(
+        (item) =>
+          item.question.toLowerCase().includes(searchQuery) ||
+          item.answer.toLowerCase().includes(searchQuery),
+      )
+    : items;
+
+  const limitedItems = filteredItems.slice(0, limit);
+
+  const limitedRegistry = searchQuery
+    ? registryPairs
+        .filter(
+          (pair) =>
+            pair.question.toLowerCase().includes(searchQuery) ||
+            pair.answer.toLowerCase().includes(searchQuery),
+        )
+        .slice(0, limit)
+    : registryPairs.slice(0, limit);
+
   const lines: string[] = [];
 
-  if (items.length > 0) {
+  if (limitedItems.length > 0) {
     lines.push("FAQ CONNAISSANCE:");
     lines.push(
-      ...items.map(
+      ...limitedItems.map(
         (item) => `- Q: ${item.question}\n  R: ${item.answer}`,
       ),
     );
   }
 
-  if (registryPairs.length > 0) {
+  if (limitedRegistry.length > 0) {
     lines.push("FICHIERS Q/R:");
     lines.push(
-      ...registryPairs.map(
+      ...limitedRegistry.map(
         (pair) => `- [${pair.source}] Q: ${pair.question}\n  R: ${pair.answer}`,
       ),
     );
@@ -348,8 +376,8 @@ export async function getQAItemsForAI(): Promise<string> {
 
   const context = lines.join("\n");
   log.debug("getQAItemsForAI: context built", {
-    dbItemCount: items.length,
-    registryItemCount: registryPairs.length,
+    dbItemCount: limitedItems.length,
+    registryItemCount: limitedRegistry.length,
     contextLength: context.length,
   });
   return context;

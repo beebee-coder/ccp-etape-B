@@ -18,8 +18,8 @@ export async function POST(request: Request) {
   if (!result.ok) return result.response;
 
   const user = result.ctx.user;
-  const { message, context, editMode, sessionId } = result.ctx
-    .body as AIChatRequest;
+  const { message, context, editMode, sessionId, qaLimit, qaSearchQuery } =
+    result.ctx.body as AIChatRequest;
 
   log.debug("AI chat stream request received", {
     userId: user.sub,
@@ -32,7 +32,10 @@ export async function POST(request: Request) {
   const conversationId = sessionId ?? crypto.randomUUID();
 
   try {
-    const qaContext = await getQAItemsForAI();
+    const qaContext = await getQAItemsForAI({
+      limit: qaLimit,
+      searchQuery: qaSearchQuery,
+    });
     if (qaContext) {
       aiContext = aiContext ? `${aiContext}\n\n${qaContext}` : qaContext;
     }
@@ -105,6 +108,7 @@ export async function POST(request: Request) {
             onEvent,
             aiContext,
             editMode,
+            request.signal,
           );
           provider = resultProvider ?? provider;
 

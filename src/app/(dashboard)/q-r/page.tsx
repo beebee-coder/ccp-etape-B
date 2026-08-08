@@ -284,32 +284,36 @@ export default function QAPage() {
     setError(null);
 
     try {
-      const deletePromises = items.map((item) =>
-        fetch("/api/q-r", {
-          method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders(),
-          },
-          body: JSON.stringify({ id: item.id }),
-          credentials: "include",
-        }),
+      const results = await Promise.allSettled(
+        items.map((item) =>
+          fetch("/api/q-r", {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+              ...getAuthHeaders(),
+            },
+            body: JSON.stringify({ id: item.id }),
+            credentials: "include",
+          })
+        ),
       );
 
-      const results = await Promise.all(deletePromises);
-      const allOk = results.every((r) => r.ok);
-
-      console.log("[q-r-page] handleClearAll: all items cleared", {
-        success: allOk,
+      const failedIds = new Set<string>();
+      results.forEach((result, index) => {
+        if (result.status === "rejected" || !result.value.ok) {
+          failedIds.add(items[index].id);
+        }
       });
 
-      if (allOk) {
-        setItems([]);
+      if (failedIds.size > 0) {
+        setError(`${failedIds.size} suppression(s) ont échoué`);
+      }
+
+      setItems((prev) => prev.filter((item) => failedIds.has(item.id)));
+      if (failedIds.size === 0) {
         setEditingId(null);
         setQuestion("");
         setAnswer("");
-      } else {
-        setError("Certaines suppressions ont échoué");
       }
     } catch (err) {
       console.error("[q-r-page] handleClearAll: error", err);

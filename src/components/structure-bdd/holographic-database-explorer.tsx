@@ -11,6 +11,7 @@ import {
   FileText,
   X,
   Wand2,
+  AlertTriangle,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { Card } from "@/components/ui/card";
@@ -83,6 +84,7 @@ export function HolographicDatabaseExplorer() {
   const [schemaStructure, setSchemaStructure] =
     useState<DatabaseStructure | null>(null);
   const [loading, setLoading] = useState(true);
+  const [opfsInUse, setOpfsInUse] = useState(false);
   const [preview, setPreview] = useState<{
     path: string;
     content: string;
@@ -194,6 +196,7 @@ export function HolographicDatabaseExplorer() {
           children: convertedNodes,
         });
         setVectorizedFiles(vectorizedPaths);
+        setOpfsInUse(true);
         setLoading(false);
         return;
       }
@@ -679,6 +682,22 @@ export function HolographicDatabaseExplorer() {
 
       {!loading && schemaStructure && (
         <>
+          {opfsInUse && (
+            <Card className="dashboard-card mt-4 border-amber-500/30 bg-amber-500/5 p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-foreground">
+                    Stockage local navigateur (OPFS)
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Ces données sont stockées dans le navigateur et peuvent être supprimées automatiquement (nettoyage, navigation privée, reinitialisation). Exportez régulièrement vos données pour éviter toute perte.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          )}
+
           <DbStatsRibbon
             tablesCount={schemaStructure.children?.length ?? 0}
             columnsCount={schemaStats.documents}

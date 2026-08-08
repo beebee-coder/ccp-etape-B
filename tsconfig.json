@@ -15,6 +15,9 @@
     "plugins": [
       {
         "name": "next"
+      },
+      {
+        "name": "vitest/config"
       }
     ],
     "paths": {

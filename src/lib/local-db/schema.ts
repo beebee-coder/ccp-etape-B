@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS sync_manifest (
    failed_count  INTEGER NOT NULL DEFAULT 0
 );
 
+-- État du moteur de synchronisation (persistant pour résilience au redémarrage)
+CREATE TABLE IF NOT EXISTS sync_engine_state (
+   id             INTEGER PRIMARY KEY CHECK (id = 1),
+   is_processing  INTEGER NOT NULL DEFAULT 0 CHECK (is_processing IN (0, 1)),
+   started_at     TIMESTAMP,
+   updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================================
 -- Knowledge Items (Q/R) — local-first
 -- ============================================================

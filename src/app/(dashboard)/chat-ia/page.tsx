@@ -138,7 +138,7 @@ export default function ChatIAPage() {
         const res = await fetch("/api/ai/chat/stream", {
           method: "POST",
           headers,
-          body: JSON.stringify({ message: userMessage, editMode }),
+          body: JSON.stringify({ message: userMessage, editMode, qaLimit: 20 }),
           credentials: "include",
         });
 
@@ -223,7 +223,7 @@ export default function ChatIAPage() {
         const res = await fetch("/api/ai/chat", {
           method: "POST",
           headers,
-          body: JSON.stringify({ message: userMessage, editMode }),
+          body: JSON.stringify({ message: userMessage, editMode, qaLimit: 20 }),
           credentials: "include",
         });
 

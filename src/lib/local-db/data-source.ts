@@ -422,4 +422,27 @@ export class LocalDataSource {
       ).run(...values);
     }
   }
+
+  getSyncEngineState(): { isProcessing: boolean; startedAt?: string } | null {
+    const db = this.getDb();
+    const stmt = db.prepare("SELECT is_processing, started_at FROM sync_engine_state WHERE id = 1");
+    const row = stmt.get() as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      isProcessing: (row.is_processing as number) === 1,
+      startedAt: row.started_at as string | undefined,
+    };
+  }
+
+  setSyncEngineState(isProcessing: boolean, startedAt?: string): void {
+    const db = this.getDb();
+    db.prepare(
+      `INSERT INTO sync_engine_state (id, is_processing, started_at, updated_at)
+       VALUES (1, ?, ?, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         is_processing = excluded.is_processing,
+         started_at = excluded.started_at,
+         updated_at = datetime('now')`,
+    ).run(isProcessing ? 1 : 0, startedAt || null);
+  }
 }

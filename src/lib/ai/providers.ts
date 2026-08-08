@@ -382,7 +382,8 @@ export async function generateAIStreamResponse(
   message: string,
   onEvent: (event: StreamEvent) => void,
   context?: string,
-  editMode?: boolean
+  editMode?: boolean,
+  signal?: AbortSignal,
 ): Promise<Provider> {
   if (editMode) {
     const editResponse = await generateEditModeResponse(message);
@@ -420,11 +421,14 @@ export async function generateAIStreamResponse(
         max_tokens: 1024,
         stream: true,
       }),
-      "Groq stream API"
+      "Groq stream API",
     );
 
     let fullText = "";
     for await (const chunk of completion) {
+      if (signal?.aborted) {
+        throw new Error("Stream aborted by client");
+      }
       const delta = chunk.choices[0]?.delta?.content;
       if (delta) {
         fullText += delta;
@@ -443,9 +447,15 @@ export async function generateAIStreamResponse(
         ? `${SYSTEM_PROMPT}\n\nContexte: ${enrichedContext}\n\nUtilisateur: ${message}`
         : `${SYSTEM_PROMPT}\n\nUtilisateur: ${message}`;
 
-    const result = await withTimeout(model.generateContentStream(prompt), "Gemini stream API");
+    const result = await withTimeout(
+      model.generateContentStream(prompt, { signal }),
+      "Gemini stream API",
+    );
     let fullText = "";
     for await (const chunk of result.stream) {
+      if (signal?.aborted) {
+        throw new Error("Stream aborted by client");
+      }
       const text = chunk.text();
       if (text) {
         fullText += text;

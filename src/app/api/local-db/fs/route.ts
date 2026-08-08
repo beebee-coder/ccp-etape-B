@@ -3,9 +3,13 @@ import fs from "fs";
 import path from "path";
 import { getProjectRoot } from "@/lib/project-root";
 import { query } from "@/lib/db";
+import { localDbTreeCache } from "@/lib/api/tree-cache";
+import { withFileLock } from "@/lib/api/file-lock";
 
 const PROJECT_ROOT = getProjectRoot();
 const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
+const LOCAL_DB_LOCK = path.join(LOCAL_DB_ROOT, ".local-db.lock");
+const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
 
 function safeJoin(targetPath: string): string {
   const resolved = path.resolve(LOCAL_DB_ROOT, targetPath);
@@ -392,6 +396,13 @@ export async function GET(request: Request) {
       const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"];
 
       if (imageExtensions.includes(ext)) {
+        const stat = fs.statSync(fullPath);
+        if (stat.size > MAX_IMAGE_BASE64_BYTES) {
+          return NextResponse.json(
+            { error: `Fichier image trop volumineux (max ${MAX_IMAGE_BASE64_BYTES / 1024 / 1024}MB)` },
+            { status: 413 },
+          );
+        }
         const buffer = fs.readFileSync(fullPath);
         const base64 = buffer.toString("base64");
         const mimeType = ext === ".svg" ? "image/svg+xml" : `image/${ext.slice(1)}`;
@@ -429,6 +440,17 @@ export async function GET(request: Request) {
       });
     }
 
+    const cacheKey = `tree:${target || "."}`;
+    const cached = localDbTreeCache.get<ApiTreeNode>(cacheKey);
+    if (cached) {
+      console.info("[API /api/local-db/fs] cache hit", { target });
+      return NextResponse.json({
+        children: cached.children,
+        vectorizedPaths: Array.from(getVectorizedPaths()),
+        cached: true,
+      });
+    }
+
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
       return NextResponse.json(
         { error: "Répertoire introuvable" },
@@ -438,11 +460,13 @@ export async function GET(request: Request) {
 
     const vectorizedPaths = getVectorizedPaths();
     const tree = buildTree(target, vectorizedPaths);
+    localDbTreeCache.set(cacheKey, tree);
     console.info("[API /api/local-db/fs] tree response", {
       target,
       childrenCount: tree.children?.length ?? 0,
       childrenNames: tree.children?.map((c) => c.name),
       vectorizedCount: vectorizedPaths.size,
+      cached: false,
     });
     return NextResponse.json({
       children: tree.children,
@@ -478,11 +502,14 @@ export async function POST(request: Request) {
         );
       }
 
-      const parentPath = safeJoin(target);
-      const newPath = path.join(parentPath, file.name);
-      const buffer = Buffer.from(await file.arrayBuffer());
-      fs.writeFileSync(newPath, buffer);
+      await withFileLock(LOCAL_DB_LOCK, async () => {
+        const parentPath = safeJoin(target);
+        const newPath = path.join(parentPath, file.name);
+        const buffer = Buffer.from(await file.arrayBuffer());
+        fs.writeFileSync(newPath, buffer);
+      });
 
+      localDbTreeCache.invalidate("tree:");
       return NextResponse.json({ success: true });
     }
 
@@ -500,15 +527,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const parentPath = safeJoin(target);
-    const newPath = path.join(parentPath, name);
+    await withFileLock(LOCAL_DB_LOCK, async () => {
+      const parentPath = safeJoin(target);
+      const newPath = path.join(parentPath, name);
 
-    if (kind === "directory") {
-      fs.mkdirSync(newPath, { recursive: true });
-    } else {
-      fs.writeFileSync(newPath, "", "utf-8");
-    }
+      if (kind === "directory") {
+        fs.mkdirSync(newPath, { recursive: true });
+      } else {
+        fs.writeFileSync(newPath, "", "utf-8");
+      }
+    });
 
+    localDbTreeCache.invalidate("tree:");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
@@ -531,15 +561,18 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Chemin requis" }, { status: 400 });
     }
 
-    const fullPath = safeJoin(target);
-    const stat = fs.statSync(fullPath);
+    await withFileLock(LOCAL_DB_LOCK, async () => {
+      const fullPath = safeJoin(target);
+      const stat = fs.statSync(fullPath);
 
-    if (stat.isDirectory()) {
-      fs.rmSync(fullPath, { recursive: true, force: true });
-    } else {
-      fs.unlinkSync(fullPath);
-    }
+      if (stat.isDirectory()) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(fullPath);
+      }
+    });
 
+    localDbTreeCache.invalidate("tree:");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
@@ -573,11 +606,15 @@ export async function PATCH(request: Request) {
     const fullPath = safeJoin(targetPath);
 
     if (content !== undefined) {
-      const dir = path.dirname(fullPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(fullPath, content, "utf-8");
+      await withFileLock(LOCAL_DB_LOCK, async () => {
+        const dir = path.dirname(fullPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(fullPath, content, "utf-8");
+      });
+
+      localDbTreeCache.invalidate("tree:");
       return NextResponse.json({ success: true });
     }
 
@@ -598,7 +635,7 @@ export async function PATCH(request: Request) {
       const hash = Buffer.from(relPath)
         .toString("base64")
         .replace(/[^a-zA-Z0-9_-]/g, "")
-        .slice(0, 24);
+        .slice(0, 32);
       const vectorFile = path.join(vectorDir, `${hash}.json`);
 
       const payload = {
@@ -645,11 +682,14 @@ export async function PUT(request: Request) {
       );
     }
 
-    const fullOldPath = safeJoin(oldPath);
-    const fullNewPath = path.join(path.dirname(fullOldPath), newName);
+    await withFileLock(LOCAL_DB_LOCK, async () => {
+      const fullOldPath = safeJoin(oldPath);
+      const fullNewPath = path.join(path.dirname(fullOldPath), newName);
 
-    fs.renameSync(fullOldPath, fullNewPath);
+      fs.renameSync(fullOldPath, fullNewPath);
+    });
 
+    localDbTreeCache.invalidate("tree:");
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";

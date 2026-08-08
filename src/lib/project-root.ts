@@ -7,13 +7,18 @@ export function getProjectRoot(): string {
     return path.resolve(envRoot);
   }
 
-  const root = process.cwd();
+  const cwd = process.cwd();
 
-  if (fs.existsSync(path.join(root, ".local-db")) || fs.existsSync(path.join(root, "package.json"))) {
-    return root;
+  if (fs.existsSync(path.join(cwd, ".local-db")) || fs.existsSync(path.join(cwd, "package.json"))) {
+    return cwd;
   }
 
-  let dir = root;
+  const standaloneCandidate = path.join(cwd, ".next", "standalone");
+  if (fs.existsSync(standaloneCandidate)) {
+    return cwd;
+  }
+
+  let dir = cwd;
   while (dir !== path.dirname(dir)) {
     if (fs.existsSync(path.join(dir, "package.json"))) {
       return dir;
@@ -21,5 +26,5 @@ export function getProjectRoot(): string {
     dir = path.dirname(dir);
   }
 
-  return root;
+  return cwd;
 }

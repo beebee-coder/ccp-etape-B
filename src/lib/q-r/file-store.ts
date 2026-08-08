@@ -10,7 +10,7 @@ function ensureUploadsDir(): void {
   }
 }
 
-function sanitizeFileName(name: string): string {
+export function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9\u00C0-\u024F\u1E00-\u1EFF\-_\s]/g, "").trim();
 }
 

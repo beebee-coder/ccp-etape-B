@@ -6,6 +6,8 @@ export const AIChatRequestSchema = z.object({
   editMode: z.boolean().optional().default(false),
   userId: z.string().optional(),
   sessionId: z.string().optional(),
+  qaLimit: z.number().int().positive().optional(),
+  qaSearchQuery: z.string().optional(),
 });
 
 export type AIChatRequest = z.infer<typeof AIChatRequestSchema>;

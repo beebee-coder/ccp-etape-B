@@ -9,6 +9,7 @@ export class SyncEngine {
   private dataSource: LocalDataSource;
   private isProcessing = false;
   private syncEndpoint: string;
+  private recoveryAttempted = false;
 
   private constructor() {
     this.dataSource = LocalDataSource.getInstance();
@@ -50,7 +51,12 @@ export class SyncEngine {
       return { processed: 0, failed: 0 };
     }
 
+    await this.ensureRecovery();
+
     this.isProcessing = true;
+    const startedAt = new Date().toISOString();
+    this.dataSource.setSyncEngineState(true, startedAt);
+
     let processed = 0;
     let failed = 0;
 
@@ -87,9 +93,28 @@ export class SyncEngine {
       }
     } finally {
       this.isProcessing = false;
+      this.dataSource.setSyncEngineState(false);
     }
 
     return { processed, failed };
+  }
+
+  private async ensureRecovery(): Promise<void> {
+    if (this.recoveryAttempted) return;
+    this.recoveryAttempted = true;
+
+    const state = this.dataSource.getSyncEngineState();
+    if (state?.isProcessing) {
+      const failedAt = new Date(state.startedAt || Date.now());
+      const staleThreshold = 5 * 60 * 1000;
+
+      if (Date.now() - failedAt.getTime() > staleThreshold) {
+        log.warn("SyncEngine: stale processing state detected, resetting", {
+          startedAt: state.startedAt,
+        });
+        this.dataSource.setSyncEngineState(false);
+      }
+    }
   }
 
   private async syncItem(item: SyncQueueItem): Promise<void> {
