@@ -13,6 +13,8 @@ export function SyncLocalButton() {
   const [lastResult, setLastResult] = useState<TauriPullResult | null>(null);
 
   async function handleSync() {
+    if (isLoading) return;
+
     setIsLoading(true);
     const toastId = toast.loading("Synchronisation vers la base locale...", {
       id: "sync-local-btn",
@@ -35,6 +37,10 @@ export function SyncLocalButton() {
           });
         }
       } else {
+        if (browserDb.isSyncing()) {
+          throw new Error("Une synchronisation est déjà en cours. Veuillez patienter.");
+        }
+
         // Mode Navigateur Web (Vercel)
         toast.loading("Téléchargement du bundle complet .local-db...", { id: toastId });
         
@@ -74,11 +80,27 @@ export function SyncLocalButton() {
           },
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          await browserDb.init();
-          browserDb.import(data.payload);
+        if (!response.ok) {
+          throw new Error(`Erreur synchronisation SQL (${response.status})`);
         }
+
+        const data = await response.json();
+
+        // Vérification de cohérence entre le ZIP et le payload SQL
+        if (data.payload?.exportedAt) {
+          const zipTimestamp = data.payload.exportedAt;
+          if (zipTimestamp) {
+            const zipDate = new Date(zipTimestamp);
+            const now = new Date();
+            const driftMs = Math.abs(now.getTime() - zipDate.getTime());
+            if (driftMs > 30000) {
+              console.warn("[SyncLocal] Écart de temps entre ZIP et payload > 30s", { driftMs });
+            }
+          }
+        }
+
+        await browserDb.init();
+        browserDb.import(data.payload);
 
         setLastResult({
           pulled: { files: filesExtracted },

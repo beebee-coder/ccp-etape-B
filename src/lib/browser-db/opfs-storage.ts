@@ -156,18 +156,24 @@ export class OpfsStorageManager {
 
     if (imageExtensions.includes(ext)) {
       const buffer = await file.arrayBuffer();
-      let binary = "";
-      const bytes = new Uint8Array(buffer);
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      const base64 = btoa(binary);
+      const base64 = this.arrayBufferToBase64(buffer);
       const mimeType = ext === ".svg" ? "image/svg+xml" : `image/${ext.slice(1)}`;
       return { content: `data:${mimeType};base64,${base64}`, isImage: true };
     }
 
     const text = await file.text();
     return { content: text, isImage: false };
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    const chunks = [];
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      chunks.push(String.fromCharCode.apply(null, chunk as unknown as number[]));
+    }
+    return btoa(chunks.join(""));
   }
 }
 

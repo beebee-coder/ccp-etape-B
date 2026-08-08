@@ -93,19 +93,34 @@ export async function POST(request: Request) {
         process.env.NEXT_PUBLIC_API_URL ??
         "";
 
-      const purgeResponse = await fetch(`${origin}/api/local-db/purge`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-      });
+      const controller = new AbortController();
+      const purgeTimeout = setTimeout(() => controller.abort(), 8000);
 
-      if (purgeResponse.ok) {
-        const purgeResult = (await purgeResponse.json()) as { ok: boolean };
-        purged = purgeResult.ok;
-        log.info("POST /api/local-db/sync-all: web DB purged", { purged });
-      } else {
-        log.warn("POST /api/local-db/sync-all: purge non bloquante échouée", {
-          status: purgeResponse.status,
+      try {
+        const purgeResponse = await fetch(`${origin}/api/local-db/purge`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
         });
+
+        clearTimeout(purgeTimeout);
+
+        if (purgeResponse.ok) {
+          const purgeResult = (await purgeResponse.json()) as { ok: boolean };
+          purged = purgeResult.ok;
+          log.info("POST /api/local-db/sync-all: web DB purged", { purged });
+        } else {
+          log.warn("POST /api/local-db/sync-all: purge non bloquante échouée", {
+            status: purgeResponse.status,
+          });
+        }
+      } catch (purgeError) {
+        clearTimeout(purgeTimeout);
+        if (purgeError instanceof Error && purgeError.name === "AbortError") {
+          log.warn("POST /api/local-db/sync-all: purge timeout (non bloquant)");
+        } else {
+          throw purgeError;
+        }
       }
     } catch (purgeError) {
       // La purge est non-bloquante : on retourne quand même le payload

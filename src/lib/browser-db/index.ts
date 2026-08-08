@@ -11,7 +11,7 @@
  * @module browser-db
  */
 
-import { BROWSER_DB_SCHEMA } from "./schema";
+import { BROWSER_DB_STATEMENTS } from "./schema";
 import { importPayload } from "./importer";
 import type { ImportPayload, ImportResult } from "./importer";
 
@@ -45,6 +45,7 @@ export class BrowserDb {
   private db: SqliteDb = null;
   private initPromise: Promise<void> | null = null;
   private storageMode: "opfs" | "memory" = "memory";
+  private syncing = false;
 
   private constructor() {}
 
@@ -60,6 +61,13 @@ export class BrowserDb {
    */
   isReady(): boolean {
     return this.db !== null;
+  }
+
+  /**
+   * Retourne `true` si une synchronisation (import/extraction) est en cours.
+   */
+  isSyncing(): boolean {
+    return this.syncing;
   }
 
   /**
@@ -127,16 +135,10 @@ export class BrowserDb {
   private applySchema(): void {
     if (!this.db) throw new Error("[BrowserDb] Non initialisé");
 
-    // Exécute chaque statement SQL individuellement
-    const statements = BROWSER_DB_SCHEMA.split(";")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
-    for (const stmt of statements) {
+    for (const stmt of BROWSER_DB_STATEMENTS) {
       try {
         this.db.exec(stmt);
       } catch (err) {
-        // Ignore les erreurs non bloquantes (index déjà existant, etc.)
         console.warn("[BrowserDb] Schema stmt warning:", err, stmt.slice(0, 60));
       }
     }
@@ -145,10 +147,19 @@ export class BrowserDb {
   /**
    * Importe un payload JSON dans la BDD locale.
    * Doit être appelé après `init()`.
+   * Rejette silencieusement si une synchronisation est déjà en cours.
    */
   import(payload: ImportPayload): ImportResult {
     if (!this.db) throw new Error("[BrowserDb] Non initialisé — appelez init() d'abord");
-    return importPayload(this.db, payload);
+    if (this.syncing) {
+      throw new Error("[BrowserDb] Synchronisation déjà en cours — veuillez patienter");
+    }
+    this.syncing = true;
+    try {
+      return importPayload(this.db, payload);
+    } finally {
+      this.syncing = false;
+    }
   }
 
   /**

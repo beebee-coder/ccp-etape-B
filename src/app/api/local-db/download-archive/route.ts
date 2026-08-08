@@ -63,14 +63,23 @@ export async function GET() {
       }
     }
 
-    // 3. Exporter les données de la BDD Web vers un manifeste complet d'arborescence
+    // Fichier manifeste maître
+    const manifest = {
+      version: "1.0.0",
+      generatedAt: new Date().toISOString(),
+      source: "Vercel Cloud Deployment",
+      tables: {} as Record<string, number>,
+    };
+
     try {
       const [procedures, locationNodes] = await Promise.all([
-        query("SELECT code, title, category FROM procedures").catch(() => ({ rows: [] })),
-        query("SELECT path, libelle FROM location_nodes").catch(() => ({ rows: [] })),
+        query("SELECT code, title, category FROM procedures").catch(() => ({ rows: [] as { code: string; title: string; category?: string }[], rowCount: 0 })),
+        query("SELECT path, libelle FROM location_nodes").catch(() => ({ rows: [] as { path: string; libelle?: string }[], rowCount: 0 })),
       ]);
 
-      // Générer les sous-fichiers pour chaque procédure dans /procedures
+      manifest.tables.procedures = procedures.rowCount ?? 0;
+      manifest.tables.locationNodes = locationNodes.rowCount ?? 0;
+
       for (const proc of procedures.rows as { code: string; title: string; category?: string }[]) {
         const procPath = `procedures/${proc.code}.json`;
         if (!zip.file(procPath)) {
@@ -78,7 +87,6 @@ export async function GET() {
         }
       }
 
-      // Générer les nœuds de localisation dans /Centrale et /Groupes
       for (const node of locationNodes.rows as { path: string; libelle?: string }[]) {
         const cleanPath = node.path.replace(/^\/+/, "");
         const filePath = `${cleanPath}/meta.json`;
@@ -90,20 +98,8 @@ export async function GET() {
       log.warn("Non-fatal: Error fetching web DB tables for ZIP structure", { error: e });
     }
 
-    // Fichier manifeste maître
     if (!zip.file("local-db-manifest.json")) {
-      zip.file(
-        "local-db-manifest.json",
-        JSON.stringify(
-          {
-            version: "1.0.0",
-            generatedAt: new Date().toISOString(),
-            source: "Vercel Cloud Deployment",
-          },
-          null,
-          2
-        )
-      );
+      zip.file("local-db-manifest.json", JSON.stringify(manifest, null, 2));
     }
 
     const archiveBuffer = await zip.generateAsync({

@@ -259,3 +259,8 @@ CREATE TABLE IF NOT EXISTS sync_manifest (
 
 INSERT OR IGNORE INTO sync_manifest (id, version) VALUES (1, '1.0.0');
 `;
+
+export const BROWSER_DB_STATEMENTS = BROWSER_DB_SCHEMA
+  .split(";")
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0);
