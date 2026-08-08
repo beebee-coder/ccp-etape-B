@@ -22,7 +22,7 @@ export default function StructureBDDPage() {
             Structure BDD
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            État physique .local-db
+            Arborescence du registre web .registry
           </p>
         </div>
       </div>
@@ -45,7 +45,7 @@ export default function StructureBDDPage() {
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-primary-glow"
             >
               <Layers className="h-4 w-4" />
-              BDD web
+              BDD locale
             </TabsTrigger>
           </TabsList>
 
@@ -53,11 +53,11 @@ export default function StructureBDDPage() {
         </div>
 
         <TabsContent value="schema" className="mt-0">
-          <HolographicDatabaseExplorer />
+          <RegistryExplorer />
         </TabsContent>
 
         <TabsContent value="tree" className="mt-0">
-          <RegistryExplorer />
+          <HolographicDatabaseExplorer />
         </TabsContent>
       </Tabs>
     </section>
