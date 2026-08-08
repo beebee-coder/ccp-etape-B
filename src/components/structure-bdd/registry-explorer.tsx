@@ -113,11 +113,13 @@ export function RegistryExplorer() {
         console.error("[RegistryExplorer] API error body", errText);
         throw new Error(`HTTP ${res.status}`);
       }
-      const data = (await res.json()) as { children?: RegistryNode[]; source?: string };
+      const data = (await res.json()) as { children?: RegistryNode[]; source?: string; debug?: unknown };
       console.info("[RegistryExplorer] API data", {
         source: data.source,
+        debug: data.debug,
         childrenCount: data.children?.length ?? 0,
         childrenNames: data.children?.map((c) => c.name),
+        raw: data,
       });
       const nodes = (data.children ?? []).map(buildDatabaseTreeNode);
       setStructure({

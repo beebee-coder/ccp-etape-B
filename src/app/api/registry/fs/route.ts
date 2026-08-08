@@ -62,6 +62,11 @@ function buildTree(relPath: string): ApiTreeNode {
   const entries = fs.readdirSync(fullPath).filter(
     (entry) => entry !== ".meta.json",
   );
+  console.info("[API /api/registry/fs] buildTree", {
+    relPath,
+    fullPath,
+    entries,
+  });
   const libelle = readMeta(fullPath);
   const children = entries.map((entryName) => {
     const childRelPath = relPath ? `${relPath}/${entryName}` : entryName;
@@ -132,6 +137,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ content, name: path.basename(fullPath) });
     }
 
+    console.info("[API /api/registry/fs] GET", {
+      PROJECT_ROOT,
+      REGISTRY_ROOT,
+      target,
+      fullPath,
+      exists: fs.existsSync(fullPath),
+      isDir: fs.existsSync(fullPath) ? fs.statSync(fullPath).isDirectory() : null,
+      rootEntries: fs.existsSync(REGISTRY_ROOT) ? fs.readdirSync(REGISTRY_ROOT) : [],
+    });
+
     if (!fs.existsSync(REGISTRY_ROOT)) {
       const tree = buildRegistryFallbackTree();
       console.info("[API /api/registry/fs] registry-missing fallback", {
@@ -146,8 +161,12 @@ export async function GET(request: Request) {
     }
 
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
+      console.info("[API /api/registry/fs] not-found", {
+        fullPath,
+        exists: fs.existsSync(fullPath),
+      });
       return NextResponse.json(
-        { error: "Répertoire introuvable" },
+        { error: "Répertoire introuvable", fullPath },
         { status: 404 },
       );
     }
@@ -158,11 +177,19 @@ export async function GET(request: Request) {
       childrenCount: tree.children?.length ?? 0,
       childrenNames: tree.children?.map((c) => c.name),
     });
-    return NextResponse.json({ children: tree.children });
+    return NextResponse.json({
+      children: tree.children,
+      debug: {
+        target,
+        fullPath,
+        childrenCount: tree.children?.length ?? 0,
+        childrenNames: tree.children?.map((c) => c.name),
+      },
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
     console.error("[API /api/registry/fs] error", { target, message, error });
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message, fullPath: safeJoin(target) }, { status: 400 });
   }
 }
 
