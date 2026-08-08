@@ -105,11 +105,11 @@ export class BrowserDb {
     if (opfsAvailable && this.sqlite3.oo1.OpfsDb) {
       try {
         this.db = new this.sqlite3.oo1.OpfsDb(
-          "/visionode-local.sqlite",
+          "/local-db/visionode-local.sqlite",
           "c", // create if not exists
         );
         this.storageMode = "opfs";
-        console.info("[BrowserDb] Ouvert avec OPFS ✓");
+        console.info("[BrowserDb] Ouvert avec OPFS ✓ (local-db/visionode-local.sqlite)");
       } catch (err) {
         console.warn("[BrowserDb] OPFS non disponible, fallback mémoire :", err);
         this.db = new this.sqlite3.oo1.DB(":memory:", "c");
