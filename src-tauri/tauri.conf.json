@@ -6,9 +6,10 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:3000",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../.next"
+    "frontendDist": ".next"
   },
   "app": {
+    "icon": "icons/icon.ico",
     "windows": [
       {
         "title": "CCP-Etape-B",
