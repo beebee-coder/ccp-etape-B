@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { getProjectRoot } from "@/lib/project-root";
 
-const LOCAL_DB_ROOT = path.join(process.cwd(), ".local-db");
+const PROJECT_ROOT = getProjectRoot();
+const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
 
 function safeJoin(targetPath: string): string {
   const resolved = path.resolve(LOCAL_DB_ROOT, targetPath);
@@ -14,6 +16,10 @@ function safeJoin(targetPath: string): string {
 
 const VECTOR_INDEX_DIR = path.join(LOCAL_DB_ROOT, ".vector-index");
 
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
 function getVectorizedPaths(): Set<string> {
   const paths = new Set<string>();
   if (!fs.existsSync(VECTOR_INDEX_DIR)) return paths;
@@ -24,7 +30,7 @@ function getVectorizedPaths(): Set<string> {
     try {
       const content = fs.readFileSync(filePath, "utf-8");
       const data = JSON.parse(content);
-      if (data.path) paths.add(data.path);
+      if (data.path) paths.add(normalizePath(data.path));
     } catch {
       // ignore invalid vector files
     }
@@ -62,12 +68,13 @@ function buildTree(relPath: string, vectorizedPaths: Set<string>): ApiTreeNode {
   const fullPath = safeJoin(relPath);
   const stat = fs.statSync(fullPath);
   const name = path.basename(fullPath) || relPath.split("/").pop() || relPath;
+  const normalizedRelPath = normalizePath(relPath);
 
   if (stat.isFile()) {
-    const relPathForVec = path.relative(LOCAL_DB_ROOT, fullPath);
+    const relPathForVec = normalizePath(path.relative(LOCAL_DB_ROOT, fullPath));
     return {
       name,
-      path: relPath,
+      path: normalizedRelPath,
       kind: "document",
       stats: { sizeBytes: stat.size },
       vectorized: vectorizedPaths.has(relPathForVec),
@@ -85,11 +92,40 @@ function buildTree(relPath: string, vectorizedPaths: Set<string>): ApiTreeNode {
 
   return {
     name,
-    path: relPath,
+    path: normalizedRelPath,
     kind: "directory",
     children,
     vectorized: false,
     ...(libelle ? { libelle } : {}),
+  };
+}
+
+function buildDbFallbackTree(): ApiTreeNode {
+  const defaultDirs = [
+    "Centrale",
+    "Groupes",
+    "procedures",
+    "registry",
+    "bank",
+    "ressources humaines",
+    "web-sync",
+    "test-meta-dir",
+  ];
+
+  const children = defaultDirs.map((name) => ({
+    name,
+    path: name,
+    kind: "directory" as const,
+    children: [],
+    vectorized: false,
+  }));
+
+  return {
+    name: ".local-db",
+    path: ".local-db",
+    kind: "directory",
+    children,
+    vectorized: false,
   };
 }
 
@@ -124,6 +160,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ content, name: path.basename(fullPath) });
     }
 
+    if (!fs.existsSync(LOCAL_DB_ROOT)) {
+      const tree = buildDbFallbackTree();
+      console.info("[API /api/local-db/fs] db-fallback", {
+        target,
+        childrenCount: tree.children?.length ?? 0,
+      });
+      return NextResponse.json({
+        children: tree.children,
+        vectorizedPaths: [] as string[],
+        source: "db-fallback",
+      });
+    }
+
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
       return NextResponse.json(
         { error: "Répertoire introuvable" },
@@ -133,18 +182,32 @@ export async function GET(request: Request) {
 
     const vectorizedPaths = getVectorizedPaths();
     const tree = buildTree(target, vectorizedPaths);
+    console.info("[API /api/local-db/fs] tree response", {
+      target,
+      childrenCount: tree.children?.length ?? 0,
+      childrenNames: tree.children?.map((c) => c.name),
+      vectorizedCount: vectorizedPaths.size,
+    });
     return NextResponse.json({
       children: tree.children,
       vectorizedPaths: Array.from(vectorizedPaths),
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
+    console.error("[API /api/local-db/fs] error", { target, message, error });
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
 export async function POST(request: Request) {
   const contentType = request.headers.get("content-type") || "";
+
+  if (!fs.existsSync(LOCAL_DB_ROOT)) {
+    return NextResponse.json(
+      { error: ".local-db n'existe pas sur le serveur (mode déploiement)" },
+      { status: 503 },
+    );
+  }
 
   try {
     if (contentType.includes("multipart/form-data")) {
@@ -198,6 +261,13 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  if (!fs.existsSync(LOCAL_DB_ROOT)) {
+    return NextResponse.json(
+      { error: ".local-db n'existe pas sur le serveur (mode déploiement)" },
+      { status: 503 },
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const target = searchParams.get("path");
@@ -222,6 +292,13 @@ export async function DELETE(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  if (!fs.existsSync(LOCAL_DB_ROOT)) {
+    return NextResponse.json(
+      { error: ".local-db n'existe pas sur le serveur (mode déploiement)" },
+      { status: 503 },
+    );
+  }
+
   try {
     const body = await request.json();
     const { path: targetPath, action, content } = body as {
@@ -291,6 +368,13 @@ export async function PATCH(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  if (!fs.existsSync(LOCAL_DB_ROOT)) {
+    return NextResponse.json(
+      { error: ".local-db n'existe pas sur le serveur (mode déploiement)" },
+      { status: 503 },
+    );
+  }
+
   try {
     const body = await request.json();
     const { path: oldPath, newName } = body as {

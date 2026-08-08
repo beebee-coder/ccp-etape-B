@@ -11,6 +11,7 @@ import {
   FileText,
   X,
   Wand2,
+  Trash2,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { Card } from "@/components/ui/card";
@@ -30,6 +31,7 @@ import {
   aggregateStats,
 } from "@/lib/structure-bdd/tree-utils";
 import { TreeNode } from "./tree-node";
+import type { OpfsTreeNode } from "@/lib/browser-db/opfs-storage";
 
 const ACCENTS = {
   schema: {
@@ -104,65 +106,117 @@ export function HolographicDatabaseExplorer() {
   const loadStructure = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Essayer de charger depuis OPFS si on est dans un navigateur standard
       const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-      if (typeof window !== "undefined" && !("window" in window && "__TAURI__" in window)) {
-        if (opfsStorage.isSupported()) {
-          const opfsNodes = await opfsStorage.getTree();
+      const isBrowser = typeof window !== "undefined";
+      const isTauri = isBrowser && "window" in window && "__TAURI__" in window;
+      const opfsSupported = isBrowser && opfsStorage.isSupported();
 
-          const buildNodes = (nodes: typeof opfsNodes): DatabaseTreeNode[] => {
-            return nodes.map((node) => ({
-              id: `.local-db/${node.path}`,
-              name: node.name,
-              kind: node.kind as DatabaseTreeNode["kind"],
-              path: `.local-db/${node.path}`,
-              indexed: true,
-              vectorized: false,
-              children: node.children ? buildNodes(node.children) : undefined,
-              stats: node.stats ? { chunks: 1, vectors: 0, sizeBytes: node.stats.sizeBytes } : undefined,
-            }));
-          };
+      console.info("[HolographicDatabaseExplorer] loadStructure start", {
+        isBrowser,
+        isTauri,
+        opfsSupported,
+      });
 
-          const convertedNodes = buildNodes(opfsNodes);
+      let opfsNodes: OpfsTreeNode[] = [];
+      let vectorizedPaths: Set<string> = new Set();
 
-          console.info("[HolographicDatabaseExplorer] OPFS tree loaded", {
-            totalNodes: convertedNodes.length,
-            dirs: convertedNodes.filter((n) => n.kind === "directory").length,
-            files: convertedNodes.filter((n) => n.kind === "document").length,
-            tree: convertedNodes.map((n) => ({
-              name: n.name,
-              kind: n.kind,
-              path: n.path,
-              children: n.children?.map((c) => ({ name: c.name, kind: c.kind, path: c.path, children: c.children?.length ?? 0 })) ?? [],
-            })),
-          });
+      if (opfsSupported && !isTauri) {
+        const treePromise = opfsStorage.getTree();
+        const vecPromise = opfsStorage.getVectorizedPaths();
+        [opfsNodes, vectorizedPaths] = await Promise.all([treePromise, vecPromise]);
 
-          if (convertedNodes.length > 0) {
-            setSchemaStructure({
-              id: ".local-db",
-              name: ".local-db (Stockage Device OPFS)",
-              kind: "database",
-              path: ".local-db",
-              indexed: true,
-              vectorized: false,
-              children: convertedNodes,
-            });
-            setLoading(false);
-            return;
-          }
-        }
+        console.info("[HolographicDatabaseExplorer] OPFS raw tree", {
+          totalNodes: opfsNodes.length,
+          rootChildren: opfsNodes.map((n) => ({
+            name: n.name,
+            kind: n.kind,
+            childrenCount: n.children?.length ?? 0,
+          })),
+          vectorizedCount: vectorizedPaths.size,
+          sampleVectorized: Array.from(vectorizedPaths).slice(0, 10),
+        });
       }
 
-      // 2. Fallback / Mode Desktop Tauri : API serveur /api/local-db/fs
+      const opfsHasCentrale = opfsNodes.some((node) => node.name === "Centrale");
+      const opfsHasGroupes = opfsNodes.some((node) => node.name === "Groupes");
+      const opfsHasRegistry = opfsNodes.some((node) => node.name === "registry");
+      const opfsHasSubstantiveData = opfsHasCentrale && opfsHasGroupes;
+
+      console.info("[HolographicDatabaseExplorer] OPFS substantive check", {
+        opfsHasSubstantiveData,
+        hasCentrale: opfsHasCentrale,
+        hasGroupes: opfsHasGroupes,
+        hasRegistry: opfsHasRegistry,
+        rootChildrenCount: opfsNodes.length,
+        rootChildrenNames: opfsNodes.map((n) => n.name),
+      });
+
+      if (opfsSupported && !isTauri && opfsHasSubstantiveData) {
+        const buildNodes = (nodes: typeof opfsNodes): DatabaseTreeNode[] => {
+          return nodes.map((node) => {
+            const nodePath = node.path;
+            const fullPath = `.local-db/${nodePath}`;
+            const isVectorized = node.kind !== "directory" && vectorizedPaths.has(nodePath);
+            return {
+              id: fullPath,
+              name: node.name,
+              kind: node.kind as DatabaseTreeNode["kind"],
+              path: fullPath,
+              indexed: isVectorized,
+              vectorized: isVectorized,
+              children: node.children ? buildNodes(node.children) : undefined,
+              stats: node.stats ? { chunks: 1, vectors: isVectorized ? 1 : 0, sizeBytes: node.stats.sizeBytes } : undefined,
+            };
+          });
+        };
+
+        const convertedNodes = buildNodes(opfsNodes);
+
+        console.info("[HolographicDatabaseExplorer] OPFS tree loaded", {
+          totalNodes: convertedNodes.length,
+          dirs: convertedNodes.filter((n) => n.kind === "directory").length,
+          files: convertedNodes.filter((n) => n.kind === "document").length,
+          vectorized: convertedNodes.filter((n) => n.vectorized).length,
+          tree: convertedNodes.map((n) => ({
+            name: n.name,
+            kind: n.kind,
+            path: n.path,
+            children: n.children?.map((c) => ({ name: c.name, kind: c.kind, path: c.path, children: c.children?.length ?? 0 })) ?? [],
+          })),
+        });
+
+        setSchemaStructure({
+          id: ".local-db",
+          name: ".local-db (Stockage Device OPFS)",
+          kind: "database",
+          path: ".local-db",
+          indexed: false,
+          vectorized: false,
+          children: convertedNodes,
+        });
+        setVectorizedFiles(vectorizedPaths);
+        setLoading(false);
+        return;
+      }
+
+      console.info("[HolographicDatabaseExplorer] Falling back to API /api/local-db/fs");
       const res = await fetch(`/api/local-db/fs?t=${Date.now()}`);
       const data = (await res.json()) as {
         children?: ApiTreeNode[];
         vectorizedPaths?: string[];
+        source?: string;
       };
+      console.info("[HolographicDatabaseExplorer] API response", {
+        status: res.status,
+        source: data.source,
+        childrenCount: data.children?.length ?? 0,
+        childrenNames: data.children?.map((c) => c.name),
+        vectorizedCount: data.vectorizedPaths?.length ?? 0,
+      });
       const nodes = await buildStructure(data.children || []);
       setSchemaStructure({
         id: ".local-db",
-        name: ".local-db",
+        name: data.source === "db-fallback" ? ".local-db (reconstitué depuis DB web)" : ".local-db",
         kind: "database",
         path: ".local-db",
         indexed: false,
@@ -172,7 +226,8 @@ export function HolographicDatabaseExplorer() {
       if (data.vectorizedPaths) {
         setVectorizedFiles(new Set(data.vectorizedPaths));
       }
-    } catch {
+    } catch (e) {
+      console.error("[HolographicDatabaseExplorer] loadStructure error", e);
       toast.error("Erreur lors du chargement de .local-db");
     } finally {
       setLoading(false);
@@ -508,6 +563,34 @@ export function HolographicDatabaseExplorer() {
     }
   };
 
+  const handleClearOpfs = async () => {
+    try {
+      const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
+      if (!opfsStorage.isSupported()) {
+        toast.error("OPFS non supporté");
+        return;
+      }
+      const root = await opfsStorage.getRoot();
+      const entries = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const [name, handle] of (root as any).entries()) {
+        entries.push({ name, kind: handle.kind });
+      }
+      for (const entry of entries) {
+        try {
+          await root.removeEntry(entry.name, { recursive: true });
+        } catch {
+          // ignore removal errors
+        }
+      }
+      toast.success("OPFS vidé, rechargement...");
+      await loadStructure();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur vidage OPFS";
+      toast.error(message);
+    }
+  };
+
   const matchIds = useMemo<string[]>(() => {
     if (!schemaStructure) return [];
     const set = new Set<string>();
@@ -610,6 +693,15 @@ export function HolographicDatabaseExplorer() {
           >
             <Wand2 className="h-4 w-4 mr-2" />
             Vectoriser tout
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleClearOpfs}
+            className="h-8 rounded-xl border-border/60 bg-card/60 hover:bg-destructive/10 hover:border-destructive/40 hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Vider OPFS
           </Button>
         </div>
       </div>

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { getProjectRoot } from "@/lib/project-root";
 
-const LOCAL_DB_ROOT = path.join(process.cwd(), ".local-db");
-const REGISTRY_ROOT = path.join(process.cwd(), ".registry");
+const PROJECT_ROOT = getProjectRoot();
+const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
+const REGISTRY_ROOT = path.join(PROJECT_ROOT, ".registry");
 
 function safeJoin(targetPath: string, root: string): string {
   const resolved = path.resolve(root, targetPath);
@@ -47,6 +49,14 @@ export async function POST(): Promise<NextResponse> {
     skipped: [],
     failed: [],
   };
+
+  if (!fs.existsSync(LOCAL_DB_ROOT)) {
+    result.failed.push("(racine .local-db manquante en mode déploiement)");
+    return NextResponse.json(
+      { error: ".local-db n'existe pas sur le serveur (mode déploiement)", ...result },
+      { status: 503 },
+    );
+  }
 
   try {
     const registryEntries: { path: string; kind: "file" | "directory" }[] = [];

@@ -20,9 +20,11 @@ import path from "path";
 import JSZip from "jszip";
 import { query } from "@/lib/db";
 import { createLogger } from "@/lib/logger";
+import { getProjectRoot } from "@/lib/project-root";
 
 const log = createLogger({ module: "api-local-db-download-archive" });
-const LOCAL_DB_ROOT = path.join(process.cwd(), ".local-db");
+const PROJECT_ROOT = getProjectRoot();
+const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
 
 function addDirToZip(zip: JSZip, dirPath: string, relZipPath: string) {
   if (!fs.existsSync(dirPath)) return;

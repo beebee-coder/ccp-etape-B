@@ -18,7 +18,8 @@
     "tauri:build": "tauri build",
     "tauri:build:msi": "tauri build --bundles msi",
     "tauri:build:exe": "tauri build --bundles nsis",
-    "tauri:build:all": "tauri build --bundles all"
+    "tauri:build:all": "tauri build --bundles all",
+    "restore:local-db": "npx tsx scripts/restore-local-db.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

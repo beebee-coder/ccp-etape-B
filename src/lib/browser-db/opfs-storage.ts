@@ -167,6 +167,36 @@ export class OpfsStorageManager {
     return nodes;
   }
 
+  async getVectorizedPaths(): Promise<Set<string>> {
+    const paths = new Set<string>();
+    try {
+      const root = await this.getRoot();
+      const vectorIndexDir = await root.getDirectoryHandle(".vector-index", { create: false });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const [name, handle] of (vectorIndexDir as any).entries()) {
+        if (handle.kind === "file" && name.endsWith(".json")) {
+          try {
+            const file = await (handle as FileSystemFileHandle).getFile();
+            const content = await file.text();
+            const data = JSON.parse(content);
+            if (data.path) {
+              paths.add(data.path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, ""));
+            }
+          } catch {
+            // ignore invalid vector files
+          }
+        }
+      }
+    } catch {
+      // .vector-index doesn't exist or is empty
+    }
+    console.info("[OpfsStorage] getVectorizedPaths", {
+      count: paths.size,
+      sample: Array.from(paths).slice(0, 20),
+    });
+    return paths;
+  }
+
   /**
    * Lit le contenu d'un fichier stocké dans l'OPFS
    */

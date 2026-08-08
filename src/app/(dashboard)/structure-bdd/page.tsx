@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, Table, Layers } from "lucide-react";
+import { Database, Layers } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HolographicDatabaseExplorer } from "@/components/structure-bdd/holographic-database-explorer";
 import { RegistryExplorer } from "@/components/structure-bdd/registry-explorer";
@@ -22,7 +22,7 @@ export default function StructureBDDPage() {
             Structure BDD
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Registre web .registry
+            État physique .local-db
           </p>
         </div>
       </div>
@@ -37,15 +37,15 @@ export default function StructureBDDPage() {
               value="schema"
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-primary-glow"
             >
-              <Table className="h-4 w-4" />
-              BDD web
+              <Database className="h-4 w-4" />
+              Schéma BDD
             </TabsTrigger>
             <TabsTrigger
               value="tree"
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-primary-glow"
             >
               <Layers className="h-4 w-4" />
-              BDD locale
+              BDD web
             </TabsTrigger>
           </TabsList>
 
@@ -53,11 +53,11 @@ export default function StructureBDDPage() {
         </div>
 
         <TabsContent value="schema" className="mt-0">
-          <RegistryExplorer />
+          <HolographicDatabaseExplorer />
         </TabsContent>
 
         <TabsContent value="tree" className="mt-0">
-          <HolographicDatabaseExplorer />
+          <RegistryExplorer />
         </TabsContent>
       </Tabs>
     </section>

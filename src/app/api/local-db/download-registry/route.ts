@@ -11,9 +11,11 @@ import fs from "fs";
 import path from "path";
 import JSZip from "jszip";
 import { createLogger } from "@/lib/logger";
+import { getProjectRoot } from "@/lib/project-root";
 
 const log = createLogger({ module: "api-local-db-download-registry" });
-const LOCAL_DB_ROOT = path.join(process.cwd(), ".local-db");
+const PROJECT_ROOT = getProjectRoot();
+const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
 const REGISTRY_DIR = path.join(LOCAL_DB_ROOT, "registry");
 
 function addDirToZip(zip: JSZip, dirPath: string, relZipPath: string) {
@@ -41,16 +43,34 @@ export async function GET() {
     log.info("GET /api/local-db/download-registry: Packaging registry/...");
 
     if (!fs.existsSync(REGISTRY_DIR)) {
-      return NextResponse.json(
-        { error: "Dossier registry/ introuvable en mode dev" },
-        { status: 404 }
-      );
+      const zip = new JSZip();
+      zip.folder("registry");
+      zip.file("registry/registry-manifest.json", JSON.stringify({
+        version: "1.0.0",
+        generatedAt: new Date().toISOString(),
+        source: "Empty registry (mode déploiement)",
+      }, null, 2));
+
+      const archiveBuffer = await zip.generateAsync({
+        type: "nodebuffer",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 },
+      });
+
+      return new NextResponse(new Uint8Array(archiveBuffer), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": 'attachment; filename="registry-bundle.zip"',
+          "Content-Length": archiveBuffer.length.toString(),
+        },
+      });
     }
 
     const zip = new JSZip();
     addDirToZip(zip, REGISTRY_DIR, "registry");
 
-    zip.file("registry-manifest.json", JSON.stringify({
+    zip.file("registry/registry-manifest.json", JSON.stringify({
       version: "1.0.0",
       generatedAt: new Date().toISOString(),
       source: "Dev Filesystem registry/",

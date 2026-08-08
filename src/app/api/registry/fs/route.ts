@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { getProjectRoot } from "@/lib/project-root";
 
-const REGISTRY_ROOT = path.join(process.cwd(), ".registry");
+const PROJECT_ROOT = getProjectRoot();
+const REGISTRY_ROOT = path.join(PROJECT_ROOT, ".registry");
 
 function safeJoin(targetPath: string): string {
   const resolved = path.resolve(REGISTRY_ROOT, targetPath);
