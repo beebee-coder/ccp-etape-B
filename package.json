@@ -28,6 +28,7 @@
     "@google/generative-ai": "^0.24.1",
     "@hello-pangea/dnd": "^16.6.0",
     "@hookform/resolvers": "^3.9.0",
+    "@sqlite.org/sqlite-wasm": "^3.53.0-build1",
     "@tauri-apps/api": "^2.0.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.1",

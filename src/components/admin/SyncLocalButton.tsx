@@ -6,6 +6,8 @@ import { Download, RefreshCw, CheckCircle2, AlertTriangle, Database } from "luci
 import { toast } from "sonner";
 import { isTauriEnvironment, tauriPullAndPurge, type TauriPullResult } from "@/lib/tauri/commands";
 import { getCsrfTokenClient } from "@/lib/auth/cookies";
+import { browserDb } from "@/lib/browser-db";
+import type { ImportPayload } from "@/lib/browser-db";
 
 export function SyncLocalButton() {
   const [isLoading, setIsLoading] = useState(false);
@@ -34,6 +36,7 @@ export function SyncLocalButton() {
           });
         }
       } else {
+        // Mode Navigateur Web (Vercel)
         const csrfToken = getCsrfTokenClient();
         const response = await fetch("/api/local-db/sync-all", {
           method: "POST",
@@ -48,30 +51,40 @@ export function SyncLocalButton() {
           throw new Error(data.error || `HTTP ${response.status}`);
         }
 
-        const result = (await response.json()) as {
+        const data = (await response.json()) as {
           ok: boolean;
-          pulled: Record<string, number>;
-          failed: number;
           purged: boolean;
-          errors: string[];
+          totalRows: number;
+          counts: Record<string, number>;
+          payload: ImportPayload;
         };
 
+        // Initialisation de SQLite-WASM + OPFS
+        toast.loading("Initialisation et écriture SQLite-WASM...", { id: toastId });
+        await browserDb.init();
+
+        // Import du payload dans le SQLite local du navigateur
+        const importResult = browserDb.import(data.payload);
+
+        const storageMode = browserDb.getStorageMode();
+        const modeLabel = storageMode === "opfs" ? "OPFS (persistant)" : "Mémoire";
+
         setLastResult({
-          pulled: result.pulled || {},
-          failed: result.failed || 0,
-          errors: result.errors || [],
-          purged: result.purged || false,
+          pulled: importResult.pulled || {},
+          failed: importResult.failed || 0,
+          errors: importResult.errors || [],
+          purged: data.purged || false,
         });
 
-        if (result.failed > 0) {
-          toast.warning("Synchronisation terminée avec des erreurs", {
+        if (importResult.failed > 0) {
+          toast.warning("Synchronisation local-browser terminée avec des erreurs", {
             id: toastId,
-            description: `${result.failed} élément(s) échoué(s)`,
+            description: `${importResult.failed} élément(s) non importé(s) (Stockage : ${modeLabel})`,
           });
         } else {
-          toast.success("Synchronisation réussie", {
+          toast.success("Synchronisation browser réussie !", {
             id: toastId,
-            description: `Données transférées vers la base locale${result.purged ? " et base web purgée" : ""}`,
+            description: `BDD locale peuplée sur votre device [${modeLabel}]${data.purged ? " - Base web purgée" : ""}`,
           });
         }
       }
@@ -106,7 +119,7 @@ export function SyncLocalButton() {
           <div className="flex items-center justify-between font-medium">
             <span className="flex items-center gap-1.5">
               <Database className="h-3.5 w-3.5 text-primary" />
-              Statut Sync
+              Statut Sync Local
             </span>
             {lastResult.failed > 0 ? (
               <span className="flex items-center gap-1 text-amber-500">
