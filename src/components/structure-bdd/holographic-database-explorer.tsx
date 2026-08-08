@@ -104,62 +104,40 @@ export function HolographicDatabaseExplorer() {
   const loadStructure = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Essayer de charger depuis browserDb si on est dans un navigateur standard et ready
-      const { browserDb } = await import("@/lib/browser-db");
+      // 1. Essayer de charger depuis OPFS si on est dans un navigateur standard
+      const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
       if (typeof window !== "undefined" && !("window" in window && "__TAURI__" in window)) {
-        if (browserDb.isReady()) {
-          const tables = [
-            "procedures",
-            "procedure_steps",
-            "alarms",
-            "alarm_events",
-            "media_items",
-            "knowledge_items",
-            "location_nodes",
-            "data_assignments",
-            "guardrail_rules",
-            "chroma_index",
-          ];
+        if (opfsStorage.isSupported()) {
+          const opfsNodes = await opfsStorage.getTree();
 
-          const nodes: DatabaseTreeNode[] = [];
+          const buildNodes = (nodes: typeof opfsNodes): DatabaseTreeNode[] => {
+            return nodes.map((node) => ({
+              id: `.local-db/${node.path}`,
+              name: node.name,
+              kind: node.kind as DatabaseTreeNode["kind"],
+              path: `.local-db/${node.path}`,
+              indexed: true,
+              vectorized: false,
+              children: node.children ? buildNodes(node.children) : undefined,
+              stats: node.stats ? { chunks: 1, vectors: 0, sizeBytes: node.stats.sizeBytes } : undefined,
+            }));
+          };
 
-          for (const table of tables) {
-            const count = browserDb.count(table);
-            if (count > 0 || table === "procedures") {
-              nodes.push({
-                id: `.local-db/${table}`,
-                name: `${table}.sqlite`,
-                kind: "document",
-                path: `.local-db/${table}`,
-                indexed: true,
-                vectorized: table === "chroma_index",
-                stats: {
-                  chunks: count,
-                  vectors: table === "chroma_index" ? count : 0,
-                  sizeBytes: count * 512,
-                },
-                libelle: `${table} (${count} enregistrements)`,
-              });
-            }
+          const convertedNodes = buildNodes(opfsNodes);
+
+          if (convertedNodes.length > 0) {
+            setSchemaStructure({
+              id: ".local-db",
+              name: ".local-db (Stockage Device OPFS)",
+              kind: "database",
+              path: ".local-db",
+              indexed: true,
+              vectorized: false,
+              children: convertedNodes,
+            });
+            setLoading(false);
+            return;
           }
-
-          setSchemaStructure({
-            id: ".local-db",
-            name: ".local-db (SQLite-WASM OPFS)",
-            kind: "database",
-            path: ".local-db",
-            indexed: true,
-            vectorized: false,
-            children: nodes,
-          });
-
-          const vecFiles = new Set<string>();
-          if (browserDb.count("chroma_index") > 0) {
-            vecFiles.add(".local-db/chroma_index");
-          }
-          setVectorizedFiles(vecFiles);
-          setLoading(false);
-          return;
         }
       }
 

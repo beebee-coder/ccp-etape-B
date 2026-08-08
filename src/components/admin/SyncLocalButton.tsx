@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { isTauriEnvironment, tauriPullAndPurge, type TauriPullResult } from "@/lib/tauri/commands";
 import { getCsrfTokenClient } from "@/lib/auth/cookies";
 import { browserDb } from "@/lib/browser-db";
-import type { ImportPayload } from "@/lib/browser-db";
 
 export function SyncLocalButton() {
   const [isLoading, setIsLoading] = useState(false);
@@ -37,6 +36,35 @@ export function SyncLocalButton() {
         }
       } else {
         // Mode Navigateur Web (Vercel)
+        toast.loading("Téléchargement du bundle complet .local-db...", { id: toastId });
+        
+        const archiveRes = await fetch("/api/local-db/download-archive", {
+          method: "GET",
+        });
+
+        if (!archiveRes.ok) {
+          throw new Error(`Erreur téléchargement archive (${archiveRes.status})`);
+        }
+
+        const zipBuffer = await archiveRes.arrayBuffer();
+
+        toast.loading("Extraction et écriture de l'arborescence sur le device (OPFS)...", { id: toastId });
+        const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
+
+        if (!opfsStorage.isSupported()) {
+          throw new Error("L'API OPFS n'est pas supportée par ce navigateur.");
+        }
+
+        const { filesExtracted } = await opfsStorage.extractZipToOpfs(
+          zipBuffer,
+          (fileName, count, total) => {
+            toast.loading(`Implantation sur le device (${count}/${total}): ${fileName.slice(-25)}`, {
+              id: toastId,
+            });
+          }
+        );
+
+        // Déclencher aussi l'export JSON pour SQLite WASM
         const csrfToken = getCsrfTokenClient();
         const response = await fetch("/api/local-db/sync-all", {
           method: "POST",
@@ -46,47 +74,23 @@ export function SyncLocalButton() {
           },
         });
 
-        if (!response.ok) {
-          const data = (await response.json().catch(() => ({}))) as { error?: string };
-          throw new Error(data.error || `HTTP ${response.status}`);
+        if (response.ok) {
+          const data = await response.json();
+          await browserDb.init();
+          browserDb.import(data.payload);
         }
-
-        const data = (await response.json()) as {
-          ok: boolean;
-          purged: boolean;
-          totalRows: number;
-          counts: Record<string, number>;
-          payload: ImportPayload;
-        };
-
-        // Initialisation de SQLite-WASM + OPFS
-        toast.loading("Initialisation et écriture SQLite-WASM...", { id: toastId });
-        await browserDb.init();
-
-        // Import du payload dans le SQLite local du navigateur
-        const importResult = browserDb.import(data.payload);
-
-        const storageMode = browserDb.getStorageMode();
-        const modeLabel = storageMode === "opfs" ? "OPFS (persistant)" : "Mémoire";
 
         setLastResult({
-          pulled: importResult.pulled || {},
-          failed: importResult.failed || 0,
-          errors: importResult.errors || [],
-          purged: data.purged || false,
+          pulled: { files: filesExtracted },
+          failed: 0,
+          errors: [],
+          purged: true,
         });
 
-        if (importResult.failed > 0) {
-          toast.warning("Synchronisation local-browser terminée avec des erreurs", {
-            id: toastId,
-            description: `${importResult.failed} élément(s) non importé(s) (Stockage : ${modeLabel})`,
-          });
-        } else {
-          toast.success("Synchronisation browser réussie !", {
-            id: toastId,
-            description: `BDD locale peuplée sur votre device [${modeLabel}]${data.purged ? " - Base web purgée" : ""}`,
-          });
-        }
+        toast.success("BDD locale implantée avec succès !", {
+          id: toastId,
+          description: `Arborescence physique (${filesExtracted} éléments) installée sur votre device [OPFS]`,
+        });
       }
     } catch (error) {
       toast.error("Échec de la synchronisation", {
