@@ -136,7 +136,7 @@ export class OpfsStorageManager {
         totalNodes: nodes.length,
         dirs: nodes.filter((n) => n.kind === "directory").length,
         files: nodes.filter((n) => n.kind === "document").length,
-        sample: nodes.slice(0, 10).map((n) => ({ name: n.name, kind: n.kind, children: n.children?.length ?? 0 })),
+        sample: nodes.map((n) => ({ name: n.name, kind: n.kind, path: n.path, children: n.children?.length ?? 0 })),
       });
     }
 

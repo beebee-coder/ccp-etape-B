@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Download, RefreshCw, CheckCircle2, AlertTriangle, Database } from "lucide-react";
+import { Download, RefreshCw, CheckCircle2, AlertTriangle, Database, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { isTauriEnvironment, tauriPullAndPurge, type TauriPullResult } from "@/lib/tauri/commands";
 import { getCsrfTokenClient } from "@/lib/auth/cookies";
@@ -11,12 +11,13 @@ import { browserDb } from "@/lib/browser-db";
 export function SyncLocalButton() {
   const [isLoading, setIsLoading] = useState(false);
   const [lastResult, setLastResult] = useState<TauriPullResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function handleSync() {
+  async function handleSyncFromServer() {
     if (isLoading) return;
 
     setIsLoading(true);
-    const toastId = toast.loading("Synchronisation vers la base locale...", {
+    const toastId = toast.loading("Synchronisation depuis le serveur...", {
       id: "sync-local-btn",
     });
 
@@ -128,21 +129,102 @@ export function SyncLocalButton() {
     }
   }
 
+  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+    const toastId = toast.loading("Import du ZIP .local-db...", {
+      id: "sync-local-upload-btn",
+    });
+
+    try {
+      if (browserDb.isSyncing()) {
+        throw new Error("Une synchronisation est déjà en cours. Veuillez patienter.");
+      }
+
+      const buffer = await file.arrayBuffer();
+
+      toast.loading("Extraction et écriture de l'arborescence sur le device (OPFS)...", { id: toastId });
+      const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
+
+      if (!opfsStorage.isSupported()) {
+        throw new Error("L'API OPFS n'est pas supportée par ce navigateur.");
+      }
+
+      const { filesExtracted } = await opfsStorage.extractZipToOpfs(
+        buffer,
+        (fileName, count, total) => {
+          toast.loading(`Implantation sur le device (${count}/${total}): ${fileName.slice(-25)}`, {
+            id: toastId,
+          });
+        }
+      );
+
+      setLastResult({
+        pulled: { files: filesExtracted },
+        failed: 0,
+        errors: [],
+        purged: false,
+      });
+
+      toast.success("BDD locale implantée avec succès !", {
+        id: toastId,
+        description: `Arborescence physique (${filesExtracted} éléments) installée sur votre device [OPFS]`,
+      });
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("local-db-synced"));
+      }
+    } catch (error) {
+      toast.error("Échec de l'import", {
+        id: toastId,
+        description: error instanceof Error ? error.message : "Erreur inconnue",
+      });
+    } finally {
+      setIsLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
-      <Button
-        size="sm"
-        onClick={handleSync}
-        disabled={isLoading}
-        className="gap-1.5 rounded-xl border border-primary/30 bg-gradient-to-r from-primary to-purple-600 shadow-3d-sm text-white hover:-translate-y-0.5 hover:shadow-primary-glow active:translate-y-0 transition-all duration-200"
-      >
-        {isLoading ? (
-          <RefreshCw className="h-4 w-4 animate-spin" />
-        ) : (
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".zip,application/zip"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+
+        <Button
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isLoading}
+          className="gap-1.5 rounded-xl border border-primary/30 bg-gradient-to-r from-primary to-purple-600 shadow-3d-sm text-white hover:-translate-y-0.5 hover:shadow-primary-glow active:translate-y-0 transition-all duration-200"
+        >
+          {isLoading ? (
+            <RefreshCw className="h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="h-4 w-4" />
+          )}
+          {isLoading ? "Import..." : "Importer ZIP .local-db"}
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleSyncFromServer}
+          disabled={isLoading}
+          className="gap-1.5 rounded-xl border-border/60 bg-card/60 backdrop-blur-sm hover:bg-primary/8 hover:border-primary/30 hover:text-primary transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d-sm active:translate-y-0"
+        >
           <Download className="h-4 w-4" />
-        )}
-        {isLoading ? "Synchronisation..." : "Synchroniser vers local"}
-      </Button>
+          Synchroniser depuis serveur
+        </Button>
+      </div>
 
       {lastResult && (
         <div className="p-3 rounded-xl border border-border/60 bg-card/60 text-xs space-y-2">
