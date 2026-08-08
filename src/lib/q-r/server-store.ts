@@ -38,7 +38,7 @@ function deriveTitle(question: string): string {
 }
 
 function buildLocalFilePath(location: { locationType: string; locationPath?: string; blocCode?: string; equipementCode?: string; groupePath?: string } | undefined): string {
-  const root = path.join(process.cwd(), ".local-db");
+  const root = path.join(process.cwd(), ".locale-db");
   if (!location || !location.locationPath) {
     return path.join(root, "registry", "items", `global-qa-${Date.now()}.json`);
   }
@@ -387,7 +387,7 @@ async function getRegistryQRPairs(): Promise<Array<{ question: string; answer: s
   const pairs: Array<{ question: string; answer: string; source: string }> = [];
   const roots = [
     path.join(process.cwd(), ".registry", "items"),
-    path.join(process.cwd(), ".local-db", "registry", "items"),
+    path.join(process.cwd(), ".locale-db", "registry", "items"),
   ];
 
   function walkDir(dir: string, relativePrefix = ""): void {

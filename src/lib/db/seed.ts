@@ -6,7 +6,7 @@ import path from "path";
 
 const CHROMA_INDEX_PATH = path.join(
   process.cwd(),
-  ".local-db",
+  ".locale-db",
   "chroma-index.json",
 );
 

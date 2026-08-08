@@ -7,14 +7,14 @@ import { localDbTreeCache } from "@/lib/api/tree-cache";
 import { withFileLock } from "@/lib/api/file-lock";
 
 const PROJECT_ROOT = getProjectRoot();
-const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
-const LOCAL_DB_LOCK = path.join(LOCAL_DB_ROOT, ".local-db.lock");
+const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".locale-db");
+const LOCAL_DB_LOCK = path.join(LOCAL_DB_ROOT, ".locale-db.lock");
 const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
 
 function safeJoin(targetPath: string): string {
   const resolved = path.resolve(LOCAL_DB_ROOT, targetPath);
   if (!resolved.startsWith(LOCAL_DB_ROOT)) {
-    throw new Error("Accès hors de .local-db");
+    throw new Error("Accès hors de .locale-db");
   }
   return resolved;
 }
@@ -126,8 +126,8 @@ function buildDbFallbackTree(): ApiTreeNode {
   }));
 
   return {
-    name: ".local-db",
-    path: ".local-db",
+    name: ".locale-db",
+    path: ".locale-db",
     kind: "directory",
     children,
     vectorized: false,
@@ -200,8 +200,8 @@ function ensurePath(
 
 async function buildReconstructedTreeFromDb(): Promise<ApiTreeNode> {
   const root: ApiTreeNode = {
-    name: ".local-db",
-    path: ".local-db",
+    name: ".locale-db",
+    path: ".locale-db",
     kind: "directory",
     children: [],
     vectorized: false,
@@ -484,7 +484,7 @@ export async function POST(request: Request) {
 
   if (!fs.existsSync(LOCAL_DB_ROOT)) {
     return NextResponse.json(
-      { error: ".local-db n'existe pas sur le serveur (mode déploiement)" },
+      { error: ".locale-db n'existe pas sur le serveur (mode déploiement)" },
       { status: 503 },
     );
   }
@@ -549,7 +549,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   if (!fs.existsSync(LOCAL_DB_ROOT)) {
     return NextResponse.json(
-      { error: ".local-db n'existe pas sur le serveur (mode déploiement)" },
+      { error: ".locale-db n'existe pas sur le serveur (mode déploiement)" },
       { status: 503 },
     );
   }
@@ -583,7 +583,7 @@ export async function DELETE(request: Request) {
 export async function PATCH(request: Request) {
   if (!fs.existsSync(LOCAL_DB_ROOT)) {
     return NextResponse.json(
-      { error: ".local-db n'existe pas sur le serveur (mode déploiement)" },
+      { error: ".locale-db n'existe pas sur le serveur (mode déploiement)" },
       { status: 503 },
     );
   }
@@ -663,7 +663,7 @@ export async function PATCH(request: Request) {
 export async function PUT(request: Request) {
   if (!fs.existsSync(LOCAL_DB_ROOT)) {
     return NextResponse.json(
-      { error: ".local-db n'existe pas sur le serveur (mode déploiement)" },
+      { error: ".locale-db n'existe pas sur le serveur (mode déploiement)" },
       { status: 503 },
     );
   }

@@ -1,11 +1,11 @@
 /**
  * Route API GET /api/local-db/download-archive
  *
- * Reconstruit et envoie l'intégralité de l'arborescence `.local-db`
+ * Reconstruit et envoie l'intégralité de l'arborescence `.locale-db`
  * au format ZIP, en se basant sur :
  *  1. Le filesystem local si disponible (mode dev)
  *  2. La base de données web (Neon) pour reconstruire la structure
- *     en mode déploiement Vercel où `.local-db` n'existe pas sur le serveur.
+ *     en mode déploiement Vercel où `.locale-db` n'existe pas sur le serveur.
  *
  * La structure reconstruite respecte scrupuleusement l'arborescence dev :
  *  - Centrale/ et Groupes/ avec leurs .meta.json
@@ -24,7 +24,7 @@ import { getProjectRoot } from "@/lib/project-root";
 
 const log = createLogger({ module: "api-local-db-download-archive" });
 const PROJECT_ROOT = getProjectRoot();
-const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
+const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".locale-db");
 
 function addDirToZip(zip: JSZip, dirPath: string, relZipPath: string) {
   if (!fs.existsSync(dirPath)) return;
@@ -59,7 +59,7 @@ function ensureDirectory(zip: JSZip, dirPath: string) {
 
 export async function GET() {
   try {
-    log.info("GET /api/local-db/download-archive: Packaging .local-db...");
+    log.info("GET /api/local-db/download-archive: Packaging .locale-db...");
     const zip = new JSZip();
 
     const useFilesystem = fs.existsSync(LOCAL_DB_ROOT);
@@ -298,9 +298,9 @@ export async function GET() {
       },
     });
   } catch (error) {
-    log.error("GET /api/local-db/download-archive: Error packaging .local-db", { error });
+    log.error("GET /api/local-db/download-archive: Error packaging .locale-db", { error });
     return NextResponse.json(
-      { error: "Erreur lors de la génération de l'archive .local-db" },
+      { error: "Erreur lors de la génération de l'archive .locale-db" },
       { status: 500 }
     );
   }

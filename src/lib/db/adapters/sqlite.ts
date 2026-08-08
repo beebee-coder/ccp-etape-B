@@ -8,7 +8,7 @@ export function isSqliteMode(): boolean {
 }
 
 export function getSqlitePath(): string {
-  let p = process.env.SQLITE_DB_PATH || "./.local-db/visionode.sqlite";
+  let p = process.env.SQLITE_DB_PATH || "./.locale-db/visionode.sqlite";
   if (!path.isAbsolute(p)) {
     p = path.resolve(process.cwd(), p);
   }

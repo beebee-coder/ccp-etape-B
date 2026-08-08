@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-const LOCAL_DB_ROOT = path.join(process.cwd(), ".local-db");
+const LOCAL_DB_ROOT = path.join(process.cwd(), ".locale-db");
 const REGISTRY_ROOT = path.join(process.cwd(), ".registry");
 
 function getLocalTargetPath(relPath: string): string {

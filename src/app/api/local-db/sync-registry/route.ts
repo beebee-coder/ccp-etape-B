@@ -4,7 +4,7 @@ import path from "path";
 import { getProjectRoot } from "@/lib/project-root";
 
 const PROJECT_ROOT = getProjectRoot();
-const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
+const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".locale-db");
 const REGISTRY_ROOT = path.join(PROJECT_ROOT, ".registry");
 
 function safeJoin(targetPath: string, root: string): string {
@@ -51,9 +51,9 @@ export async function POST(): Promise<NextResponse> {
   };
 
   if (!fs.existsSync(LOCAL_DB_ROOT)) {
-    result.failed.push("(racine .local-db manquante en mode déploiement)");
+    result.failed.push("(racine .locale-db manquante en mode déploiement)");
     return NextResponse.json(
-      { error: ".local-db n'existe pas sur le serveur (mode déploiement)", ...result },
+      { error: ".locale-db n'existe pas sur le serveur (mode déploiement)", ...result },
       { status: 503 },
     );
   }

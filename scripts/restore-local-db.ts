@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-const ROOT = path.join(process.cwd(), ".local-db");
+const ROOT = path.join(process.cwd(), ".locale-db");
 const DOC_DIR = path.join(process.cwd(), "doc");
 
 function ensureDir(dirPath: string) {
@@ -46,7 +46,7 @@ function buildFromJson(filePath: string, targetRoot: string, type: string) {
 }
 
 function main() {
-  console.log("🔄 Restauration de la structure .local-db depuis doc/...");
+  console.log("🔄 Restauration de la structure .locale-db depuis doc/...");
 
   ensureDir(ROOT);
 
@@ -73,7 +73,7 @@ function main() {
     ensureDir(path.join(ROOT, dir));
   }
 
-  console.log("✅ Structure .local-db restaurée depuis doc/centrale.json et doc/Groupes.json");
+  console.log("✅ Structure .locale-db restaurée depuis doc/centrale.json et doc/Groupes.json");
 }
 
 main();

@@ -2,7 +2,7 @@
  * Service OpfsStorageManager
  *
  * Gère l'écriture, la décompression et l'exploration récursive de l'arborescence
- * physique complète de `.local-db` dans le stockage OPFS (Origin Private File System)
+ * physique complète de `.locale-db` dans le stockage OPFS (Origin Private File System)
  * du navigateur sur le device de l'utilisateur.
  */
 

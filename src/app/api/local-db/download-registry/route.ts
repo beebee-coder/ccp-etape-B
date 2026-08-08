@@ -15,7 +15,7 @@ import { getProjectRoot } from "@/lib/project-root";
 
 const log = createLogger({ module: "api-local-db-download-registry" });
 const PROJECT_ROOT = getProjectRoot();
-const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".local-db");
+const LOCAL_DB_ROOT = path.join(PROJECT_ROOT, ".locale-db");
 const REGISTRY_DIR = path.join(LOCAL_DB_ROOT, "registry");
 
 function addDirToZip(zip: JSZip, dirPath: string, relZipPath: string) {

@@ -9,7 +9,7 @@ export function getProjectRoot(): string {
 
   const cwd = process.cwd();
 
-  if (fs.existsSync(path.join(cwd, ".local-db")) || fs.existsSync(path.join(cwd, "package.json"))) {
+  if (fs.existsSync(path.join(cwd, ".locale-db")) || fs.existsSync(path.join(cwd, "package.json"))) {
     return cwd;
   }
 

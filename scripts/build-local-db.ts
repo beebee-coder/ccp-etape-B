@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-const ROOT = path.join(process.cwd(), ".local-db");
+const ROOT = path.join(process.cwd(), ".locale-db");
 const DOC_DIR = path.join(process.cwd(), "doc");
 
 interface LeafNode {
@@ -99,7 +99,7 @@ function main(): void {
   ensureDir(groupesDir);
   buildGroupes(groupesDir, groupesData);
 
-  console.log("Done. Directory structure created in .local-db/");
+  console.log("Done. Directory structure created in .locale-db/");
 }
 
 main();

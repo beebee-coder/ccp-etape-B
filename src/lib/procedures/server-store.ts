@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+import { query, getPool } from "@/lib/db";
 import { createLogger } from "@/lib/logger";
 import {
   validateProcedure,
@@ -185,7 +185,7 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
     title: metadata.title,
   });
 
-  const client = await (await import("@/lib/db")).getPool().connect();
+  const client = await getPool().connect();
   try {
     await client.query("BEGIN");
 

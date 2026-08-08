@@ -165,7 +165,7 @@ export function HolographicDatabaseExplorer() {
         const buildNodes = (nodes: typeof opfsNodes): DatabaseTreeNode[] => {
           return nodes.map((node) => {
             const nodePath = node.path;
-            const fullPath = `.local-db/${nodePath}`;
+            const fullPath = `.locale-db/${nodePath}`;
             const isVectorized = node.kind !== "directory" && vectorizedPaths.has(nodePath);
             return {
               id: fullPath,
@@ -196,10 +196,10 @@ export function HolographicDatabaseExplorer() {
         });
 
         setSchemaStructure({
-          id: ".local-db",
-          name: ".local-db (Stockage Device OPFS)",
+          id: ".locale-db",
+          name: ".locale-db (Stockage Device OPFS)",
           kind: "database",
-          path: ".local-db",
+          path: ".locale-db",
           indexed: false,
           vectorized: false,
           children: convertedNodes,
@@ -226,10 +226,10 @@ export function HolographicDatabaseExplorer() {
       });
       const nodes = await buildStructure(data.children || []);
       setSchemaStructure({
-        id: ".local-db",
-        name: data.source === "db-fallback" ? ".local-db (reconstitué depuis DB web)" : data.source === "db-reconstructed" ? ".local-db (reconstitué depuis DB web)" : ".local-db",
+        id: ".locale-db",
+        name: data.source === "db-fallback" ? ".locale-db (reconstitué depuis DB web)" : data.source === "db-reconstructed" ? ".locale-db (reconstitué depuis DB web)" : ".locale-db",
         kind: "database",
-        path: ".local-db",
+        path: ".locale-db",
         indexed: false,
         vectorized: false,
         children: nodes,
@@ -239,7 +239,7 @@ export function HolographicDatabaseExplorer() {
       }
     } catch (e) {
       console.error("[HolographicDatabaseExplorer] loadStructure error", e);
-      toast.error("Erreur lors du chargement de .local-db");
+      toast.error("Erreur lors du chargement de .locale-db");
     } finally {
       setLoading(false);
     }
@@ -262,10 +262,10 @@ export function HolographicDatabaseExplorer() {
       });
       const nodes = await buildStructure(data.children || []);
       setSchemaStructure({
-        id: ".local-db",
-        name: data.source === "db-fallback" ? ".local-db (reconstitué depuis DB web)" : data.source === "db-reconstructed" ? ".local-db (reconstitué depuis DB web)" : ".local-db",
+        id: ".locale-db",
+        name: data.source === "db-fallback" ? ".locale-db (reconstitué depuis DB web)" : data.source === "db-reconstructed" ? ".locale-db (reconstitué depuis DB web)" : ".locale-db",
         kind: "database",
-        path: ".local-db",
+        path: ".locale-db",
         indexed: false,
         vectorized: false,
         children: nodes,
@@ -276,7 +276,7 @@ export function HolographicDatabaseExplorer() {
       setOpfsInUse(false);
     } catch (e) {
       console.error("[HolographicDatabaseExplorer] loadFromApi error", e);
-      toast.error("Erreur lors du chargement de .local-db depuis le serveur");
+      toast.error("Erreur lors du chargement de .locale-db depuis le serveur");
     } finally {
       setLoading(false);
     }
@@ -302,10 +302,10 @@ export function HolographicDatabaseExplorer() {
   const indexedStructure = useMemo<DatabaseStructure>(() => {
     if (!schemaStructure) {
       return {
-        id: ".local-db-indexed",
-        name: ".local-db",
+        id: ".locale-db-indexed",
+        name: ".locale-db",
         kind: "database",
-        path: ".local-db-indexed",
+        path: ".locale-db-indexed",
         indexed: false,
         vectorized: false,
         children: [],
@@ -354,8 +354,8 @@ export function HolographicDatabaseExplorer() {
     return {
       ...filteredRoot,
       kind: "database",
-      id: ".local-db-indexed",
-      path: ".local-db-indexed",
+      id: ".locale-db-indexed",
+      path: ".locale-db-indexed",
     } as DatabaseStructure;
   }, [schemaStructure, vectorizedFiles]);
 
@@ -378,7 +378,7 @@ export function HolographicDatabaseExplorer() {
   }, [schemaStructure, vectorizedFiles]);
 
   const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set([".local-db"]),
+    () => new Set([".locale-db"]),
   );
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -731,7 +731,7 @@ export function HolographicDatabaseExplorer() {
         <Card className="dashboard-card flex h-24 items-center justify-center">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-            <span>Chargement de .local-db...</span>
+            <span>Chargement de .locale-db...</span>
           </div>
         </Card>
       )}
@@ -806,7 +806,7 @@ export function HolographicDatabaseExplorer() {
           <div className="relative isolate mt-6 grid grid-cols-1 gap-6 md:grid-cols-[1fr_10rem_1fr]">
             <TreePanel
               label="Schéma BDD"
-              subtitle="Structure physique .local-db"
+              subtitle="Structure physique .locale-db"
               structure={schemaStructure}
               accent="schema"
               expanded={expanded}
@@ -883,7 +883,7 @@ export function HolographicDatabaseExplorer() {
           <div className="relative mt-8 text-center text-xs text-muted-foreground/60">
             <span className="inline-flex items-center gap-1.5">
               <Layers className="h-3 w-3" />
-              Panneau gauche : schéma physique de .local-db. Panneau droit :
+              Panneau gauche : schéma physique de .locale-db. Panneau droit :
               même arborescence avec l’état d’indexation et de vectorisation.
             </span>
           </div>

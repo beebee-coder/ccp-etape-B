@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { LocalMetaSchema, CentraleMetaSchema, GroupeMetaSchema } from "../src/lib/types/local-db";
 
-const ROOT = path.join(process.cwd(), ".local-db");
+const ROOT = path.join(process.cwd(), ".locale-db");
 const REPORT: { path: string; action: string; error?: string }[] = [];
 
 function inferEntityType(dirPath: string, code: string, parentCode?: string): "centrale" | "sous_centrale" | "equipement" | "groupe" | "document" {
