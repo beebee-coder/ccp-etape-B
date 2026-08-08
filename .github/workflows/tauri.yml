@@ -1,0 +1,58 @@
+name: Tauri CI
+
+on:
+  push:
+    branches: ["main", "master"]
+    paths-ignore:
+      - "**.md"
+      - "**.txt"
+      - "**.json"
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+jobs:
+  lint-typecheck:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+
+  tauri-check:
+    name: Tauri Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: "x86_64-unknown-linux-gnu"
+      - run: npm ci
+      - run: npm run tauri build -- --bundles none
+        working-directory: src-tauri
+
+  tauri-test:
+    name: Tauri Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: "x86_64-unknown-linux-gnu"
+      - run: npm ci
+      - run: cargo test
+        working-directory: src-tauri
