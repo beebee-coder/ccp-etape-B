@@ -104,6 +104,66 @@ export function HolographicDatabaseExplorer() {
   const loadStructure = useCallback(async () => {
     setLoading(true);
     try {
+      // 1. Essayer de charger depuis browserDb si on est dans un navigateur standard et ready
+      const { browserDb } = await import("@/lib/browser-db");
+      if (typeof window !== "undefined" && !("window" in window && "__TAURI__" in window)) {
+        if (browserDb.isReady()) {
+          const tables = [
+            "procedures",
+            "procedure_steps",
+            "alarms",
+            "alarm_events",
+            "media_items",
+            "knowledge_items",
+            "location_nodes",
+            "data_assignments",
+            "guardrail_rules",
+            "chroma_index",
+          ];
+
+          const nodes: DatabaseTreeNode[] = [];
+
+          for (const table of tables) {
+            const count = browserDb.count(table);
+            if (count > 0 || table === "procedures") {
+              nodes.push({
+                id: `.local-db/${table}`,
+                name: `${table}.sqlite`,
+                kind: "document",
+                path: `.local-db/${table}`,
+                indexed: true,
+                vectorized: table === "chroma_index",
+                stats: {
+                  chunks: count,
+                  vectors: table === "chroma_index" ? count : 0,
+                  sizeBytes: count * 512,
+                },
+                libelle: `${table} (${count} enregistrements)`,
+              });
+            }
+          }
+
+          setSchemaStructure({
+            id: ".local-db",
+            name: ".local-db (SQLite-WASM OPFS)",
+            kind: "database",
+            path: ".local-db",
+            indexed: true,
+            vectorized: false,
+            children: nodes,
+          });
+
+          const vecFiles = new Set<string>();
+          if (browserDb.count("chroma_index") > 0) {
+            vecFiles.add(".local-db/chroma_index");
+          }
+          setVectorizedFiles(vecFiles);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 2. Fallback / Mode Desktop Tauri : API serveur /api/local-db/fs
       const res = await fetch(`/api/local-db/fs?t=${Date.now()}`);
       const data = (await res.json()) as {
         children?: ApiTreeNode[];
