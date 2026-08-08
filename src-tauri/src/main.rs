@@ -108,6 +108,22 @@ async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), String> {
       estimated_time_min  INTEGER NOT NULL DEFAULT 30,
       required_roles      TEXT NOT NULL DEFAULT '[]',
       global_safety_instructions TEXT NOT NULL DEFAULT '[]',
+      location_type       VARCHAR(20) CHECK (location_type IN ('centrale','groupe','global')),
+      location_path       VARCHAR(200),
+      bloc_code           VARCHAR(10),
+      equipement_code     VARCHAR(50),
+      criticality         TEXT NOT NULL DEFAULT 'NORMAL' CHECK (criticality IN ('NORMAL','HIGH','CRITICAL')),
+      status              TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','PUBLISHED','ARCHIVED')),
+      subcategory         VARCHAR(100),
+      department          VARCHAR(100),
+      version             VARCHAR(50),
+      parameters          TEXT NOT NULL DEFAULT '{}',
+      post_execution      TEXT NOT NULL DEFAULT '{}',
+      media_library       TEXT NOT NULL DEFAULT '{}',
+      prerequisites       TEXT NOT NULL DEFAULT '{}',
+      last_executed_at    TEXT,
+      execution_count     INTEGER NOT NULL DEFAULT 0,
+      author_id           TEXT,
       metadata_json       TEXT NOT NULL DEFAULT '{}',
       created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at          TEXT
@@ -129,6 +145,7 @@ async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), String> {
       dependencies      TEXT NOT NULL DEFAULT '[]',
       media_requirements TEXT NOT NULL DEFAULT '[]',
       alarms            TEXT NOT NULL DEFAULT '[]',
+      alarm_codes       TEXT NOT NULL DEFAULT '[]',
       attachments       TEXT NOT NULL DEFAULT '[]',
       timer_enabled     INTEGER NOT NULL DEFAULT 0,
       timer_seconds     INTEGER NOT NULL DEFAULT 0,
@@ -752,8 +769,13 @@ async fn process_payload(pool: Pool<Sqlite>, payload: &ExportPayload) -> Process
     for procedure in tables.get("procedures").unwrap_or(&vec![]) {
         match sqlx::query(
             r#"
-            INSERT INTO procedures (id, code, title, description, category, priority, location_type, location_path, bloc_code, equipement_code, metadata_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO procedures (
+              id, code, title, description, category, priority, location_type, location_path,
+              bloc_code, equipement_code, criticality, status, subcategory, department, version,
+              parameters, post_execution, media_library, prerequisites, last_executed_at,
+              execution_count, author_id, metadata_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(code) DO UPDATE SET
               title = excluded.title,
               description = excluded.description,
@@ -763,6 +785,18 @@ async fn process_payload(pool: Pool<Sqlite>, payload: &ExportPayload) -> Process
               location_path = excluded.location_path,
               bloc_code = excluded.bloc_code,
               equipement_code = excluded.equipement_code,
+              criticality = excluded.criticality,
+              status = excluded.status,
+              subcategory = excluded.subcategory,
+              department = excluded.department,
+              version = excluded.version,
+              parameters = excluded.parameters,
+              post_execution = excluded.post_execution,
+              media_library = excluded.media_library,
+              prerequisites = excluded.prerequisites,
+              last_executed_at = excluded.last_executed_at,
+              execution_count = excluded.execution_count,
+              author_id = excluded.author_id,
               metadata_json = excluded.metadata_json,
               updated_at = excluded.updated_at
             "#
@@ -777,6 +811,18 @@ async fn process_payload(pool: Pool<Sqlite>, payload: &ExportPayload) -> Process
         .bind(json_str_opt(&procedure["location_path"]))
         .bind(json_str_opt(&procedure["bloc_code"]))
         .bind(json_str_opt(&procedure["equipement_code"]))
+        .bind(json_str(&procedure["criticality"], "NORMAL"))
+        .bind(json_str(&procedure["status"], "DRAFT"))
+        .bind(json_str_opt(&procedure["subcategory"]))
+        .bind(json_str_opt(&procedure["department"]))
+        .bind(json_str_opt(&procedure["version"]))
+        .bind(json_obj_str(&procedure["parameters"]))
+        .bind(json_obj_str(&procedure["post_execution"]))
+        .bind(json_obj_str(&procedure["media_library"]))
+        .bind(json_obj_str(&procedure["prerequisites"]))
+        .bind(json_str_opt(&procedure["last_executed_at"]))
+        .bind(json_num(&procedure["execution_count"], 0))
+        .bind(json_str_opt(&procedure["author_id"]))
         .bind(json_obj_str(&procedure["metadata_json"]))
         .bind(json_str(&procedure["created_at"], ""))
         .bind(json_str(&procedure["updated_at"], ""))

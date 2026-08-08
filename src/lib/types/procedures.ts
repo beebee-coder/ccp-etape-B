@@ -39,24 +39,33 @@ export type ProcedureAlarmType = z.infer<typeof ProcedureAlarmTypeSchema>;
 export const ProcedureMediaTypeSchema = z.enum(["photo", "video", "audio", "signature"]);
 export type ProcedureMediaType = z.infer<typeof ProcedureMediaTypeSchema>;
 
-export const ProcedureStepSchema = z.object({
-  id: z.string().uuid(),
-  procedureId: z.string().uuid(),
-  stepOrder: z.number().int().nonnegative(),
-  stepId: z.string().min(1),
-  title: z.string().min(1),
-  subtitle: z.string().optional(),
-  instructions: z.string().min(1),
-  stepType: ProcedureStepTypeSchema,
-  isMandatory: z.boolean(),
-  dependencies: z.array(z.string()),
-  mediaRequirements: JsonSchema,
-  alarms: JsonSchema,
-  attachments: z.array(z.string()),
-  timerEnabled: z.boolean(),
-  timerSeconds: z.number().int().nonnegative(),
-});
-export type ProcedureStep = z.infer<typeof ProcedureStepSchema>;
+export {
+  PrioritySchema,
+  StepTypeSchema,
+  MediaTypeSchema,
+  AlarmTypeSchema,
+  MediaRequirementSchema,
+  AlarmConfigSchema,
+  StepSchema,
+  MetadataSchema,
+  ProcedureSchema,
+  ExecutionContextSchema,
+  ProcedureExecutionSchema,
+  validateProcedure,
+  validateStep,
+  hasCircularDependencies,
+  getCompleteness,
+} from "../procedures/services/validator.service";
+
+export type {
+  TMetadata,
+  TStep,
+  TMediaRequirement,
+  TAlarmConfig,
+  TProcedure,
+  TExecutionContext,
+  TProcedureExecution,
+} from "../procedures/services/validator.service";
 
 export const ProcedureAlarmSchema = z.object({
   id: z.string().uuid(),
@@ -84,23 +93,6 @@ export const ProcedureDocumentSchema = z.object({
   uploadedAt: z.date(),
 });
 export type ProcedureDocument = z.infer<typeof ProcedureDocumentSchema>;
-
-export const ProcedureExecutionSchema = z.object({
-  id: z.string().uuid(),
-  procedureId: z.string().uuid(),
-  operatorId: z.string().uuid(),
-  startTime: z.date(),
-  endTime: z.date().optional(),
-  status: ProcedureExecutionStatusSchema,
-  stepsStatus: JsonSchema.optional(),
-  totalDuration: z.number().int().nonnegative().optional(),
-  currentStep: z.number().int().nonnegative().optional(),
-  alarms: JsonSchema.optional(),
-  fallbacks: JsonSchema.optional(),
-  events: JsonSchema.optional(),
-  signature: z.string().optional(),
-});
-export type ProcedureExecution = z.infer<typeof ProcedureExecutionSchema>;
 
 export const ProcedureMediaSchema = z.object({
   id: z.string().uuid(),
@@ -143,28 +135,3 @@ export const ProcedureFieldTemplateSchema = z.object({
   updatedAt: z.date(),
 });
 export type ProcedureFieldTemplate = z.infer<typeof ProcedureFieldTemplateSchema>;
-
-export const ProcedureSchema = z.object({
-  id: z.string().uuid(),
-  code: z.string().min(1),
-  title: z.string().min(1),
-  description: z.string().optional(),
-  category: z.string().min(1),
-  criticality: ProcedureCriticalitySchema,
-  status: ProcedureStatusSchema,
-  prerequisites: JsonSchema.optional(),
-  steps: z.array(ProcedureStepSchema),
-  authorId: z.string().uuid(),
-  lastExecutedAt: z.date().optional(),
-  executionCount: z.number().int().nonnegative(),
-  subcategory: z.string().optional(),
-  department: z.string().optional(),
-  version: z.string().optional(),
-  parameters: JsonSchema.optional(),
-  postExecution: JsonSchema.optional(),
-  metadata: JsonSchema.optional(),
-  mediaLibrary: JsonSchema.optional(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
-export type Procedure = z.infer<typeof ProcedureSchema>;

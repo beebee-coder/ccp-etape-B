@@ -12,6 +12,7 @@ import {
   X,
   Wand2,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { Card } from "@/components/ui/card";
@@ -141,7 +142,15 @@ export function HolographicDatabaseExplorer() {
       const opfsHasCentrale = opfsNodes.some((node) => node.name === "Centrale");
       const opfsHasGroupes = opfsNodes.some((node) => node.name === "Groupes");
       const opfsHasRegistry = opfsNodes.some((node) => node.name === "registry");
-      const opfsHasSubstantiveData = opfsHasCentrale && opfsHasGroupes;
+
+      const opfsHasAnyDocument = (nodes: OpfsTreeNode[]): boolean => {
+        return nodes.some((node) => {
+          if (node.kind === "document") return true;
+          return node.children ? opfsHasAnyDocument(node.children) : false;
+        });
+      };
+
+      const opfsHasSubstantiveData = opfsHasCentrale && opfsHasGroupes && opfsHasAnyDocument(opfsNodes);
 
       console.info("[HolographicDatabaseExplorer] OPFS substantive check", {
         opfsHasSubstantiveData,
@@ -231,6 +240,43 @@ export function HolographicDatabaseExplorer() {
     } catch (e) {
       console.error("[HolographicDatabaseExplorer] loadStructure error", e);
       toast.error("Erreur lors du chargement de .local-db");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadFromApi = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/local-db/fs?t=${Date.now()}`);
+      const data = (await res.json()) as {
+        children?: ApiTreeNode[];
+        vectorizedPaths?: string[];
+        source?: string;
+      };
+      console.info("[HolographicDatabaseExplorer] API forced response", {
+        status: res.status,
+        source: data.source,
+        childrenCount: data.children?.length ?? 0,
+        childrenNames: data.children?.map((c) => c.name),
+      });
+      const nodes = await buildStructure(data.children || []);
+      setSchemaStructure({
+        id: ".local-db",
+        name: data.source === "db-fallback" ? ".local-db (reconstitué depuis DB web)" : data.source === "db-reconstructed" ? ".local-db (reconstitué depuis DB web)" : ".local-db",
+        kind: "database",
+        path: ".local-db",
+        indexed: false,
+        vectorized: false,
+        children: nodes,
+      });
+      if (data.vectorizedPaths) {
+        setVectorizedFiles(new Set(data.vectorizedPaths));
+      }
+      setOpfsInUse(false);
+    } catch (e) {
+      console.error("[HolographicDatabaseExplorer] loadFromApi error", e);
+      toast.error("Erreur lors du chargement de .local-db depuis le serveur");
     } finally {
       setLoading(false);
     }
@@ -657,6 +703,16 @@ export function HolographicDatabaseExplorer() {
             className="h-8 rounded-xl border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary"
           >
             Réinitialiser
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadFromApi}
+            className="h-8 rounded-xl border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Recharger depuis le serveur
           </Button>
 
           <Button

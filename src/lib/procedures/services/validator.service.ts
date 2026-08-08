@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { JsonSchema } from "@/lib/types/json";
 
 export const PrioritySchema = z.enum(["basse", "moyenne", "haute", "critique"]);
 export const StepTypeSchema = z.enum([
@@ -31,6 +32,9 @@ export const AlarmConfigSchema = z.object({
 
 export const StepSchema = z.object({
   id: z.string().min(1),
+  procedureId: z.string().optional(),
+  stepOrder: z.number().int().nonnegative().optional(),
+  stepId: z.string().min(1).optional(),
   title: z.string().min(1, "Le titre de l'étape est requis"),
   subtitle: z.string().optional(),
   instructions: z.string().min(1, "Les instructions sont requises"),
@@ -39,6 +43,7 @@ export const StepSchema = z.object({
   dependencies: z.array(z.string()).default([]),
   mediaRequirements: z.array(MediaRequirementSchema).default([]),
   alarms: z.array(AlarmConfigSchema).default([]),
+  alarmCodes: z.array(z.string()).default([]).optional(),
   attachments: z.array(z.string()).default([]),
   order: z.number().min(0),
   timerEnabled: z.boolean().default(false),
@@ -54,11 +59,29 @@ export const MetadataSchema = z.object({
   estimatedTimeMinutes: z.number().min(1, "La durée estimée doit être supérieure à 0"),
   requiredRoles: z.array(z.string()),
   globalSafetyInstructions: z.array(z.string()),
+  locationType: z.enum(["centrale", "groupe", "global"]).optional(),
+  locationPath: z.string().optional(),
+  blocCode: z.string().optional(),
+  equipementCode: z.string().optional(),
+  criticality: z.enum(["NORMAL", "HIGH", "CRITICAL"]).optional(),
+  status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
+  subcategory: z.string().optional(),
+  department: z.string().optional(),
+  version: z.string().optional(),
+  lastExecutedAt: z.number().optional(),
+  executionCount: z.number().int().nonnegative().optional(),
+  authorId: z.string().optional(),
+  createdAt: z.number().optional(),
+  updatedAt: z.number().optional(),
 });
 
 export const ProcedureSchema = z.object({
   metadata: MetadataSchema,
   steps: z.array(StepSchema).min(1, "Au moins une étape est requise"),
+  parameters: JsonSchema.optional(),
+  postExecution: JsonSchema.optional(),
+  mediaLibrary: JsonSchema.optional(),
+  prerequisites: JsonSchema.optional(),
 });
 
 export type TMetadata = z.infer<typeof MetadataSchema>;

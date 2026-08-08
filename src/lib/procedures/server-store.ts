@@ -22,29 +22,57 @@ export interface ExecutionRecord {
   events: unknown[];
 }
 
+function mapRowToProcedure(row: Record<string, unknown>): TProcedure {
+  const metadata: TProcedure["metadata"] = {
+    title: (row.title as string) ?? "",
+    code: (row.code as string) ?? "",
+    description: row.description as string | undefined,
+    category: (row.category as string) ?? "",
+    priority: (row.priority as "basse" | "moyenne" | "haute" | "critique") ?? "moyenne",
+    estimatedTimeMinutes: (row.estimated_time_min as number) ?? 30,
+    requiredRoles: (row.required_roles as string[]) ?? [],
+    globalSafetyInstructions: (row.global_safety_instructions as string[]) ?? [],
+    locationType: row.location_type as TProcedure["metadata"]["locationType"],
+    locationPath: row.location_path as TProcedure["metadata"]["locationPath"],
+    blocCode: row.bloc_code as TProcedure["metadata"]["blocCode"],
+    equipementCode: row.equipement_code as TProcedure["metadata"]["equipementCode"],
+    criticality: row.criticality as TProcedure["metadata"]["criticality"],
+    status: row.status as TProcedure["metadata"]["status"],
+    subcategory: row.subcategory as TProcedure["metadata"]["subcategory"],
+    department: row.department as TProcedure["metadata"]["department"],
+    version: row.version as TProcedure["metadata"]["version"],
+    lastExecutedAt: row.last_executed_at as TProcedure["metadata"]["lastExecutedAt"],
+    executionCount: (row.execution_count as number) ?? 0,
+    authorId: row.author_id as TProcedure["metadata"]["authorId"],
+    createdAt: row.created_at as TProcedure["metadata"]["createdAt"],
+    updatedAt: row.updated_at as TProcedure["metadata"]["updatedAt"],
+  };
+
+  return {
+    metadata,
+    steps: (row.steps as TProcedure["steps"]) ?? [],
+    parameters: row.parameters as TProcedure["parameters"],
+    postExecution: row.post_execution as TProcedure["postExecution"],
+    mediaLibrary: row.media_library as TProcedure["mediaLibrary"],
+    prerequisites: row.prerequisites as TProcedure["prerequisites"],
+  };
+}
+
 export async function getAllProcedures(): Promise<TProcedure[]> {
   log.debug("getAllProcedures: fetching all procedures");
   try {
-    const result = await query<{
-      id: string;
-      code: string;
-      title: string;
-      description: string | null;
-      category: string;
-      priority: string;
-      estimated_time_min: number;
-      required_roles: string[];
-      global_safety_instructions: string[];
-      metadata_json: Record<string, unknown>;
-      created_at: string;
-      updated_at: string | null;
-      steps: unknown[];
-    }>(
+    const result = await query<Record<string, unknown>>(
       `SELECT p.id, p.code, p.title, p.description, p.category, p.priority, p.estimated_time_min,
-              p.required_roles, p.global_safety_instructions, p.metadata_json, p.created_at, p.updated_at,
+              p.required_roles, p.global_safety_instructions, p.location_type, p.location_path,
+              p.bloc_code, p.equipement_code, p.criticality, p.status, p.subcategory, p.department,
+              p.version, p.parameters, p.post_execution, p.media_library, p.prerequisites,
+              p.last_executed_at, p.execution_count, p.author_id, p.created_at, p.updated_at,
               COALESCE(JSON_AGG(
                 JSON_BUILD_OBJECT(
                   'id', ps.step_id,
+                  'procedureId', ps.procedure_id,
+                  'stepOrder', ps.step_order,
+                  'stepId', ps.step_id,
                   'title', ps.title,
                   'subtitle', ps.subtitle,
                   'instructions', ps.instructions,
@@ -53,6 +81,7 @@ export async function getAllProcedures(): Promise<TProcedure[]> {
                   'dependencies', ps.dependencies,
                   'mediaRequirements', ps.media_requirements,
                   'alarms', ps.alarms,
+                  'alarmCodes', ps.alarm_codes,
                   'attachments', ps.attachments,
                   'order', ps.step_order,
                   'timerEnabled', ps.timer_enabled,
@@ -65,26 +94,7 @@ export async function getAllProcedures(): Promise<TProcedure[]> {
        ORDER BY p.created_at DESC`,
     );
 
-    const procedures = result.rows.map((row) => {
-      const procedure = {
-        metadata: {
-          title: row.title,
-          code: row.code,
-          description: row.description ?? undefined,
-          category: row.category,
-          priority: row.priority as "basse" | "moyenne" | "haute" | "critique",
-          estimatedTimeMinutes: row.estimated_time_min,
-          requiredRoles: row.required_roles || [],
-          globalSafetyInstructions: row.global_safety_instructions || [],
-        },
-        steps: row.steps as TProcedure["steps"],
-      };
-      log.debug("getAllProcedures: mapped procedure row", {
-        code: row.code,
-        stepCount: (row.steps as unknown[]).length,
-      });
-      return procedure;
-    });
+    const procedures = result.rows.map(mapRowToProcedure);
 
     log.info("getAllProcedures: procedures fetched", {
       count: procedures.length,
@@ -101,26 +111,18 @@ export async function getProcedureById(
 ): Promise<TProcedure | null> {
   log.debug("getProcedureById: fetching procedure", { code });
   try {
-    const result = await query<{
-      id: string;
-      code: string;
-      title: string;
-      description: string | null;
-      category: string;
-      priority: string;
-      estimated_time_min: number;
-      required_roles: string[];
-      global_safety_instructions: string[];
-      metadata_json: Record<string, unknown>;
-      created_at: string;
-      updated_at: string | null;
-      steps: unknown[];
-    }>(
+    const result = await query<Record<string, unknown>>(
       `SELECT p.id, p.code, p.title, p.description, p.category, p.priority, p.estimated_time_min,
-              p.required_roles, p.global_safety_instructions, p.metadata_json, p.created_at, p.updated_at,
+              p.required_roles, p.global_safety_instructions, p.location_type, p.location_path,
+              p.bloc_code, p.equipement_code, p.criticality, p.status, p.subcategory, p.department,
+              p.version, p.parameters, p.post_execution, p.media_library, p.prerequisites,
+              p.last_executed_at, p.execution_count, p.author_id, p.created_at, p.updated_at,
               COALESCE(JSON_AGG(
                 JSON_BUILD_OBJECT(
                   'id', ps.step_id,
+                  'procedureId', ps.procedure_id,
+                  'stepOrder', ps.step_order,
+                  'stepId', ps.step_id,
                   'title', ps.title,
                   'subtitle', ps.subtitle,
                   'instructions', ps.instructions,
@@ -129,6 +131,7 @@ export async function getProcedureById(
                   'dependencies', ps.dependencies,
                   'mediaRequirements', ps.media_requirements,
                   'alarms', ps.alarms,
+                  'alarmCodes', ps.alarm_codes,
                   'attachments', ps.attachments,
                   'order', ps.step_order,
                   'timerEnabled', ps.timer_enabled,
@@ -147,20 +150,7 @@ export async function getProcedureById(
       return null;
     }
 
-    const row = result.rows[0];
-    const procedure: TProcedure = {
-      metadata: {
-        title: row.title,
-        description: row.description ?? undefined,
-        category: row.category,
-        priority: row.priority as "basse" | "moyenne" | "haute" | "critique",
-        estimatedTimeMinutes: row.estimated_time_min,
-        requiredRoles: row.required_roles || [],
-        globalSafetyInstructions: row.global_safety_instructions || [],
-        code: row.code,
-      },
-      steps: (row.steps as TProcedure["steps"]) || [],
-    };
+    const procedure = mapRowToProcedure(result.rows[0]);
 
     try {
       validateProcedure(procedure);
@@ -195,10 +185,21 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
     title: metadata.title,
   });
 
+  const client = await (await import("@/lib/db")).getPool().connect();
   try {
-    const result = await query<{ id: string }>(
-      `INSERT INTO procedures (code, title, description, category, priority, estimated_time_min, required_roles, global_safety_instructions, metadata_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    await client.query("BEGIN");
+
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO procedures (
+         code, title, description, category, priority, estimated_time_min,
+         required_roles, global_safety_instructions, location_type, location_path,
+         bloc_code, equipement_code, criticality, status, subcategory, department,
+         version, parameters, post_execution, media_library, prerequisites,
+         last_executed_at, execution_count, author_id, metadata_json, created_at, updated_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+         $17, $18, $19, $20, $21, $22, $23, $24, $25, COALESCE($26, NOW())
+       )
        ON CONFLICT (code) DO UPDATE SET
          title = EXCLUDED.title,
          description = EXCLUDED.description,
@@ -207,6 +208,22 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
          estimated_time_min = EXCLUDED.estimated_time_min,
          required_roles = EXCLUDED.required_roles,
          global_safety_instructions = EXCLUDED.global_safety_instructions,
+         location_type = EXCLUDED.location_type,
+         location_path = EXCLUDED.location_path,
+         bloc_code = EXCLUDED.bloc_code,
+         equipement_code = EXCLUDED.equipement_code,
+         criticality = EXCLUDED.criticality,
+         status = EXCLUDED.status,
+         subcategory = EXCLUDED.subcategory,
+         department = EXCLUDED.department,
+         version = EXCLUDED.version,
+         parameters = EXCLUDED.parameters,
+         post_execution = EXCLUDED.post_execution,
+         media_library = EXCLUDED.media_library,
+         prerequisites = EXCLUDED.prerequisites,
+         last_executed_at = EXCLUDED.last_executed_at,
+         execution_count = EXCLUDED.execution_count,
+         author_id = EXCLUDED.author_id,
          metadata_json = EXCLUDED.metadata_json,
          updated_at = NOW()
        RETURNING id`,
@@ -219,6 +236,22 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
         metadata.estimatedTimeMinutes,
         metadata.requiredRoles,
         metadata.globalSafetyInstructions,
+        metadata.locationType || null,
+        metadata.locationPath || null,
+        metadata.blocCode || null,
+        metadata.equipementCode || null,
+        metadata.criticality || null,
+        metadata.status || null,
+        metadata.subcategory || null,
+        metadata.department || null,
+        metadata.version || null,
+        validated.parameters ?? null,
+        validated.postExecution ?? null,
+        validated.mediaLibrary ?? null,
+        validated.prerequisites ?? null,
+        metadata.lastExecutedAt ?? null,
+        metadata.executionCount ?? 0,
+        metadata.authorId || null,
         JSON.stringify(metadata),
       ],
     );
@@ -229,14 +262,17 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
       procedureId,
     });
 
-    await query("DELETE FROM procedure_steps WHERE procedure_id = $1", [
+    await client.query("DELETE FROM procedure_steps WHERE procedure_id = $1", [
       procedureId,
     ]);
 
     for (const step of validated.steps) {
-      await query(
-        `INSERT INTO procedure_steps (procedure_id, step_order, step_id, title, subtitle, instructions, step_type, is_mandatory, dependencies, media_requirements, alarms, attachments, timer_enabled, timer_seconds)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      await client.query(
+        `INSERT INTO procedure_steps (
+           procedure_id, step_order, step_id, title, subtitle, instructions,
+           step_type, is_mandatory, dependencies, media_requirements, alarms,
+           alarm_codes, attachments, timer_enabled, timer_seconds
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           procedureId,
           step.order,
@@ -249,6 +285,7 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
           step.dependencies,
           JSON.stringify(step.mediaRequirements),
           JSON.stringify(step.alarms),
+          JSON.stringify(step.alarmCodes ?? []),
           step.attachments,
           step.timerEnabled,
           step.timerSeconds,
@@ -256,17 +293,21 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
       );
     }
 
+    await client.query("COMMIT");
     log.info("saveProcedure: procedure saved", {
       code: metadata.code,
       procedureId,
       stepCount: validated.steps.length,
     });
   } catch (error) {
+    await client.query("ROLLBACK");
     log.error("saveProcedure: failed to save procedure", {
       code: metadata.code,
       error,
     });
     throw error;
+  } finally {
+    client.release();
   }
 }
 

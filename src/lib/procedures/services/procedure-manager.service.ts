@@ -35,6 +35,7 @@ export function addStep(procedure: TProcedure): TProcedure {
     dependencies: [],
     mediaRequirements: [],
     alarms: [],
+    alarmCodes: [],
     attachments: [],
     order: procedure.steps.length,
     timerEnabled: false,
