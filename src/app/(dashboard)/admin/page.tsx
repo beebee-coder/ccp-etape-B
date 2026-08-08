@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Users, FileText, Activity, AlertTriangle, Trash2 } from "lucide-react";
 
-import { SyncLocalButton } from "@/components/admin/SyncLocalButton";
+import { SyncRegistryButton } from "@/components/admin/SyncRegistryButton";
 
 export default function AdminDashboard() {
   const stats = [
@@ -61,7 +61,7 @@ export default function AdminDashboard() {
         >
           Exporter
         </Button>
-        <SyncLocalButton />
+        <SyncRegistryButton />
         <Button
           size="sm"
           onClick={() => alert("Données rafraîchies")}

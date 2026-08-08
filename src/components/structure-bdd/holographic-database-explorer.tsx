@@ -129,7 +129,12 @@ export function HolographicDatabaseExplorer() {
             totalNodes: convertedNodes.length,
             dirs: convertedNodes.filter((n) => n.kind === "directory").length,
             files: convertedNodes.filter((n) => n.kind === "document").length,
-            sample: convertedNodes.slice(0, 10).map((n) => ({ name: n.name, kind: n.kind, children: n.children?.length ?? 0 })),
+            tree: convertedNodes.map((n) => ({
+              name: n.name,
+              kind: n.kind,
+              path: n.path,
+              children: n.children?.map((c) => ({ name: c.name, kind: c.kind, path: c.path, children: c.children?.length ?? 0 })) ?? [],
+            })),
           });
 
           if (convertedNodes.length > 0) {

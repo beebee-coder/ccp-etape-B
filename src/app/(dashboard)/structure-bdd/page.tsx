@@ -4,7 +4,7 @@ import { Database, Table, Layers } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HolographicDatabaseExplorer } from "@/components/structure-bdd/holographic-database-explorer";
 import { RegistryExplorer } from "@/components/structure-bdd/registry-explorer";
-import { SyncWebToLocalButton } from "@/components/admin/SyncWebToLocalButton";
+import { SyncRegistryButton } from "@/components/admin/SyncRegistryButton";
 import { LocalDbStatus } from "@/components/admin/LocalDbStatus";
 
 export default function StructureBDDPage() {
@@ -49,7 +49,7 @@ export default function StructureBDDPage() {
             </TabsTrigger>
           </TabsList>
 
-          <SyncWebToLocalButton />
+          <SyncRegistryButton />
         </div>
 
         <TabsContent value="schema" className="mt-0">

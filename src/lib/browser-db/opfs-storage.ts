@@ -60,7 +60,7 @@ export class OpfsStorageManager {
     console.info("[OpfsStorage] extractZipToOpfs start", {
       totalEntries: fileEntries.length,
       zipSize: zipBuffer.byteLength,
-      sample: fileEntries.slice(0, 20),
+      entries: fileEntries,
     });
 
     for (const relativePath of fileEntries) {
@@ -71,25 +71,34 @@ export class OpfsStorageManager {
       }
 
       if (entry.dir) {
-        await this.ensureDirectoryPath(rootHandle, relativePath);
+        try {
+          await this.ensureDirectoryPath(rootHandle, relativePath);
+        } catch (error) {
+          console.warn("[OpfsStorage] ensureDirectoryPath error", { relativePath, error });
+        }
       } else {
         const parts = relativePath.split("/").filter(Boolean);
         const fileName = parts.pop();
         if (!fileName) continue;
 
-        const parentDirHandle = await this.ensureDirectoryPath(rootHandle, parts.join("/"));
-        const fileHandle = await parentDirHandle.getFileHandle(fileName, { create: true });
-        const content = await entry.async("uint8array");
+        try {
+          const parentDirHandle = await this.ensureDirectoryPath(rootHandle, parts.join("/"));
+          const fileHandle = await parentDirHandle.getFileHandle(fileName, { create: true });
+          const content = await entry.async("uint8array");
 
-        const writable = await fileHandle.createWritable();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await writable.write(content as any);
-        await writable.close();
+          const writable = await fileHandle.createWritable();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await writable.write(content as any);
+          await writable.close();
+        } catch (error) {
+          console.warn("[OpfsStorage] writeFile error", { relativePath, error });
+        }
       }
     }
 
     console.info("[OpfsStorage] extractZipToOpfs done", {
       filesExtracted: count,
+      entries: fileEntries,
     });
 
     return { filesExtracted: count };
@@ -146,7 +155,12 @@ export class OpfsStorageManager {
         totalNodes: nodes.length,
         dirs: nodes.filter((n) => n.kind === "directory").length,
         files: nodes.filter((n) => n.kind === "document").length,
-        sample: nodes.map((n) => ({ name: n.name, kind: n.kind, path: n.path, children: n.children?.length ?? 0 })),
+        tree: nodes.map((n) => ({
+          name: n.name,
+          kind: n.kind,
+          path: n.path,
+          children: n.children?.map((c) => ({ name: c.name, kind: c.kind, path: c.path, children: c.children?.length ?? 0 })) ?? [],
+        })),
       });
     }
 
