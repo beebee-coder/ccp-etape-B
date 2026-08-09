@@ -114,6 +114,16 @@ function buildTree(
     buildTree(base, relPath ? `${relPath}/${entryName}` : entryName, vectorizedPaths),
   );
 
+  return {
+    name,
+    path: normalizedRelPath,
+    kind: "directory",
+    children,
+    vectorized: false,
+    ...(libelle ? { libelle } : {}),
+  };
+}
+
 interface LocationNodeRow {
   path: string;
   libelle?: string;
