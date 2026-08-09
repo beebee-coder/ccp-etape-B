@@ -134,6 +134,7 @@ export function HolographicDatabaseExplorer() {
   // Arborescences
   const [localeDbStructure, setLocaleDbStructure] = useState<DatabaseStructure | null>(null);
   const [registryStructure, setRegistryStructure]  = useState<DatabaseStructure | null>(null);
+  const [tauriDbStructure, setTauriDbStructure]    = useState<DatabaseStructure | null>(null);
 
   const [loading, setLoading]         = useState(true);
   const [dataSource, setDataSource]   = useState<DataSource>("empty");
@@ -200,25 +201,43 @@ export function HolographicDatabaseExplorer() {
         children: convertApiNodes(data.registry.children ?? []),
       });
     }
+
+    try {
+      const tauriRes = await fetch(`/api/structure/fs?root=tauri-local-db&t=${Date.now()}`);
+      if (tauriRes.ok) {
+        const tauriData = await tauriRes.json() as { children?: ApiTreeNode[] };
+        setTauriDbStructure({
+          id: ".tauri-local-db",
+          name: ".tauri-local-db",
+          kind: "database",
+          path: ".tauri-local-db",
+          indexed: false,
+          vectorized: false,
+          children: convertApiNodes(tauriData.children ?? []),
+        });
+      }
+    } catch (e) {
+      console.warn("[HolographicDatabaseExplorer] loadBothFromApi tauri error", e);
+    }
   }, []);
 
-  const loadRegistryFromApi = useCallback(async () => {
+  const loadTauriDbFromApi = useCallback(async () => {
     try {
-      const res  = await fetch(`/api/structure/fs?root=registry&t=${Date.now()}`);
+      const res  = await fetch(`/api/structure/fs?root=tauri-local-db&t=${Date.now()}`);
       const data = await res.json() as { children?: ApiTreeNode[] };
-      setRegistryStructure({
-        id: ".registry",
-        name: ".registry",
+      setTauriDbStructure({
+        id: ".tauri-local-db",
+        name: ".tauri-local-db",
         kind: "database",
-        path: ".registry",
+        path: ".tauri-local-db",
         indexed: false,
         vectorized: false,
         children: convertApiNodes(data.children ?? []),
       });
     } catch (e) {
-      console.warn("[HolographicDatabaseExplorer] loadRegistryFromApi error", e);
+      console.warn("[HolographicDatabaseExplorer] loadTauriDbFromApi error", e);
     }
-  }, []);
+  }, [setTauriDbStructure]);
 
   const loadStructure = useCallback(async () => {
     setLoading(true);
@@ -313,9 +332,9 @@ export function HolographicDatabaseExplorer() {
         }
       }
 
-      // Si l'API a retourné des données partielles, on tente de charger registry via API
+      // Si l'API a retourné des données partielles, on tente de charger la BDD locale Tauri via API
       if (apiSucceeded) {
-        await loadRegistryFromApi();
+        await loadTauriDbFromApi();
         // Invalider le cache OPFS pour éviter qu'une structure obsolète
         // ne soit réutilisée lors des prochains chargements.
         try {
@@ -327,7 +346,7 @@ export function HolographicDatabaseExplorer() {
           // ignore OPFS clear errors
         }
       } else {
-        await loadRegistryFromApi();
+        await loadTauriDbFromApi();
       }
     } catch (e) {
       console.error("[HolographicDatabaseExplorer] loadStructure error", e);
@@ -335,7 +354,7 @@ export function HolographicDatabaseExplorer() {
     } finally {
       setLoading(false);
     }
-  }, [loadBothFromApi, loadRegistryFromApi]);
+  }, [loadBothFromApi, loadTauriDbFromApi]);
 
   useEffect(() => { loadStructure(); }, [loadStructure]);
 
@@ -690,7 +709,7 @@ export function HolographicDatabaseExplorer() {
 
   const selected = allNodes.find((n) => n.id === selectedId) ?? null;
   const localeDbStats  = useMemo(() => localeDbStructure  ? aggregateStats(localeDbStructure)  : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [localeDbStructure]);
-  const registryStats  = useMemo(() => registryStructure  ? aggregateStats(registryStructure)  : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [registryStructure]);
+  const tauriDbStats   = useMemo(() => tauriDbStructure    ? aggregateStats(tauriDbStructure)    : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [tauriDbStructure]);
   const indexedStats   = useMemo(() => aggregateStats(indexedLocaleDb), [indexedLocaleDb]);
 
   // ─── Badge de source ──────────────────────────────────────────────────────
@@ -805,12 +824,12 @@ export function HolographicDatabaseExplorer() {
         </Card>
       )}
 
-      {!loading && (localeDbStructure ?? registryStructure) && (
+      {!loading && (localeDbStructure ?? tauriDbStructure) && (
         <>
           {/* Stats ribbon */}
           <DbStatsRibbon
             localeDbFiles={localeDbStats.documents}
-            registryFiles={registryStats.documents}
+            registryFiles={tauriDbStats.documents}
             totalVectors={indexedStats.vectors}
             totalChunks={indexedStats.chunks}
           />
@@ -891,13 +910,13 @@ export function HolographicDatabaseExplorer() {
               vectorizationState={vectorizationState}
             />
 
-            {/* Panneau droit — .registry */}
-            {registryStructure && (
+            {/* Panneau droit — BDD locale Tauri */}
+            {tauriDbStructure && (
               <TreePanel
-                label=".registry"
-                subtitle="Registre des ressources"
-                structure={registryStructure}
-                accent="registry"
+                label="BDD locale"
+                subtitle="Base locale Tauri"
+                structure={tauriDbStructure}
+                accent="schema"
                 expanded={expanded}
                 onToggle={toggleNode}
                 onSelect={onSelect}
@@ -907,18 +926,20 @@ export function HolographicDatabaseExplorer() {
                 searchTerm={searchTerm}
                 matchIds={matchIds}
                 highlightAncestors={highlightAncestors}
-                onPreview={(node) => handlePreview(node, "registry")}
-                onDelete={(p) => handleDelete(p, "registry")}
+                onPreview={(node) => handlePreview(node, "locale-db")}
+                onDelete={(p) => handleDelete(p, "locale-db")}
                 onRename={(p, name) => {
-                  setModal({ mode: "rename", root: "registry", targetPath: p, defaultName: name });
+                  setModal({ mode: "rename", root: "locale-db", targetPath: p, defaultName: name });
                   setModalName(name);
                 }}
                 onCreate={(p) => {
-                  setModal({ mode: "create", root: "registry", parentPath: p });
+                  setModal({ mode: "create", root: "locale-db", parentPath: p });
                   setModalName("");
                   setModalKind("file");
                   setSelectedFile(null);
                 }}
+                onVectorize={handleVectorize}
+                loadingNodes={loadingNodes}
               />
             )}
           </div>
@@ -927,7 +948,7 @@ export function HolographicDatabaseExplorer() {
             <span className="inline-flex items-center gap-1.5">
               <Layers className="h-3 w-3" />
               Panneau gauche : arborescence physique <code className="font-mono">.locale-db</code> —
-              Panneau droit : arborescence physique <code className="font-mono">.registry</code>
+              Panneau droit : arborescence BDD locale Tauri
             </span>
           </div>
         </>
@@ -1123,7 +1144,7 @@ function DbStatsRibbon({
 }) {
   const counters: { label: string; value: number; Icon: ComponentType<{ className?: string }>; color: string }[] = [
     { label: ".locale-db fichiers", value: localeDbFiles,  Icon: Database, color: "hsl(210 90% 65%)" },
-    { label: ".registry fichiers",  value: registryFiles,  Icon: FolderOpen, color: "hsl(270 80% 65%)" },
+    { label: "BDD locale Tauri",   value: registryFiles,  Icon: FolderOpen, color: "hsl(270 80% 65%)" },
     { label: "Vecteurs",            value: totalVectors,   Icon: BarChart3, color: "hsl(150 80% 50%)" },
     { label: "Chunks",              value: totalChunks,    Icon: Layers,   color: "hsl(270 80% 70%)" },
   ];

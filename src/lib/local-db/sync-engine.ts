@@ -62,8 +62,11 @@ export class SyncEngine {
 
     try {
       const pendingItems = this.dataSource.getPendingSyncItems();
+      const failedItems = this.dataSource.getFailedSyncItems();
 
-      for (const item of pendingItems) {
+      const allItems = [...pendingItems, ...failedItems];
+
+      for (const item of allItems) {
         try {
           await this.syncItem(item);
           this.dataSource.updateSyncItemStatus(item.id, "synced");
@@ -94,6 +97,7 @@ export class SyncEngine {
     } finally {
       this.isProcessing = false;
       this.dataSource.setSyncEngineState(false);
+      this.recoveryAttempted = false;
     }
 
     return { processed, failed };

@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/sync-tauredb-from-locale-db.js",
     "dev": "next dev",
-    "build": "next build && node scripts/copy-registry-to-standalone.js && node scripts/copy-local-db-to-standalone.js",
+    "build": "next build && node scripts/copy-registry-to-standalone.js && node scripts/copy-local-db-to-standalone.js && node scripts/copy-tauredb-to-standalone.js",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getUploadedFileById, deleteUploadedFile } from "@/lib/q-r/file-store";
 import { requireRole } from "@/lib/api/auth";
 import { createLogger } from "@/lib/logger";
+import { readFile, unlink, readdir, rmdir } from "fs/promises";
+import { dirname } from "path";
 
 const log = createLogger({ module: "api-q-r-upload-file" });
 
@@ -25,11 +27,9 @@ export async function GET(
       return NextResponse.json({ error: "Fichier non trouvé" }, { status: 404 });
     }
 
-    const { readFileSync } = await import("fs");
-
     let content: string;
     try {
-      content = readFileSync(file.filePath, "utf-8");
+      content = await readFile(file.filePath, "utf-8");
     } catch {
       log.error("GET /api/q-r/upload/[fileId]: file not found on disk", { fileId, filePath: file.filePath });
       return NextResponse.json({ error: "Fichier introuvable sur le disque" }, { status: 404 });
@@ -74,11 +74,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Fichier non trouvé" }, { status: 404 });
     }
 
-    const { unlinkSync, readdirSync, rmdirSync } = await import("fs");
-    const { dirname } = await import("path");
-
     try {
-      unlinkSync(file.filePath);
+      await unlink(file.filePath);
       log.debug("DELETE /api/q-r/upload/[fileId]: file deleted from disk", { fileId, filePath: file.filePath });
     } catch {
       log.warn("DELETE /api/q-r/upload/[fileId]: file already deleted from disk", { fileId, filePath: file.filePath });
@@ -86,9 +83,9 @@ export async function DELETE(
 
     try {
       const dir = dirname(file.filePath);
-      const remainingFiles = readdirSync(dir);
+      const remainingFiles = await readdir(dir);
       if (remainingFiles.length === 0) {
-        rmdirSync(dir);
+        await rmdir(dir);
         log.debug("DELETE /api/q-r/upload/[fileId]: empty directory removed", { directory: dir });
       }
     } catch {

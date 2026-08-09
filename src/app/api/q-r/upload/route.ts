@@ -36,9 +36,9 @@ export async function POST(request: Request) {
     }
 
     const setName = file.name.replace(/\.json$/i, "");
-    const version = findNextVersion(setName);
-    const { filePath, fileName } = saveUploadedFile(setName, version, content);
-    const directory = getQrSetDirectory(setName);
+    const version = await findNextVersion(setName);
+    const { filePath, fileName } = await saveUploadedFile(setName, version, content);
+    const directory = await getQrSetDirectory(setName);
 
     await storeUploadedFile(
       fileName,
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
         version,
         qaCount: qaPairs.length,
         filePath,
-        message: `Fichier "${fileName}" uploadé avec succès (${qaPairs} paire(s) Q/R)`,
+        message: `Fichier "${fileName}" uploadé avec succès (${qaPairs.length} paire(s) Q/R)`,
       },
     }, { status: 201 });
   } catch (error) {

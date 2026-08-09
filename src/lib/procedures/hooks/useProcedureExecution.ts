@@ -149,18 +149,16 @@ export function useProcedureExecution({
   const goToStep = useCallback(
     (index: number) => {
       if (index >= 0 && index < sortedSteps.current.length) {
-        stopTimer();
         setContext((ctx) => ({ ...ctx, currentStepIndex: index }));
         setPhase("executing");
       }
     },
-    [stopTimer]
+    []
   );
 
   const nextStep = useCallback(() => {
     const current = contextRef.current;
     if (current.currentStepIndex < sortedSteps.current.length - 1) {
-      stopTimer();
       setContext((ctx) => ({
         ...ctx,
         currentStepIndex: ctx.currentStepIndex + 1,
@@ -170,18 +168,16 @@ export function useProcedureExecution({
       }));
     } else {
       setPhase("completed");
-      stopTimer();
       onComplete?.(current);
     }
-  }, [stopTimer, onComplete]);
+  }, [onComplete]);
 
   const previousStep = useCallback(() => {
     const current = contextRef.current;
     if (current.currentStepIndex > 0) {
-      stopTimer();
       setContext((ctx) => ({ ...ctx, currentStepIndex: ctx.currentStepIndex - 1 }));
     }
-  }, [stopTimer]);
+  }, []);
 
   const completeStep = useCallback(
     (stepId: string) => {

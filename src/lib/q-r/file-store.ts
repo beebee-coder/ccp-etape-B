@@ -1,12 +1,15 @@
 import { query } from "@/lib/db";
-import { mkdirSync, existsSync, writeFileSync, readdirSync } from "fs";
+import { readdir } from "fs/promises";
+import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
 
 const UPLOADS_DIR = join(process.cwd(), "uploads");
 
-function ensureUploadsDir(): void {
-  if (!existsSync(UPLOADS_DIR)) {
-    mkdirSync(UPLOADS_DIR, { recursive: true });
+async function ensureUploadsDir(): Promise<void> {
+  try {
+    await access(UPLOADS_DIR);
+  } catch {
+    await mkdir(UPLOADS_DIR, { recursive: true });
   }
 }
 
@@ -123,37 +126,41 @@ export function getUploadsDir(): string {
   return UPLOADS_DIR;
 }
 
-export function getQrSetDirectory(setName: string): string {
-  ensureUploadsDir();
+export async function getQrSetDirectory(setName: string): Promise<string> {
+  await ensureUploadsDir();
   const sanitized = sanitizeFileName(setName);
   return join(UPLOADS_DIR, sanitized);
 }
 
-export function findNextVersion(setName: string): number {
-  const dir = getQrSetDirectory(setName);
-  if (!existsSync(dir)) return 1;
-
-  const files = readdirSync(dir);
-  const jsonFiles = files.filter((f) => f.endsWith(".json"));
-  return jsonFiles.length + 1;
+export async function findNextVersion(setName: string): Promise<number> {
+  const dir = await getQrSetDirectory(setName);
+  try {
+    const files = await readdir(dir);
+    const jsonFiles = files.filter((f) => f.endsWith(".json"));
+    return jsonFiles.length + 1;
+  } catch {
+    return 1;
+  }
 }
 
-export function saveUploadedFile(
+export async function saveUploadedFile(
   setName: string,
   version: number,
   content: string
-): { filePath: string; fileName: string } {
-  ensureUploadsDir();
-  const dir = getQrSetDirectory(setName);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+): Promise<{ filePath: string; fileName: string }> {
+  await ensureUploadsDir();
+  const dir = await getQrSetDirectory(setName);
+  try {
+    await access(dir);
+  } catch {
+    await mkdir(dir, { recursive: true });
   }
 
   const sanitized = sanitizeFileName(setName);
   const fileName = `${sanitized} ${version}.json`;
   const filePath = join(dir, fileName);
 
-  writeFileSync(filePath, content, "utf-8");
+  await writeFile(filePath, content, "utf-8");
   return { filePath, fileName };
 }
 

@@ -3,7 +3,7 @@ const nextConfig = {
   output: "standalone",
   experimental: {
     outputFileTracingExcludes: {
-      "*": [".locale-db/**", ".registry/**", "src-tauri/**"],
+      "*": [".locale-db/**", ".registry/**", ".tauri-local-db/**", "src-tauri/**"],
     },
   },
   /**

@@ -25,18 +25,22 @@ const REGISTRY_ROOT  = path.join(PROJECT_ROOT, ".registry");
 const LOCALE_DB_LOCK = path.join(LOCALE_DB_ROOT, ".locale-db.lock");
 const REGISTRY_LOCK  = path.join(REGISTRY_ROOT,  ".registry.lock");
 const VECTOR_INDEX_DIR = path.join(LOCALE_DB_ROOT, ".vector-index");
+const TAURI_DB_ROOT = path.join(PROJECT_ROOT, ".tauri-local-db");
+const TAURI_DB_LOCK = path.join(TAURI_DB_ROOT, ".tauri-local-db.lock");
 const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
 
 console.info("[API /api/structure/fs] init", {
   PROJECT_ROOT,
   localeDbExists: fs.existsSync(LOCALE_DB_ROOT),
   registryExists: fs.existsSync(REGISTRY_ROOT),
+  tauriDbExists: fs.existsSync(TAURI_DB_ROOT),
 });
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function getRootInfo(rootParam: string | null): { root: string; lock: string } {
   if (rootParam === "registry") return { root: REGISTRY_ROOT, lock: REGISTRY_LOCK };
+  if (rootParam === "tauri-local-db") return { root: TAURI_DB_ROOT, lock: TAURI_DB_LOCK };
   return { root: LOCALE_DB_ROOT, lock: LOCALE_DB_LOCK };
 }
 

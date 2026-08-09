@@ -1,8 +1,8 @@
 import fs from "fs";
+import { mkdir, access, readFile, readdir, stat } from "fs/promises";
 import path from "path";
 import { query, provider } from "@/lib/db";
 import { createLogger } from "@/lib/logger";
-import { SyncEngine } from "@/lib/local-db/sync-engine";
 import type {
   QAItem,
   QAItemCreatePayload,
@@ -52,10 +52,12 @@ function buildLocalFilePath(location: { locationType: string; locationPath?: str
   return path.join(root, "registry", "items", `global-qa-${Date.now()}.json`);
 }
 
-function writeQAFile(filePath: string, question: string, answer: string, title: string, location: { locationType: string; locationPath?: string; blocCode?: string; equipementCode?: string; groupePath?: string } | undefined): void {
+async function writeQAFile(filePath: string, question: string, answer: string, title: string, location: { locationType: string; locationPath?: string; blocCode?: string; equipementCode?: string; groupePath?: string } | undefined): Promise<void> {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    await access(dir);
+  } catch {
+    await mkdir(dir, { recursive: true });
   }
   const payload = {
     type: "qa",
@@ -70,7 +72,7 @@ function writeQAFile(filePath: string, question: string, answer: string, title: 
       : undefined,
     pairs: [{ question, answer }],
   };
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf-8");
+  await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), "utf-8");
 }
 
 function rowToQA(row: KnowledgeItemRow): QAItem {
@@ -179,22 +181,39 @@ export async function createQAItem(
   log.debug("createQAItem: item created", { id, title });
 
   const filePath = buildLocalFilePath(location);
-  writeQAFile(filePath, payload.question, payload.answer, title, location);
+  try {
+    await writeQAFile(filePath, payload.question, payload.answer, title, location);
+  } catch (fileError) {
+    log.error("createQAItem: failed to write registry file, rolling back DB insert", {
+      id,
+      filePath,
+      error: fileError,
+    });
+    await query(`DELETE FROM knowledge_items WHERE id = $1`, [id]);
+    throw new Error("Échec de l'écriture du fichier Q/R, opération annulée");
+  }
 
-  await SyncEngine.getInstance().enqueue("create", "qa", id, {
-    id,
-    userId,
-    question: payload.question,
-    answer: payload.answer,
-    title,
-    category: payload.category || null,
-    tags: payload.tags || [],
-    locationType,
-    locationPath,
-    blocCode,
-    equipementCode,
-    filePath,
-  });
+  if (typeof window !== "undefined") {
+    try {
+      const { SyncEngine } = await import("@/lib/local-db/sync-engine");
+      await SyncEngine.getInstance().enqueue("create", "qa", id, {
+        id,
+        userId,
+        question: payload.question,
+        answer: payload.answer,
+        title,
+        category: payload.category || null,
+        tags: payload.tags || [],
+        locationType,
+        locationPath,
+        blocCode,
+        equipementCode,
+        filePath,
+      });
+    } catch (syncError) {
+      log.warn("createQAItem: local sync skipped", { id, error: syncError });
+    }
+  }
 
   return rowToQA(result.rows[0]);
 }
@@ -264,16 +283,23 @@ export async function updateQAItem(
   }
   log.debug("updateQAItem: item updated", { id });
 
-  await SyncEngine.getInstance().enqueue("update", "qa", id, {
-    id,
-    userId,
-    question: payload.question,
-    answer: payload.answer,
-    title: payload.title,
-    category: payload.category,
-    tags: payload.tags,
-    location: payload.location,
-  });
+  if (typeof window !== "undefined") {
+    try {
+      const { SyncEngine } = await import("@/lib/local-db/sync-engine");
+      await SyncEngine.getInstance().enqueue("update", "qa", id, {
+        id,
+        userId,
+        question: payload.question,
+        answer: payload.answer,
+        title: payload.title,
+        category: payload.category,
+        tags: payload.tags,
+        location: payload.location,
+      });
+    } catch (syncError) {
+      log.warn("updateQAItem: local sync skipped", { id, error: syncError });
+    }
+  }
 
   return rowToQA(result.rows[0]);
 }
@@ -307,10 +333,17 @@ export async function deleteQAItem(
   }
   log.debug("deleteQAItem: item deleted", { id });
 
-  await SyncEngine.getInstance().enqueue("delete", "qa", id, {
-    id,
-    userId,
-  });
+  if (typeof window !== "undefined") {
+    try {
+      const { SyncEngine } = await import("@/lib/local-db/sync-engine");
+      await SyncEngine.getInstance().enqueue("delete", "qa", id, {
+        id,
+        userId,
+      });
+    } catch (syncError) {
+      log.warn("deleteQAItem: local sync skipped", { id, error: syncError });
+    }
+  }
 
   return true;
 }
@@ -390,25 +423,42 @@ async function getRegistryQRPairs(): Promise<Array<{ question: string; answer: s
     path.join(process.cwd(), ".locale-db", "registry", "items"),
   ];
 
-  function walkDir(dir: string, relativePrefix = ""): void {
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+  async function walkDir(dir: string, relativePrefix = ""): Promise<void> {
+    try {
+      const dirStat = await stat(dir);
+      if (!dirStat.isDirectory()) {
+        return;
+      }
+    } catch {
       return;
     }
 
-    const entries = fs.readdirSync(dir);
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      return;
+    }
+
     for (const entry of entries) {
       const fullPath = path.join(dir, entry);
-      const stat = fs.statSync(fullPath);
+      let fileStat: fs.Stats;
 
-      if (stat.isDirectory()) {
-        walkDir(fullPath, relativePrefix ? `${relativePrefix}/${entry}` : entry);
+      try {
+        fileStat = await stat(fullPath);
+      } catch {
+        continue;
+      }
+
+      if (fileStat.isDirectory()) {
+        await walkDir(fullPath, relativePrefix ? `${relativePrefix}/${entry}` : entry);
         continue;
       }
 
       if (!entry.endsWith(".json")) continue;
 
       try {
-        const raw = fs.readFileSync(fullPath, "utf-8");
+        const raw = await readFile(fullPath, "utf-8");
         const parsed = JSON.parse(raw);
         const source = relativePrefix ? `${relativePrefix}/${entry.replace(/\.json$/i, "")}` : entry.replace(/\.json$/i, "");
 
@@ -432,7 +482,7 @@ async function getRegistryQRPairs(): Promise<Array<{ question: string; answer: s
   }
 
   for (const root of roots) {
-    walkDir(root);
+    await walkDir(root);
   }
 
   return pairs;

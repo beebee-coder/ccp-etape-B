@@ -349,6 +349,16 @@ export class LocalDataSource {
       .map((row) => this.rowToSyncQueueItem(row as Record<string, unknown>));
   }
 
+  getFailedSyncItems(maxRetries: number = 3): SyncQueueItem[] {
+    const db = this.getDb();
+    const stmt = db.prepare(
+      `SELECT * FROM sync_queue WHERE status = 'failed' AND retry_count < ? ORDER BY timestamp ASC`,
+    );
+    return stmt
+      .all(maxRetries)
+      .map((row) => this.rowToSyncQueueItem(row as Record<string, unknown>));
+  }
+
   updateSyncItemStatus(
     id: string,
     status: "synced" | "failed",
