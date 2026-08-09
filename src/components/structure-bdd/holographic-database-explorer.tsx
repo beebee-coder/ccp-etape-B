@@ -162,61 +162,6 @@ export function HolographicDatabaseExplorer() {
 
   // ─── Chargement ──────────────────────────────────────────────────────────
 
-  const loadStructure = useCallback(async () => {
-    setLoading(true);
-    try {
-      const isBrowser = typeof window !== "undefined";
-      const isTauri   = isBrowser && "__TAURI__" in window;
-
-      // ── En environnement de dev (localhost / Next dev / Tauri), charger toujours les vrais répertoires physiques du projet ──────────────
-      if (!isBrowser || isTauri || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-        await loadBothFromApi();
-        return;
-      }
-
-      // ── En environnement web hébergé (Vercel, etc.) + OPFS disponible ─────────────
-      if (isBrowser) {
-        const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-        if (opfsStorage.isSupported()) {
-          const [opfsNodes, vecPaths] = await Promise.all([
-            opfsStorage.getTree(),
-            opfsStorage.getVectorizedPaths(),
-          ]);
-
-          const hasData = opfsNodes.some((n) => n.name === "Centrale" || n.name === "Groupes" || n.kind === "document");
-
-          if (hasData) {
-            const children = convertOpfsNodes(opfsNodes, vecPaths);
-            setLocaleDbStructure({
-              id: ".locale-db",
-              name: ".locale-db (OPFS — Navigateur)",
-              kind: "database",
-              path: ".locale-db",
-              indexed: false,
-              vectorized: false,
-              children,
-            });
-            setVectorizedFiles(vecPaths);
-            setOpfsInUse(true);
-            setDataSource("opfs");
-
-            await loadRegistryFromApi();
-            setLoading(false);
-            return;
-          }
-        }
-      }
-
-      // Fallback API unifiée
-      await loadBothFromApi();
-    } catch (e) {
-      console.error("[HolographicDatabaseExplorer] loadStructure error", e);
-      toast.error("Erreur lors du chargement des répertoires");
-    } finally {
-      setLoading(false);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const loadBothFromApi = useCallback(async () => {
     const res  = await fetch(`/api/structure/fs?unified=true&t=${Date.now()}`);
     const data = await res.json() as {
@@ -274,6 +219,123 @@ export function HolographicDatabaseExplorer() {
       console.warn("[HolographicDatabaseExplorer] loadRegistryFromApi error", e);
     }
   }, []);
+
+  const loadStructure = useCallback(async () => {
+    setLoading(true);
+    try {
+      const isBrowser = typeof window !== "undefined";
+      const isTauri   = isBrowser && "__TAURI__" in window;
+
+      // ── Straterie de chargement :
+      //   1. Essayer d'abord l'API serveur (source de vérité après déploiement)
+      //   2. Si l'API échoue ou ne retourne rien, fallback OPFS
+      //   3. En dev / Tauri, l'API est toujours prioritaire
+      // ────────────────────────────────────────────────────────────────────────
+      let apiSucceeded = false;
+      if (isBrowser) {
+        try {
+          const res = await fetch(`/api/structure/fs?unified=true&t=${Date.now()}`);
+          if (res.ok) {
+            const data = await res.json() as {
+              localeDb?: ApiTreeNode;
+              registry?: ApiTreeNode;
+              vectorizedPaths?: string[];
+              source?: string;
+            };
+            const vecPaths = new Set<string>(data.vectorizedPaths ?? []);
+            const src: DataSource = (data.source as DataSource) ?? "disk";
+            setDataSource(src);
+            setVectorizedFiles(vecPaths);
+            setOpfsInUse(false);
+
+            if (data.localeDb && (data.localeDb.children?.length ?? 0) > 0) {
+              setLocaleDbStructure({
+                id: ".locale-db",
+                name: src === "disk" ? ".locale-db" : ".locale-db (reconstitué)",
+                kind: "database",
+                path: ".locale-db",
+                indexed: false,
+                vectorized: false,
+                children: convertApiNodes(data.localeDb.children ?? [], vecPaths),
+              });
+              apiSucceeded = true;
+            }
+
+            if (data.registry && (data.registry.children?.length ?? 0) > 0) {
+              setRegistryStructure({
+                id: ".registry",
+                name: ".registry",
+                kind: "database",
+                path: ".registry",
+                indexed: false,
+                vectorized: false,
+                children: convertApiNodes(data.registry.children ?? []),
+              });
+              apiSucceeded = true;
+            }
+          }
+        } catch {
+          // API indisponible, on tentera OPFS ci-dessous
+        }
+      } else {
+        await loadBothFromApi();
+        return;
+      }
+
+      // ── Fallback OPFS seulement si l'API n'a rien retourné ────────────────
+      if (!apiSucceeded && isBrowser && !isTauri) {
+        const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
+        if (opfsStorage.isSupported()) {
+          const [opfsNodes, vecPaths] = await Promise.all([
+            opfsStorage.getTree(),
+            opfsStorage.getVectorizedPaths(),
+          ]);
+
+          const hasData = opfsNodes.some((n) => n.name === "Centrale" || n.name === "Groupes" || n.kind === "document");
+
+          if (hasData) {
+            const children = convertOpfsNodes(opfsNodes, vecPaths);
+            setLocaleDbStructure({
+              id: ".locale-db",
+              name: ".locale-db (OPFS — Navigateur)",
+              kind: "database",
+              path: ".locale-db",
+              indexed: false,
+              vectorized: false,
+              children,
+            });
+            setVectorizedFiles(vecPaths);
+            setOpfsInUse(true);
+            setDataSource("opfs");
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      // Si l'API a retourné des données partielles, on tente de charger registry via API
+      if (apiSucceeded) {
+        await loadRegistryFromApi();
+        // Invalider le cache OPFS pour éviter qu'une structure obsolète
+        // ne soit réutilisée lors des prochains chargements.
+        try {
+          const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
+          if (opfsStorage.isSupported()) {
+            await opfsStorage.clear();
+          }
+        } catch {
+          // ignore OPFS clear errors
+        }
+      } else {
+        await loadRegistryFromApi();
+      }
+    } catch (e) {
+      console.error("[HolographicDatabaseExplorer] loadStructure error", e);
+      toast.error("Erreur lors du chargement des répertoires");
+    } finally {
+      setLoading(false);
+    }
+  }, [loadBothFromApi, loadRegistryFromApi]);
 
   useEffect(() => { loadStructure(); }, [loadStructure]);
 
@@ -464,6 +526,34 @@ export function HolographicDatabaseExplorer() {
     }
     toast.success(`${count} fichier(s) vectorisé(s)`);
   }, [localeDbStructure, vectorizedFiles]);
+
+  const syncOpfsFromServer = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
+      if (!opfsStorage.isSupported()) {
+        toast.error("OPFS non supporté par ce navigateur");
+        return;
+      }
+
+      toast.info("Téléchargement de l'archive .locale-db...");
+      const res = await fetch("/api/local-db/download-archive");
+      if (!res.ok) throw new Error("Impossible de télécharger l'archive");
+      const blob = await res.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+
+      toast.info("Extraction vers OPFS...");
+      await opfsStorage.clear();
+      const result = await opfsStorage.extractZipToOpfs(arrayBuffer);
+
+      toast.success(`OPFS synchronisé : ${result.filesExtracted} fichiers extraits`);
+      await loadStructure();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur lors de la synchronisation OPFS");
+    } finally {
+      setLoading(false);
+    }
+  }, [loadStructure]);
 
   // ─── Helpers UI ───────────────────────────────────────────────────────────
 
@@ -659,6 +749,15 @@ export function HolographicDatabaseExplorer() {
               Recharger depuis le serveur
             </Button>
           )}
+
+          <Button
+            variant="outline" size="sm"
+            onClick={syncOpfsFromServer}
+            className="h-8 rounded-xl border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary"
+          >
+            <HardDrive className="h-4 w-4 mr-2" />
+            Synchroniser OPFS
+          </Button>
 
           <Button
             variant="default" size="sm"

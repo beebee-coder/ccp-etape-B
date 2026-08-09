@@ -368,6 +368,22 @@ export class OpfsStorageManager {
     return { content: res.content, isImage: Boolean(res.isImage) };
   }
 
+  /**
+   * Supprime tous les fichiers et répertoires sous la racine OPFS `local-db`.
+   * Utilisé pour invalider un cache OPFS obsolète après un chargement API réussi.
+   */
+  async clear(): Promise<void> {
+    const root = await this.getRoot();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for await (const [name] of (root as any).entries()) {
+      try {
+        await root.removeEntry(name, { recursive: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  }
+
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
     const chunks = [];
