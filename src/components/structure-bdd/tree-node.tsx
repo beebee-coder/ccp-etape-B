@@ -8,6 +8,7 @@ import {
   Trash2,
   Pencil,
   Wand2,
+  Loader2,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DatabaseTreeNode } from "@/lib/types/structure-bdd";
@@ -35,6 +36,7 @@ export interface TreeNodeProps {
   onRename?: (path: string, currentName: string) => void;
   onCreate?: (parentPath: string) => void;
   onVectorize?: (path: string) => void;
+  loadingNodes?: Set<string>;
 }
 
 export function TreeNode({
@@ -56,6 +58,7 @@ export function TreeNode({
   onRename,
   onCreate,
   onVectorize,
+  loadingNodes,
 }: TreeNodeProps) {
   const hasChildren = (node.children?.length ?? 0) > 0;
   const isExpanded = expanded.has(node.id);
@@ -73,6 +76,7 @@ export function TreeNode({
   const Icon = iconFor(node.kind, isExpanded);
   const vectors = node.stats?.vectors ?? 0;
   const chunks = node.stats?.chunks ?? 0;
+  const isLoadingChildren = loadingNodes?.has(node.id) ?? false;
 
   return (
     <li className="holo-node relative">
@@ -107,7 +111,7 @@ export function TreeNode({
               aria-hidden
             />
           )}
-          {hasChildren ? (
+          {hasChildren || isLoadingChildren ? (
             <button
               type="button"
               onClick={(e) => {
@@ -121,7 +125,9 @@ export function TreeNode({
               )}
               aria-label={isExpanded ? "Réduire" : "Développer"}
             >
-              {isExpanded ? (
+              {isLoadingChildren ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : isExpanded ? (
                 <ChevronDown className="h-3.5 w-3.5" />
               ) : (
                 <ChevronRight className="h-3.5 w-3.5" />

@@ -157,6 +157,8 @@ export function HolographicDatabaseExplorer() {
   const [expanded, setExpanded]     = useState<Set<string>>(() => new Set([".locale-db", ".registry"]));
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loadedChildren, setLoadedChildren] = useState<Set<string>>(() => new Set());
+  const [loadingNodes, setLoadingNodes] = useState<Set<string>>(() => new Set());
 
   // ─── Chargement ──────────────────────────────────────────────────────────
 
@@ -473,6 +475,74 @@ export function HolographicDatabaseExplorer() {
     if (node.children && node.children.length > 0) toggleNode(node.id);
   };
 
+  const findNodeById = (tree: DatabaseStructure | null, id: string): DatabaseTreeNode | null => {
+    if (!tree) return null;
+    const walk = (node: DatabaseTreeNode): DatabaseTreeNode | null => {
+      if (node.id === id) return node;
+      if (!node.children) return null;
+      for (const child of node.children) {
+        const found = walk(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    return walk(tree);
+  };
+
+  const insertChildrenIntoTree = (
+    tree: DatabaseStructure | null,
+    parentId: string,
+    newChildren: DatabaseTreeNode[],
+  ): DatabaseStructure | null => {
+    if (!tree) return tree;
+    const updateNode = (node: DatabaseTreeNode): DatabaseTreeNode => {
+      if (node.id === parentId) {
+        return { ...node, children: newChildren };
+      }
+      if (!node.children) return node;
+      return { ...node, children: node.children.map(updateNode) };
+    };
+    return updateNode(tree) as DatabaseStructure;
+  };
+
+  const loadChildrenForNode = useCallback(async (nodeId: string, root: ActiveRoot) => {
+    if (loadedChildren.has(nodeId)) return;
+    setLoadingNodes((prev) => { const n = new Set(prev); n.add(nodeId); return n; });
+    try {
+      const res = await fetch(`/api/structure/fs?root=${root}&path=${encodeURIComponent(nodeId)}&t=${Date.now()}`);
+      if (!res.ok) return;
+      const data = await res.json() as { children?: ApiTreeNode[] };
+      if (!data.children) return;
+      const newChildren = convertApiNodes(data.children);
+      setLoadedChildren((prev) => { const n = new Set(prev); n.add(nodeId); return n; });
+      if (root === "locale-db") {
+        setLocaleDbStructure((prev) => insertChildrenIntoTree(prev, nodeId, newChildren));
+      } else {
+        setRegistryStructure((prev) => insertChildrenIntoTree(prev, nodeId, newChildren));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingNodes((prev) => { const n = new Set(prev); n.delete(nodeId); return n; });
+    }
+  }, [loadedChildren]);
+
+  useEffect(() => {
+    const loadMissingChildren = async () => {
+      for (const nodeId of Array.from(expanded)) {
+        if (nodeId === ".locale-db" || nodeId === ".registry") continue;
+        const structure = nodeId.startsWith(".registry") ? registryStructure : localeDbStructure;
+        if (!structure) continue;
+        const node = findNodeById(structure, nodeId);
+        if (node && (!node.children || node.children.length === 0)) {
+          const root = nodeId.startsWith(".registry") ? "registry" : "locale-db";
+          await loadChildrenForNode(nodeId, root);
+        }
+      }
+    };
+    loadMissingChildren();
+  }, [expanded, localeDbStructure, registryStructure, loadChildrenForNode]);
+
   // ─── Stats & indices vectorisation ───────────────────────────────────────
 
   const indexedLocaleDb = useMemo<DatabaseStructure>(() => {
@@ -707,6 +777,7 @@ export function HolographicDatabaseExplorer() {
                   setSelectedFile(null);
                 }}
                 onVectorize={handleVectorize}
+                loadingNodes={loadingNodes}
               />
             )}
 
@@ -862,12 +933,13 @@ interface TreePanelProps {
   onRename: (path: string, currentName: string) => void;
   onCreate: (parentPath: string) => void;
   onVectorize?: (path: string) => void;
+  loadingNodes?: Set<string>;
 }
 
 function TreePanel({
   label, subtitle, structure, accent, expanded, onToggle, onSelect, selectedId,
   hoveredId, onHover, searchTerm, matchIds, highlightAncestors,
-  onPreview, onDelete, onRename, onCreate, onVectorize,
+  onPreview, onDelete, onRename, onCreate, onVectorize, loadingNodes,
 }: TreePanelProps) {
   const stats   = aggregateStats(structure);
   const a       = ACCENTS[accent];
@@ -935,6 +1007,7 @@ function TreePanel({
             onRename={onRename}
             onCreate={onCreate}
             onVectorize={onVectorize}
+            loadingNodes={loadingNodes}
           />
         </ul>
       </div>
