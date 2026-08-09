@@ -36,12 +36,32 @@ export class OpfsStorageManager {
     );
   }
 
+  /** Répertoires canoniques conformes à la structure physique de .locale-db */
+  private static readonly CANONICAL_DIRECTORIES = [
+    "Centrale",
+    "Groupes",
+    "procedures",
+    "registry",
+    "bank",
+    "ressources humaines",
+    "test-meta-dir",
+    "web-sync",
+    ".vector-index",
+  ];
+
   async getRoot(): Promise<FileSystemDirectoryHandle> {
     if (!this.isSupported()) {
       throw new Error("L'API OPFS (Origin Private File System) n'est pas supportée par ce navigateur.");
     }
     const root = await navigator.storage.getDirectory();
-    return await root.getDirectoryHandle("local-db", { create: true });
+    const localDbDir = await root.getDirectoryHandle("local-db", { create: true });
+
+    // Initialise l'arborescence physique canonique (conserve les répertoires même vides)
+    for (const dirName of OpfsStorageManager.CANONICAL_DIRECTORIES) {
+      await localDbDir.getDirectoryHandle(dirName, { create: true });
+    }
+
+    return localDbDir;
   }
 
   /**
@@ -236,6 +256,116 @@ export class OpfsStorageManager {
     const fileHandle = await root.getFileHandle(fileName);
     const file = await fileHandle.getFile();
     return file;
+  }
+
+  /**
+   * Crée un fichier dans OPFS au chemin relatif donné.
+   * @param relPath  Chemin relatif depuis la racine OPFS (ex: "Groupes/doc.json")
+   * @param content  Contenu textuel optionnel (défaut : chaîne vide)
+   */
+  async createFile(relPath: string, content = ""): Promise<void> {
+    const root = await this.getRoot();
+    const parts = relPath.split("/").filter(Boolean);
+    const fileName = parts.pop();
+    if (!fileName) throw new Error("Chemin de fichier invalide");
+    const parentDir = await this.ensureDirectoryPath(root, parts.join("/"));
+    const fileHandle = await parentDir.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(new TextEncoder().encode(content));
+    await writable.close();
+  }
+
+  /**
+   * Crée un répertoire (et tous ses parents) dans OPFS.
+   * @param relPath  Chemin relatif depuis la racine OPFS (ex: "Groupes/SousGroupe")
+   */
+  async createDirectory(relPath: string): Promise<void> {
+    const root = await this.getRoot();
+    await this.ensureDirectoryPath(root, relPath);
+  }
+
+  /**
+   * Supprime un fichier ou un répertoire (récursivement) dans OPFS.
+   * @param relPath  Chemin relatif depuis la racine OPFS
+   */
+  async deleteEntry(relPath: string): Promise<void> {
+    const root = await this.getRoot();
+    const parts = relPath.split("/").filter(Boolean);
+    const entryName = parts.pop();
+    if (!entryName) throw new Error("Chemin invalide");
+    let parentDir = root;
+    for (const part of parts) {
+      parentDir = await parentDir.getDirectoryHandle(part);
+    }
+    await parentDir.removeEntry(entryName, { recursive: true });
+  }
+
+  /**
+   * Renomme un fichier ou un répertoire dans OPFS en le copiant puis en supprimant l'original.
+   * @param relPath  Chemin relatif de l'entrée existante
+   * @param newName  Nouveau nom (sans chemin parent)
+   */
+  async renameEntry(relPath: string, newName: string): Promise<void> {
+    const root = await this.getRoot();
+    const parts = relPath.split("/").filter(Boolean);
+    const oldName = parts.pop();
+    if (!oldName || !newName.trim()) throw new Error("Nom invalide");
+
+    let parentDir = root;
+    for (const part of parts) {
+      parentDir = await parentDir.getDirectoryHandle(part);
+    }
+
+    // Tente d'abord via move() (Chrome ≥ 123)
+    try {
+      const handle = await parentDir.getFileHandle(oldName).catch(() => null)
+        ?? await parentDir.getDirectoryHandle(oldName);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (typeof (handle as any).move === "function") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (handle as any).move(newName);
+        return;
+      }
+    } catch {
+      // move() non disponible — fallback copie + suppression
+    }
+
+    // Fallback : copier puis supprimer (fichiers uniquement)
+    const oldFileHandle = await parentDir.getFileHandle(oldName);
+    const file = await oldFileHandle.getFile();
+    const newFileHandle = await parentDir.getFileHandle(newName, { create: true });
+    const writable = await newFileHandle.createWritable();
+    await writable.write(await file.arrayBuffer());
+    await writable.close();
+    await parentDir.removeEntry(oldName, { recursive: true });
+  }
+
+  /**
+   * Écrit le contenu textuel d'un fichier existant dans OPFS.
+   * @param relPath  Chemin relatif depuis la racine OPFS
+   * @param content  Nouveau contenu textuel
+   */
+  async writeFile(relPath: string, content: string): Promise<void> {
+    const root = await this.getRoot();
+    const parts = relPath.split("/").filter(Boolean);
+    const fileName = parts.pop();
+    if (!fileName) throw new Error("Chemin de fichier invalide");
+    let parentDir = root;
+    for (const part of parts) {
+      parentDir = await parentDir.getDirectoryHandle(part);
+    }
+    const fileHandle = await parentDir.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(new TextEncoder().encode(content));
+    await writable.close();
+  }
+
+  /**
+   * Lit le contenu brut d'un fichier OPFS (texte ou image base64).
+   */
+  async readFileContent(relPath: string): Promise<{ content: string; isImage: boolean }> {
+    const res = await this.readFile(relPath);
+    return { content: res.content, isImage: Boolean(res.isImage) };
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {

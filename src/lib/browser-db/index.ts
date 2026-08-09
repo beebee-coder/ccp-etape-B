@@ -104,12 +104,16 @@ export class BrowserDb {
 
     if (opfsAvailable && this.sqlite3.oo1.OpfsDb) {
       try {
+        // Garantit la création des répertoires physiques canoniques dans l'OPFS
+        const { opfsStorage } = await import("./opfs-storage");
+        await opfsStorage.getRoot();
+
         this.db = new this.sqlite3.oo1.OpfsDb(
-          "/local-db/visionode-local.sqlite",
+          "/local-db/visionode.sqlite",
           "c", // create if not exists
         );
         this.storageMode = "opfs";
-        console.info("[BrowserDb] Ouvert avec OPFS ✓ (local-db/visionode-local.sqlite)");
+        console.info("[BrowserDb] Ouvert avec OPFS ✓ (local-db/visionode.sqlite)");
       } catch (err) {
         console.warn("[BrowserDb] OPFS non disponible, fallback mémoire :", err);
         this.db = new this.sqlite3.oo1.DB(":memory:", "c");

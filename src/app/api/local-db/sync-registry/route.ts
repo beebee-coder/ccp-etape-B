@@ -43,11 +43,12 @@ function walkRegistry(relPath: string, results: { path: string; kind: "file" | "
 }
 
 export async function POST(): Promise<NextResponse> {
-  const result: SyncResult = {
+  const result: SyncResult & { purgedRegistryCount: number } = {
     added: [],
     updated: [],
     skipped: [],
     failed: [],
+    purgedRegistryCount: 0,
   };
 
   if (!fs.existsSync(LOCAL_DB_ROOT)) {
@@ -58,16 +59,23 @@ export async function POST(): Promise<NextResponse> {
     );
   }
 
+  if (!fs.existsSync(REGISTRY_ROOT)) {
+    return NextResponse.json({ success: true, message: ".registry est vide", ...result });
+  }
+
   try {
     const registryEntries: { path: string; kind: "file" | "directory" }[] = [];
     walkRegistry("", registryEntries);
 
+    // 1. Injection par effet d'accumulation dans .locale-db
     for (const entry of registryEntries) {
+      if (!entry.path) continue; // passer la racine ""
       const registryFullPath = safeJoin(entry.path, REGISTRY_ROOT);
-      const localFullPath = getLocalTargetPath(entry.path);
+      if (!fs.existsSync(registryFullPath)) continue;
 
       try {
         if (entry.kind === "directory") {
+          const localFullPath = getLocalTargetPath(entry.path);
           if (!fs.existsSync(localFullPath)) {
             fs.mkdirSync(localFullPath, { recursive: true });
             result.added.push(entry.path);
@@ -77,31 +85,58 @@ export async function POST(): Promise<NextResponse> {
           continue;
         }
 
-        const localStat = fs.existsSync(localFullPath) ? fs.statSync(localFullPath) : null;
-        const registryStat = fs.statSync(registryFullPath);
-
-        if (localStat && localStat.isFile() && localStat.size === registryStat.size) {
-          result.skipped.push(entry.path);
-          continue;
-        }
-
-        if (localStat && localStat.isFile()) {
-          fs.copyFileSync(registryFullPath, localFullPath);
-          result.updated.push(entry.path);
-          continue;
-        }
-
-        const parentDir = path.dirname(localFullPath);
+        // Fichier : gestion accumulation (non-écrasement sauf si identique)
+        let targetLocalPath = getLocalTargetPath(entry.path);
+        const parentDir = path.dirname(targetLocalPath);
         if (!fs.existsSync(parentDir)) {
           fs.mkdirSync(parentDir, { recursive: true });
         }
 
-        fs.copyFileSync(registryFullPath, localFullPath);
-        result.added.push(entry.path);
+        if (fs.existsSync(targetLocalPath)) {
+          const localStat = fs.statSync(targetLocalPath);
+          const regStat = fs.statSync(registryFullPath);
+
+          // Si même taille et même nom, on considère déjà copié
+          if (localStat.size === regStat.size) {
+            result.skipped.push(entry.path);
+          } else {
+            // Fichier existant avec contenu différent -> accumulation via nom horodaté
+            const ext = path.extname(targetLocalPath);
+            const baseName = path.basename(targetLocalPath, ext);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            targetLocalPath = path.join(parentDir, `${baseName}_${timestamp}${ext}`);
+
+            fs.copyFileSync(registryFullPath, targetLocalPath);
+            result.added.push(`${entry.path} -> ${path.basename(targetLocalPath)}`);
+          }
+        } else {
+          fs.copyFileSync(registryFullPath, targetLocalPath);
+          result.added.push(entry.path);
+        }
       } catch {
         result.failed.push(entry.path);
       }
     }
+
+    // 2. Purge de .registry après injection réussie : supprime EXCLUSIVEMENT les fichiers et CONSERVE tous les répertoires et sous-répertoires
+    let purgedCount = 0;
+    const purgeOnlyFiles = (dirPath: string) => {
+      const items = fs.readdirSync(dirPath);
+      for (const item of items) {
+        if (item === ".meta.json") continue;
+        const fullItemPath = path.join(dirPath, item);
+        const stat = fs.statSync(fullItemPath);
+        if (stat.isDirectory()) {
+          purgeOnlyFiles(fullItemPath); // Explore récursivement sans supprimer le dossier
+        } else if (stat.isFile()) {
+          fs.unlinkSync(fullItemPath);
+          purgedCount++;
+        }
+      }
+    };
+
+    purgeOnlyFiles(REGISTRY_ROOT);
+    result.purgedRegistryCount = purgedCount;
 
     return NextResponse.json({ success: true, ...result });
   } catch (error: unknown) {

@@ -16,6 +16,7 @@ import {
   ClipboardPaste,
   Undo,
   GripVertical,
+  Wand2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -142,6 +143,32 @@ export function RegistryExplorer() {
 
   useEffect(() => {
     loadStructure();
+  }, [loadStructure]);
+
+  const handleSyncAndPurge = useCallback(async () => {
+    if (!confirm("Injecter tout le contenu de .registry vers la BDD locale (.locale-db) puis purger le registre web ?")) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/local-db/sync-registry?t=${Date.now()}`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur synchronisation" }));
+        throw new Error((err as { error?: string }).error || "Erreur lors de la synchronisation");
+      }
+      const data = await res.json() as { added?: string[]; purgedRegistryCount?: number };
+      toast.success(
+        `Synchronisation réussie ! ${data.added?.length ?? 0} élément(s) injecté(s), ${data.purgedRegistryCount ?? 0} fichier(s) purger(s).`
+      );
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("local-db-synced"));
+      }
+      await loadStructure();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erreur de synchronisation";
+      toast.error(msg);
+    }
   }, [loadStructure]);
 
   const matchIds = useMemo<string[]>(() => {
@@ -435,6 +462,8 @@ export function RegistryExplorer() {
   const treePanelWidth = `calc(100% - ${panelWidth}px)`;
   const previewPanelWidth = `${panelWidth}px`;
 
+
+
   return (
     <section className="relative isolate">
       <div className="relative mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -457,6 +486,16 @@ export function RegistryExplorer() {
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualiser
+          </Button>
+
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleSyncAndPurge}
+            className="h-8 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary-glow"
+          >
+            <Wand2 className="mr-2 h-4 w-4" />
+            Injecter &amp; Purger
           </Button>
         </div>
       </div>
