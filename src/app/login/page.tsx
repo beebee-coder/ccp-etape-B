@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { NexaFlowLogo } from "@/components/brand/nexaflow-logo";
+import { Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useVoiceGuide } from "@/lib/voice-guide/orchestrator";
 
 function LoginForm() {
   const router = useRouter();
@@ -15,6 +17,7 @@ function LoginForm() {
   const callbackUrl = searchParams.get("callbackUrl") ?? "/admin";
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const { activate: activateVoiceGuide, startGuidance: startVoiceGuidance } = useVoiceGuide();
 
    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
      e.preventDefault();
@@ -93,9 +96,21 @@ function LoginForm() {
               <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-purple-500/10 border border-primary/20 shadow-3d-sm mx-auto">
                 <NexaFlowLogo className="h-8 w-8" iconClassName="h-4 w-4" />
               </div>
-              <h1 className="mt-4 text-3xl font-bold tracking-tight gradient-text">
-                Connexion
-              </h1>
+              <div className="flex items-center justify-center gap-3 mt-4">
+                <h1 className="text-3xl font-bold tracking-tight gradient-text">
+                  Connexion
+                </h1>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={async () => { await activateVoiceGuide(); setTimeout(() => startVoiceGuidance(), 300); }}
+                  className="h-9 w-9 rounded-xl border border-transparent hover:bg-primary/10 hover:border-primary/20 text-muted-foreground hover:text-primary transition-all"
+                  title="Guide vocal pour la connexion"
+                >
+                  <Mic className="h-4 w-4" />
+                </Button>
+              </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 Connectez-vous à votre compte NexaFlow
               </p>

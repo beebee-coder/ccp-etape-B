@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export type SpeechStatus = "idle" | "listening" | "speaking" | "error";
+
 interface UseSpeechOptions {
   language?: string;
   continuous?: boolean;
@@ -18,6 +20,7 @@ interface UseSpeechReturn {
   speak: (text: string) => void;
   stopSpeaking: () => void;
   toggleListening: () => void;
+  status: SpeechStatus;
 }
 
 type SpeechRecognitionResult = {
@@ -71,14 +74,9 @@ type SpeechSynthesisInstance = {
 
 function getSpeechRecognition(): SpeechRecognitionConstructor | null {
   if (typeof window === "undefined") return null;
-  const SpeechRecognition =
-    (window as unknown as Record<string, unknown>).SpeechRecognition as
-      | SpeechRecognitionConstructor
-      | undefined;
-  const webkitSpeechRecognition =
-    (window as unknown as Record<string, unknown>).webkitSpeechRecognition as
-      | SpeechRecognitionConstructor
-      | undefined;
+  const w = window as unknown as Record<string, unknown>;
+  const SpeechRecognition = w.SpeechRecognition as SpeechRecognitionConstructor | undefined;
+  const webkitSpeechRecognition = w.webkitSpeechRecognition as SpeechRecognitionConstructor | undefined;
   return SpeechRecognition || webkitSpeechRecognition || null;
 }
 
@@ -97,9 +95,9 @@ export function useSpeech(
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const speechSynthesisRef =
-    useRef<SpeechSynthesisInstance | null>(null);
+  const speechSynthesisRef = useRef<SpeechSynthesisInstance | null>(null);
   const finalTranscriptRef = useRef("");
+  const currentUtteranceRef = useRef<SpeechSynthesisUtteranceInstance | null>(null);
 
   useEffect(() => {
     speechSynthesisRef.current = window.speechSynthesis as unknown as SpeechSynthesisInstance;
@@ -107,10 +105,15 @@ export function useSpeech(
       if (speechSynthesisRef.current) {
         speechSynthesisRef.current.cancel();
       }
+      currentUtteranceRef.current = null;
     };
   }, []);
 
   const startListening = useCallback(() => {
+    if (recognitionRef.current) {
+      return;
+    }
+
     const SpeechRecognition = getSpeechRecognition();
     if (!SpeechRecognition) {
       setError(
@@ -145,9 +148,11 @@ export function useSpeech(
       } else if (event.error !== "aborted") {
         setError(`Erreur de reconnaissance : ${event.error}`);
       }
+      recognitionRef.current = null;
     };
 
     recognition.onend = () => {
+      recognitionRef.current = null;
       setIsListening(false);
     };
 
@@ -160,7 +165,6 @@ export function useSpeech(
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
-      recognitionRef.current = null;
     }
     setIsListening(false);
   }, []);
@@ -169,9 +173,11 @@ export function useSpeech(
     if (isListening) {
       stopListening();
     } else {
-      finalTranscriptRef.current = "";
-      setTranscript("");
-      startListening();
+      if (!recognitionRef.current) {
+        finalTranscriptRef.current = "";
+        setTranscript("");
+        startListening();
+      }
     }
   }, [isListening, startListening, stopListening]);
 
@@ -185,17 +191,23 @@ export function useSpeech(
       }
 
       speechSynthesisRef.current.cancel();
+      currentUtteranceRef.current = null;
 
-      const utterance = new SpeechSynthesisUtterance(text) as unknown as SpeechSynthesisUtteranceInstance;
+      const utterance = new SpeechSynthesisUtterance(text) as SpeechSynthesisUtteranceInstance;
       utterance.lang = language;
 
       utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        currentUtteranceRef.current = null;
+      };
       utterance.onerror = () => {
         setIsSpeaking(false);
+        currentUtteranceRef.current = null;
         setError("Erreur lors de la synthèse vocale.");
       };
 
+      currentUtteranceRef.current = utterance;
       speechSynthesisRef.current.speak(utterance);
     },
     [language]
@@ -205,6 +217,7 @@ export function useSpeech(
     if (speechSynthesisRef.current) {
       speechSynthesisRef.current.cancel();
       setIsSpeaking(false);
+      currentUtteranceRef.current = null;
     }
   }, []);
 
@@ -216,8 +229,11 @@ export function useSpeech(
       if (speechSynthesisRef.current) {
         speechSynthesisRef.current.cancel();
       }
+      currentUtteranceRef.current = null;
     };
   }, []);
+
+  const status: SpeechStatus = error ? "error" : isSpeaking ? "speaking" : isListening ? "listening" : "idle";
 
   return {
     isListening,
@@ -229,5 +245,6 @@ export function useSpeech(
     speak,
     stopSpeaking,
     toggleListening,
+    status,
   };
 }

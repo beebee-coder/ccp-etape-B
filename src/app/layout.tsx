@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { LocaleDbInitializer } from "@/components/locale-db-initializer";
+import { VoiceGuideProvider } from "@/components/voice-guide";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +25,9 @@ export default function RootLayout({
     <html lang="fr" className={cn("font-sans antialiased h-full", inter.variable)}>
       <body className="min-h-screen h-full bg-background text-foreground">
         <LocaleDbInitializer />
-        {children}
+        <VoiceGuideProvider>
+          {children}
+        </VoiceGuideProvider>
       </body>
     </html>
   );

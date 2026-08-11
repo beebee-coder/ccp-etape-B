@@ -564,7 +564,9 @@ export default function RapportsPage() {
                           variant={isListening ? "destructive" : "default"}
                           size="icon"
                           onClick={toggleListening}
-                          title={isListening ? "Arrêter l&apos;écoute" : "Commencer la dictée"}
+                          aria-label={isListening ? "Arrêter l'écoute" : "Commencer la dictée"}
+                          aria-pressed={isListening}
+                          title={isListening ? "Arrêter l'écoute" : "Commencer la dictée"}
                           className="h-9 w-9 rounded-xl border border-primary/30 group"
                         >
                           {isListening ? (

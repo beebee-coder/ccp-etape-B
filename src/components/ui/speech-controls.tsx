@@ -22,6 +22,7 @@ interface SpeechControlsProps {
   showActions?: boolean;
   sendOnSpeechEnd?: boolean;
   label?: string;
+  statusLabel?: string;
 }
 
 export function SpeechControls({
@@ -38,6 +39,7 @@ export function SpeechControls({
   showActions = true,
   sendOnSpeechEnd = false,
   label,
+  statusLabel,
 }: SpeechControlsProps) {
   const {
     isListening,
@@ -46,10 +48,12 @@ export function SpeechControls({
     isSpeaking,
     speak,
     toggleListening,
+    status,
   } = useSpeech({ language, continuous });
 
   const [localText, setLocalText] = useState(value ?? "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaId = useRef(`speech-textarea-${Math.random().toString(36).slice(2, 9)}`);
 
   useEffect(() => {
     if (value !== undefined) {
@@ -64,10 +68,10 @@ export function SpeechControls({
   }, [transcript, onChange]);
 
   useEffect(() => {
-    if (sendOnSpeechEnd && transcript && !isListening && onChange) {
+    if (sendOnSpeechEnd && transcript && !isListening && onChange && status !== "listening") {
       onChange(transcript);
     }
-  }, [isListening, transcript, sendOnSpeechEnd, onChange]);
+  }, [isListening, transcript, sendOnSpeechEnd, onChange, status]);
 
   const handleTextChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -117,10 +121,17 @@ export function SpeechControls({
   const isControlled = value !== undefined;
   const displayText = isControlled ? value : localText;
 
+  const getStatusText = () => {
+    if (status === "listening") return "Écoute en cours";
+    if (status === "speaking") return "Lecture en cours";
+    if (status === "error") return "Erreur vocale";
+    return "Prêt";
+  };
+
   return (
     <div className={cn("space-y-2", className)}>
       {label && (
-        <label className="text-sm font-medium text-foreground">
+        <label htmlFor={textareaId.current} className="text-sm font-medium text-foreground">
           {label}
         </label>
       )}
@@ -135,6 +146,7 @@ export function SpeechControls({
       >
         <Textarea
           ref={textareaRef}
+          id={textareaId.current}
           value={displayText}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
@@ -142,6 +154,7 @@ export function SpeechControls({
           disabled={disabled}
           className="min-h-[80px] resize-none border-0 bg-transparent px-3 py-2 text-base focus-visible:ring-0 placeholder:text-muted-foreground"
           maxLength={maxLength}
+          aria-describedby={error ? `${textareaId.current}-error` : undefined}
         />
 
         {showActions && (
@@ -154,6 +167,7 @@ export function SpeechControls({
               disabled={disabled || (!displayText && !transcript)}
               className="h-7 w-7"
               title="Copier"
+              aria-label="Copier le texte"
             >
               <Copy className="h-3.5 w-3.5" />
             </Button>
@@ -166,6 +180,7 @@ export function SpeechControls({
               disabled={disabled || (!displayText && !transcript)}
               className="h-7 w-7"
               title="Réinitialiser"
+              aria-label="Réinitialiser le texte"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </Button>
@@ -174,7 +189,9 @@ export function SpeechControls({
       </div>
 
       {error && (
-        <p className="text-xs text-destructive">{error}</p>
+        <p id={`${textareaId.current}-error`} className="text-xs text-destructive" role="alert">
+          {error}
+        </p>
       )}
 
       {showActions && (
@@ -186,6 +203,8 @@ export function SpeechControls({
             onClick={toggleListening}
             disabled={disabled}
             className="gap-1.5"
+            aria-label={isListening ? "Arrêter l'écoute" : "Démarrer la dictée"}
+            aria-pressed={isListening}
           >
             {isListening ? (
               <>
@@ -207,6 +226,8 @@ export function SpeechControls({
             onClick={handleSpeak}
             disabled={disabled || (!displayText && !transcript) || isSpeaking}
             className="gap-1.5"
+            aria-label={isSpeaking ? "Arrêter la lecture" : "Lire le texte"}
+            aria-pressed={isSpeaking}
           >
             {isSpeaking ? (
               <>
@@ -235,6 +256,12 @@ export function SpeechControls({
             </Button>
           )}
         </div>
+      )}
+
+      {(status === "listening" || status === "speaking") && (
+        <p className="text-[10px] text-muted-foreground" aria-live="polite">
+          {statusLabel || getStatusText()}
+        </p>
       )}
     </div>
   );

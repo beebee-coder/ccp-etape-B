@@ -64,6 +64,10 @@ type FormData = {
   thumbnailDataUrl?: string;
   mimeType: string;
   size: number;
+  locationType?: "centrale" | "groupe" | "global";
+  locationPath?: string;
+  blocCode?: string;
+  equipementCode?: string;
 };
 
 const emptyForm: FormData = {
@@ -75,6 +79,10 @@ const emptyForm: FormData = {
   dataUrl: "",
   mimeType: "",
   size: 0,
+  locationType: undefined,
+  locationPath: "",
+  blocCode: "",
+  equipementCode: "",
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -186,6 +194,10 @@ export default function ImagesPage() {
       thumbnailDataUrl: item.thumbnailDataUrl,
       mimeType: item.mimeType,
       size: item.size,
+      locationType: item.location?.locationType,
+      locationPath: item.location?.locationPath,
+      blocCode: item.location?.blocCode,
+      equipementCode: item.location?.equipementCode,
     });
     setPreviewUrl(item.dataUrl || null);
     setPreviewKind(item.kind);
@@ -487,6 +499,14 @@ export default function ImagesPage() {
             thumbnailDataUrl: formData.thumbnailDataUrl,
             mimeType: formData.mimeType,
             size: formData.size,
+            location: formData.locationType
+              ? {
+                  locationType: formData.locationType,
+                  locationPath: formData.locationPath,
+                  blocCode: formData.blocCode,
+                  equipementCode: formData.equipementCode,
+                }
+              : undefined,
           });
           console.log("[form] update success ->", { id: result?.id, title: result?.title });
           if (result) {
@@ -548,6 +568,14 @@ export default function ImagesPage() {
             thumbnailDataUrl: formData.thumbnailDataUrl,
             mimeType: formData.mimeType,
             size: formData.size,
+            location: formData.locationType
+              ? {
+                  locationType: formData.locationType,
+                  locationPath: formData.locationPath,
+                  blocCode: formData.blocCode,
+                  equipementCode: formData.equipementCode,
+                }
+              : undefined,
           });
           console.log("[form] create success ->", { id: created.id, title: created.title });
           setItems((prev) =>
@@ -1265,6 +1293,100 @@ export default function ImagesPage() {
                       Séparez les tags par des virgules
                     </p>
                   </div>
+                )}
+
+                {previewUrl && formData.locationType && (
+                  <div className="space-y-2">
+                    <Label>Localisation</Label>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="locationType">Type</Label>
+                        <Select
+                          value={formData.locationType}
+                          onValueChange={(value) => {
+                            setFormData((prev) => ({
+                              ...prev,
+                              locationType: value as FormData["locationType"],
+                            }));
+                          }}
+                        >
+                          <SelectTrigger id="locationType">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="centrale">Centrale</SelectItem>
+                            <SelectItem value="groupe">Groupe</SelectItem>
+                            <SelectItem value="global">Global</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="locationPath">Chemin</Label>
+                        <Input
+                          id="locationPath"
+                          value={formData.locationPath ?? ""}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              locationPath: e.target.value,
+                            }))
+                          }
+                          placeholder="ex: /batiment/etage"
+                          className="bg-background/60"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="blocCode">Bloc</Label>
+                        <Input
+                          id="blocCode"
+                          value={formData.blocCode ?? ""}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              blocCode: e.target.value,
+                            }))
+                          }
+                          placeholder="ex: B"
+                          className="bg-background/60"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="equipementCode">Équipement</Label>
+                        <Input
+                          id="equipementCode"
+                          value={formData.equipementCode ?? ""}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              equipementCode: e.target.value,
+                            }))
+                          }
+                          placeholder="ex: EQ-001"
+                          className="bg-background/60"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {previewUrl && !formData.locationType && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        locationType: "centrale",
+                      }))
+                    }
+                    className="gap-2"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    Ajouter une localisation
+                  </Button>
                 )}
 
                 {previewUrl && (

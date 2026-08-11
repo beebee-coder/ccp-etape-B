@@ -92,6 +92,14 @@ function buildItem(
     size: row.size,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt ? row.updatedAt.toISOString() : row.createdAt.toISOString(),
+    location: row.locationType
+      ? {
+          locationType: row.locationType as "centrale" | "groupe" | "global",
+          locationPath: row.locationPath || undefined,
+          blocCode: row.blocCode || undefined,
+          equipementCode: row.equipementCode || undefined,
+        }
+      : undefined,
   };
 
   if (includeDataUrl) {

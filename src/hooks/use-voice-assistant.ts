@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { useSpeech } from "@/lib/speech/use-speech";
 import { TStep } from "@/lib/procedures/services/validator.service";
 import { GuidePhase } from "@/lib/procedures/types";
+import { buildStepScript } from "@/lib/procedures/voice-script";
 
 export interface UseVoiceAssistantOptions {
   language?: string;
@@ -24,46 +25,6 @@ export interface UseVoiceAssistantReturn {
   startListening: () => void;
   stopListening: () => void;
   toggleListening: () => void;
-}
-
-function buildStepScript(step: TStep, stepIndex: number, totalSteps: number, phase: GuidePhase): string {
-  const parts: string[] = [];
-
-  if (phase === "briefing") {
-    parts.push("Briefing de la procédure.");
-    if (step.title) parts.push(`Objectif : ${step.title}.`);
-    if (step.instructions) parts.push(step.instructions);
-    return parts.join(" ");
-  }
-
-  if (phase === "prerequisites") {
-    parts.push("Vérifiez les prérequis suivants avant de démarrer.");
-    return parts.join(" ");
-  }
-
-  parts.push(`Étape ${stepIndex + 1} sur ${totalSteps}.`);
-  if (step.title) parts.push(`${step.title}.`);
-  if (step.subtitle) parts.push(`${step.subtitle}.`);
-  if (step.instructions) parts.push(`Instructions : ${step.instructions}.`);
-  if (step.isMandatory) parts.push("Étape obligatoire.");
-  if (step.timerEnabled && step.timerSeconds > 0) {
-    const mins = Math.floor(step.timerSeconds / 60);
-    const secs = step.timerSeconds % 60;
-    parts.push(`Chronomètre : ${mins} minute${mins > 1 ? "s" : ""}${secs > 0 ? ` et ${secs} seconde${secs > 1 ? "s" : ""}` : ""}.`);
-  }
-  if (step.mediaRequirements.length > 0) {
-    parts.push("Captures requises :");
-    step.mediaRequirements.forEach((m) => {
-      parts.push(`${m.type}${m.mandatory ? " obligatoire" : ""}.`);
-    });
-  }
-  if (step.alarms.length > 0) {
-    parts.push(`${step.alarms.length} alerte(s) configurée(s).`);
-    step.alarms.forEach((alarm) => {
-      parts.push(`Alerte ${alarm.type} : ${alarm.message}.`);
-    });
-  }
-  return parts.join(" ");
 }
 
 export function useVoiceAssistant({

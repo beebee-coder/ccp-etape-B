@@ -67,6 +67,7 @@ export default function ChatIAPage() {
   const {
     isListening,
     transcript,
+    error,
     stopListening,
     speak,
     stopSpeaking,
@@ -792,52 +793,58 @@ export default function ChatIAPage() {
                   )}
                 />
 
-                {/* Buttons inside input */}
-                <div className="flex items-center gap-1 pr-2">
-                  {/* Mic button */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-8 w-8 rounded-xl border border-transparent",
-                      "transition-all duration-200",
-                      isListening
-                        ? "bg-red-500/10 border-red-500/30 text-red-500 animate-glow-pulse"
-                        : "hover:bg-primary/10 hover:border-primary/20 text-muted-foreground hover:text-primary"
-                    )}
-                    onClick={handleVoiceToggle}
-                    title={voiceMode ? "Arrêter l'écoute" : "Mode vocal"}
-                  >
-                    {isListening ? (
-                      <MicOff className="h-4 w-4" />
-                    ) : (
-                      <Mic className="h-4 w-4" />
-                    )}
-                  </Button>
+                 {/* Buttons inside input */}
+                 <div className="flex items-center gap-1 pr-2">
+                   {/* Mic button */}
+                   <Button
+                     variant="ghost"
+                     size="icon"
+                     className={cn(
+                       "h-8 w-8 rounded-xl border border-transparent",
+                       "transition-all duration-200",
+                       isListening
+                         ? "bg-red-500/10 border-red-500/30 text-red-500 animate-glow-pulse"
+                         : "hover:bg-primary/10 hover:border-primary/20 text-muted-foreground hover:text-primary"
+                     )}
+                     onClick={handleVoiceToggle}
+                     aria-label={voiceMode ? "Arrêter le mode vocal" : "Activer le mode vocal"}
+                     aria-pressed={isListening}
+                   >
+                     {isListening ? (
+                       <MicOff className="h-4 w-4" />
+                     ) : (
+                       <Mic className="h-4 w-4" />
+                     )}
+                   </Button>
 
-                  {/* Send button */}
-                  <Button
-                    size="icon"
-                    className={cn(
-                      "h-8 w-8 rounded-xl transition-all duration-200",
-                      editMode
-                        ? "bg-gradient-to-br from-amber-500 to-orange-600 border border-amber-500/30 shadow-3d-sm"
-                        : "bg-gradient-to-br from-primary to-purple-600 border border-primary/30 shadow-3d-sm",
-                      "hover:-translate-y-0.5 hover:shadow-primary-glow",
-                      "active:translate-y-0 active:shadow-3d-sm",
-                      "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-3d-sm"
-                    )}
-                    onClick={handleSend}
-                    disabled={!input.trim()}
-                  >
-                    <Send className="h-3.5 w-3.5 text-white" />
-                  </Button>
-                </div>
+                   {/* Send button */}
+                   <Button
+                     size="icon"
+                     className={cn(
+                       "h-8 w-8 rounded-xl transition-all duration-200",
+                       editMode
+                         ? "bg-gradient-to-br from-amber-500 to-orange-600 border border-amber-500/30 shadow-3d-sm"
+                         : "bg-gradient-to-br from-primary to-purple-600 border border-primary/30 shadow-3d-sm",
+                       "hover:-translate-y-0.5 hover:shadow-primary-glow",
+                       "active:translate-y-0 active:shadow-3d-sm",
+                       "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-3d-sm"
+                     )}
+                     onClick={handleSend}
+                     disabled={!input.trim()}
+                   >
+                     <Send className="h-3.5 w-3.5 text-white" />
+                   </Button>
+                 </div>
               </div>
 
               <p className="mt-2 text-center text-[10px] text-muted-foreground/40">
                 {editMode ? "Mode édition · Entrée pour envoyer" : "Entrée pour envoyer · Mode vocal disponible"}
               </p>
+              {error && (
+                <p className="mt-1 text-center text-[10px] text-destructive" role="alert">
+                  {error}
+                </p>
+              )}
             </div>
           </div>
         </div>

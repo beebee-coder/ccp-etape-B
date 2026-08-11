@@ -15,6 +15,7 @@ import {
   FileJson,
   FolderOpen,
   ChevronDown,
+  Mic,
 } from "lucide-react";
 import {
   Dialog,
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { getCsrfTokenClient } from "@/lib/auth/cookies";
 import { LOCATION_REGISTRY, getAllBlocCodes, getAllGroupeNames } from "@/lib/location";
+import { useVoiceGuide } from "@/lib/voice-guide/orchestrator";
 
 interface QAItem {
   id: string;
@@ -519,6 +521,16 @@ export default function QAPage() {
     });
   };
 
+  const {
+    activate: activateVoiceGuide,
+    startGuidance: startVoiceGuidance,
+  } = useVoiceGuide();
+
+  const handleVoiceGuideActivate = async () => {
+    await activateVoiceGuide();
+    setTimeout(() => startVoiceGuidance(), 300);
+  };
+
   return (
     <>
       <section className="py-8 sm:py-12">
@@ -550,6 +562,19 @@ export default function QAPage() {
 
         {/* ── Form ── */}
         <div className="mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Nouvelle paire Q/R</h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleVoiceGuideActivate}
+              className="gap-2 rounded-xl border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary transition-all duration-200"
+            >
+              <Mic className="h-4 w-4" />
+              Guide vocal
+            </Button>
+          </div>
           <form
             onSubmit={(e) => {
               e.preventDefault();

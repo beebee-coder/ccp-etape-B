@@ -6,13 +6,15 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { User, Shield, Bell, Palette, Globe, Save } from "lucide-react";
+import { User, Shield, Bell, Palette, Globe, Save, Mic } from "lucide-react";
+import { useVoiceGuide } from "@/lib/voice-guide/orchestrator";
 
 export default function ProfilePage() {
   const [name, setName] = useState("Admin User");
   const [email, setEmail] = useState("admin@nexaflow.com");
   const [role] = useState("Administrateur");
   const [saving, setSaving] = useState(false);
+  const { activate: activateVoiceGuide, startGuidance: startVoiceGuidance } = useVoiceGuide();
 
   const handleSave = () => {
     setSaving(true);
@@ -107,11 +109,23 @@ export default function ProfilePage() {
 
         {/* ── Settings card ── */}
         <Card className="dashboard-card p-6 lg:col-span-2">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 border border-primary/20">
-              <User className="h-4 w-4 text-primary" />
+          <div className="flex items-center justify-between gap-2.5 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 border border-primary/20">
+                <User className="h-4 w-4 text-primary" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">Informations personnelles</h3>
             </div>
-            <h3 className="text-lg font-semibold text-foreground">Informations personnelles</h3>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={async () => { await activateVoiceGuide(); setTimeout(() => startVoiceGuidance(), 300); }}
+              className="h-8 w-8 rounded-lg border border-transparent hover:bg-primary/10 hover:border-primary/20 text-muted-foreground hover:text-primary transition-all"
+              title="Guide vocal pour le profil"
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             Mettez à jour votre nom et adresse email.

@@ -7,6 +7,7 @@ import {
   TStep,
 } from "@/lib/procedures/services/validator.service";
 import { proceduresFR } from "@/lib/i18n/procedures";
+import { buildStepScript } from "@/lib/procedures/voice-script";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -79,42 +80,6 @@ const stepTypeLabels: Record<string, string> = {
   validation_securite: "Validation de sécurité",
   mesure_numerique: "Mesure numérique",
 };
-
-function buildStepScript(step: TStep, index: number, total: number): string {
-  const parts: string[] = [];
-  parts.push(`Étape ${index + 1} sur ${total}.`);
-  if (step.title) parts.push(`Titre : ${step.title}.`);
-  if (step.subtitle) parts.push(`Sous-titre : ${step.subtitle}.`);
-  if (step.instructions) parts.push(`Instructions : ${step.instructions}.`);
-  if (step.isMandatory) parts.push("Cette étape est obligatoire et ne peut pas être ignorée.");
-  if (step.timerEnabled && step.timerSeconds > 0) {
-    const mins = Math.floor(step.timerSeconds / 60);
-    const secs = step.timerSeconds % 60;
-    parts.push(`Chronomètre activé : durée maximale ${mins} minute${mins > 1 ? "s" : ""}${secs > 0 ? ` et ${secs} seconde${secs > 1 ? "s" : ""}` : ""}.`);
-  }
-  if (step.mediaRequirements.length > 0) {
-    const mediaList = step.mediaRequirements
-      .map((m) => {
-        const parts: string[] = [];
-        parts.push(proceduresFR.media[m.type] || m.type);
-        if (m.mandatory) parts.push("obligatoire");
-        if (m.options?.geolocation) parts.push("avec géolocalisation");
-        if (m.options?.timestamp) parts.push("avec horodatage");
-        return parts.join(" ");
-      })
-      .join(", ");
-    parts.push(`Captures requises : ${mediaList}.`);
-  }
-  if (step.alarms.length > 0) {
-    parts.push(`Attention : ${step.alarms.length} alerte(s) configurée(s) sur cette étape.`);
-    step.alarms.forEach((alarm) => {
-      parts.push(
-        `Alerte ${alarm.type} : ${alarm.condition}${alarm.threshold ? ` (seuil ${alarm.threshold})` : ""}. Message : ${alarm.message}.`
-      );
-    });
-  }
-  return parts.join(" ");
-}
 
 function getStepAIContent(step: TStep, index: number, total: number): string {
   const lines: string[] = [];
@@ -294,6 +259,12 @@ export function ProcedureRunner({ procedure, onClose }: ProcedureRunnerProps) {
   }, [aiMessages, scrollToBottom]);
 
   useEffect(() => {
+    return () => {
+      stopSpeaking();
+    };
+  }, [stopSpeaking]);
+
+  useEffect(() => {
     if (isAutoRead && currentStep && !hasAutoGreeted.current) {
       hasAutoGreeted.current = true;
       const script = buildStepScript(currentStep, currentStepIndex, steps.length);
@@ -418,7 +389,8 @@ export function ProcedureRunner({ procedure, onClose }: ProcedureRunnerProps) {
             size="icon"
             className="h-8 w-8"
             onClick={handleReadAloud}
-            title={isSpeaking ? "Arrêter la lecture" : "Lire l'étape"}
+            aria-label={isSpeaking ? "Arrêter la lecture" : "Lire l'étape"}
+            aria-pressed={isSpeaking}
           >
             {isSpeaking ? <Pause className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </Button>

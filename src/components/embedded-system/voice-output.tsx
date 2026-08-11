@@ -135,6 +135,8 @@ export function VoiceOutput({ deviceName, autoReadResults = true }: VoiceOutputP
             size="sm"
             onClick={toggleListening}
             className="gap-1.5 text-xs h-8"
+            aria-label={isListening ? "Arrêter l'écoute" : "Démarrer l'écoute"}
+            aria-pressed={isListening}
           >
             {isListening ? (
               <>
@@ -154,6 +156,7 @@ export function VoiceOutput({ deviceName, autoReadResults = true }: VoiceOutputP
             onClick={stopSpeaking}
             disabled={!isSpeaking}
             className="gap-1.5 text-xs h-8"
+            aria-label="Arrêter la voix"
           >
             <VolumeX className="h-3.5 w-3.5" />
             Arrêter voix
