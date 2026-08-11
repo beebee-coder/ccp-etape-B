@@ -1,0 +1,423 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String    @id @db.VarChar(255)
+  email           String    @unique @db.VarChar(255)
+  passwordHash    String    @map("password_hash") @db.VarChar(255)
+  name            String?   @db.VarChar(100)
+  role            String    @default("user") @db.VarChar(50)
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime? @updatedAt @map("updated_at")
+  chatMessages    ChatMessage[]
+  procedureExecutions ProcedureExecution[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Procedure {
+  id                  String    @id @db.VarChar(100)
+  code                String    @unique @db.VarChar(100)
+  title               String    @db.VarChar(255)
+  description         String?
+  category            String    @db.VarChar(100)
+  priority            String    @default("moyenne") @db.VarChar(20)
+  estimatedTimeMin    Int       @default(30) @map("estimated_time_min")
+  requiredRoles       String[]  @default([]) @map("required_roles")
+  globalSafetyInstructions String[] @default([]) @map("global_safety_instructions")
+  locationType        String?   @map("location_type") @db.VarChar(20)
+  locationPath        String?   @map("location_path") @db.VarChar(200)
+  blocCode            String?   @map("bloc_code") @db.VarChar(10)
+  equipementCode      String?   @map("equipement_code") @db.VarChar(50)
+  criticality         String    @default("NORMAL") @db.VarChar(20)
+  status              String    @default("DRAFT") @db.VarChar(20)
+  subcategory         String?   @db.VarChar(100)
+  department          String?   @db.VarChar(100)
+  version             String?   @db.VarChar(50)
+  parameters          Json?     @default("{}")
+  postExecution       Json?     @default("{}") @map("post_execution")
+  mediaLibrary        Json?     @default("{}") @map("media_library")
+  prerequisites       Json?     @default("{}")
+  lastExecutedAt      DateTime? @map("last_executed_at")
+  executionCount      Int       @default(0) @map("execution_count")
+  authorId            String?   @map("author_id")
+  metadataJson        Json      @default("{}") @map("metadata_json")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime? @updatedAt @map("updated_at")
+  steps               ProcedureStep[]
+  executions          ProcedureExecution[]
+
+  @@index([code])
+  @@index([category])
+  @@map("procedures")
+}
+
+model ProcedureStep {
+  id              String    @id @db.VarChar(100)
+  procedureId     String    @map("procedure_id") @db.VarChar(100)
+  procedure       Procedure @relation(fields: [procedureId], references: [id], onDelete: Cascade)
+  stepOrder       Int       @map("step_order")
+  stepId          String    @db.VarChar(100) @map("step_id")
+  title           String    @db.VarChar(255)
+  subtitle        String?
+  instructions    String    @db.Text
+  stepType        String    @default("consigne_simple") @map("step_type") @db.VarChar(50)
+  isMandatory     Boolean   @default(false) @map("is_mandatory")
+  dependencies    String[]  @default([])
+  mediaRequirements Json    @default("[]") @map("media_requirements")
+  alarms          Json      @default("[]")
+  alarmCodes      String[]  @default([]) @map("alarm_codes")
+  attachments     String[]  @default([])
+  timerEnabled    Boolean   @default(false) @map("timer_enabled")
+  timerSeconds    Int       @default(0) @map("timer_seconds")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime? @updatedAt @map("updated_at")
+
+  @@unique([procedureId, stepOrder])
+  @@unique([procedureId, stepId])
+  @@index([procedureId])
+  @@index([procedureId, stepOrder])
+  @@map("procedure_steps")
+}
+
+model ProcedureExecution {
+  id              String    @id @db.VarChar(100)
+  procedureId     String    @map("procedure_id") @db.VarChar(100)
+  procedure       Procedure @relation(fields: [procedureId], references: [id], onDelete: Cascade)
+  procedureCode   String    @db.VarChar(100) @map("procedure_code")
+  operatorId      String    @map("operator_id") @db.VarChar(255)
+  operator        User      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  startTime       DateTime  @default(now()) @map("start_time")
+  endTime         DateTime? @map("end_time")
+  status          String    @default("COMPLETED") @db.VarChar(20)
+  stepsStatus     Json      @default("[]") @map("steps_status")
+  totalDuration   Int?      @default(0) @map("total_duration")
+  currentStep     Int?
+  alarms          Json?     @default("[]")
+  fallbacks       Json?     @default("[]")
+  events          Json?     @default("[]")
+  signature       String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime? @updatedAt @map("updated_at")
+
+  @@index([procedureId])
+  @@index([operatorId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([procedureCode])
+  @@map("procedure_executions")
+}
+
+model EtatDesLieuxReport {
+  id          String    @id @db.VarChar(100)
+  title       String    @db.VarChar(255)
+  description String    @db.Text
+  location    String    @db.VarChar(255)
+  attachments Json      @default("[]")
+  status      String    @default("draft") @db.VarChar(20)
+  authorName  String    @map("author_name") @db.VarChar(100)
+  authorRole  String    @map("author_role") @db.VarChar(100)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime? @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([authorRole])
+  @@map("etat_des_lieux_reports")
+}
+
+model MediaItem {
+  id              String    @id @db.VarChar(100)
+  title           String    @db.VarChar(255)
+  category        String    @db.VarChar(100)
+  description     String    @default("") @db.Text
+  tags            String[]  @default([])
+  kind            String    @default("image") @db.VarChar(20)
+  mimeType        String    @map("mime_type") @db.VarChar(100)
+  size            Int
+  dataUrl         String    @map("data_url") @db.Text
+  thumbnailUrl    String?   @map("thumbnail_url")
+  locationType    String?   @map("location_type") @db.VarChar(20)
+  locationPath    String?   @map("location_path") @db.VarChar(200)
+  blocCode        String?   @map("bloc_code") @db.VarChar(10)
+  equipementCode  String?   @map("equipement_code") @db.VarChar(50)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime? @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@index([kind])
+  @@map("media_items")
+}
+
+
+model GuardrailRule {
+  id        String   @id @db.VarChar(100)
+  section   String   @default("general") @db.VarChar(50)
+  rule      String   @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([section])
+  @@index([isActive])
+  @@map("guardrail_rules")
+}
+
+model KnowledgeItem {
+  id             String   @id @db.VarChar(100)
+  userId         String   @map("user_id") @db.VarChar(255)
+  type           String   @db.VarChar(50)
+  title          String   @db.VarChar(255)
+  question       String?  @db.Text
+  answer         String?  @db.Text
+  tags           String[] @default([])
+  category       String?  @db.VarChar(100)
+  locationType   String?  @map("location_type") @db.VarChar(20)
+  locationPath   String?  @map("location_path") @db.VarChar(200)
+  blocCode       String?  @map("bloc_code") @db.VarChar(10)
+  equipementCode String?  @map("equipement_code") @db.VarChar(50)
+  groupePath     String?  @map("groupe_path") @db.VarChar(200)
+  alarmCode      String?  @map("alarm_code") @db.VarChar(50)
+  vueCode        String?  @map("vue_code") @db.VarChar(50)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime? @updatedAt @map("updated_at")
+  content        String?  @db.Text
+
+  @@index([userId])
+  @@index([type])
+  @@index([userId, type])
+  @@index([locationType, locationPath])
+  @@index([blocCode])
+  @@map("knowledge_items")
+}
+
+model QRUpload {
+  id        String   @id @db.VarChar(100)
+  userId    String   @map("user_id") @db.VarChar(255)
+  fileName  String   @map("file_name") @db.VarChar(255)
+  setName   String   @map("set_name") @db.VarChar(255)
+  version   Int      @default(1)
+  directory String   @db.VarChar(500)
+  filePath  String   @map("file_path") @db.VarChar(500)
+  qaCount   Int      @default(0) @map("qa_count")
+  content   String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime? @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([setName])
+  @@map("q_r_uploads")
+}
+
+model IotDevice {
+  id               String    @id @db.VarChar(100)
+  name             String    @db.VarChar(255)
+  connectionType   String    @default("wireless") @map("connection_type") @db.VarChar(50)
+  connectionStatus String    @default("disconnected") @map("connection_status") @db.VarChar(50)
+  rssi             Int?
+  sensorsJson      Json      @default("{}") @map("sensors_json")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+  actuators        IotActuator[]
+  sensorReadings   IotSensorReading[]
+
+  @@index([connectionStatus])
+  @@map("iot_devices")
+}
+
+model IotActuator {
+  id         String    @id @db.VarChar(100)
+  deviceId   String    @map("device_id") @db.VarChar(100)
+  device     IotDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name       String    @db.VarChar(255)
+  type       String    @db.VarChar(50)
+  state      String    @default("idle") @db.VarChar(20)
+  enabled    Boolean   @default(false)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([deviceId])
+  @@map("iot_actuators")
+}
+
+model IotSensorReading {
+  id         String    @id @db.VarChar(100)
+  deviceId   String    @map("device_id") @db.VarChar(100)
+  device     IotDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  readingJson Json     @map("reading_json")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([deviceId])
+  @@index([createdAt])
+  @@map("iot_sensor_readings")
+}
+
+model ChatMessage {
+  id             String   @id @db.VarChar(100)
+  conversationId String   @map("conversation_id") @db.VarChar(100)
+  userId         String   @map("user_id") @db.VarChar(255)
+  user           User     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  role           String   @db.VarChar(20)
+  content        String   @db.Text
+  provider       String?  @db.VarChar(50)
+  timestamp      DateTime @default(now()) @map("timestamp")
+  media          Json?
+  procedureId    String?  @map("procedure_id") @db.VarChar(100)
+  source         String?  @map("source") @db.VarChar(100)
+  clientId       String?  @map("client_id") @db.VarChar(100)
+
+  @@index([conversationId, userId])
+  @@index([userId])
+  @@index([timestamp])
+  @@index([procedureId])
+  @@index([clientId])
+  @@map("chat_messages")
+}
+
+model Team {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(255)
+  description String?
+  color       String   @default("bg-blue-500") @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime? @updatedAt @map("updated_at")
+  members     TeamMember[]
+
+  @@index([name])
+  @@map("teams")
+}
+
+model TeamMember {
+  id         Int      @id @default(autoincrement())
+  teamId     Int      @map("team_id")
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name       String   @db.VarChar(255)
+  email      String?  @db.VarChar(255)
+  role       String   @default("user") @db.VarChar(100)
+  status     String   @default("active") @db.VarChar(20)
+  avatar     String   @db.VarChar(10)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime? @updatedAt @map("updated_at")
+
+  @@index([teamId])
+  @@index([email])
+  @@map("team_members")
+}
+
+model Report {
+  id        String   @id @db.VarChar(100)
+  date      String   @db.VarChar(255)
+  points    Json     @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime? @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@index([createdAt])
+  @@map("reports")
+}
+
+model Meeting {
+  id            String   @id @db.VarChar(100)
+  title         String   @db.VarChar(255)
+  startedAt     DateTime @default(now()) @map("started_at")
+  endedAt       DateTime? @map("ended_at")
+  createdBy     String   @db.VarChar(255) @map("created_by")
+  participants  Json     @default("[]")
+  recordingUrl  String?  @map("recording_url") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  chatMessages  MeetingChatMessage[]
+
+  @@index([startedAt])
+  @@index([endedAt])
+  @@index([createdBy])
+  @@map("meetings")
+}
+
+model MeetingChatMessage {
+  id          String   @id @db.VarChar(100)
+  meetingId   String   @map("meeting_id") @db.VarChar(100)
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId      String   @db.VarChar(255)
+  userName    String   @db.VarChar(255) @map("user_name")
+  userInitials String  @db.VarChar(10) @map("user_initials")
+  isSelf      Boolean  @default(false) @map("is_self")
+  text        String   @db.Text
+  timestamp   DateTime @default(now()) @map("timestamp")
+
+  @@index([meetingId])
+  @@index([userId])
+  @@index([timestamp])
+  @@map("meeting_chat_messages")
+}
+
+model Alarm {
+  id            String   @id @db.VarChar(100)
+  code          String   @unique @db.VarChar(50)
+  blocCode      String   @db.VarChar(10) @map("bloc_code")
+  equipementCode String  @db.VarChar(50) @map("equipement_code")
+  locationType  String   @db.VarChar(20)
+  locationPath  String   @db.VarChar(200) @map("location_path")
+  groupePath    String?  @db.VarChar(200)
+  type          String   @db.VarChar(20)
+  severity      String   @db.VarChar(10)
+  description   String   @db.Text
+  condition     String?
+  remedy        Json?    @default("{}")
+  status        String   @default("ACTIVE") @db.VarChar(20)
+  triggeredAt   DateTime? @map("triggered_at")
+  resolvedAt    DateTime? @map("resolved_at")
+  metadata      Json?    @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  events        AlarmEvent[]
+
+  @@index([locationType, locationPath])
+  @@index([blocCode])
+  @@index([code])
+  @@index([status])
+  @@map("alarms")
+}
+
+model AlarmEvent {
+  id         String   @id @db.VarChar(100)
+  alarmId    String   @map("alarm_id") @db.VarChar(100)
+  alarm      Alarm    @relation(fields: [alarmId], references: [id], onDelete: Cascade)
+  eventType  String   @db.VarChar(20) @map("event_type")
+  occurredAt DateTime @default(now()) @map("occurred_at")
+  operatorId String?  @map("operator_id") @db.VarChar(100)
+  comment    String?
+  metadata   Json?    @default("{}")
+
+  @@index([alarmId])
+  @@index([occurredAt])
+  @@map("alarm_events")
+}
+
+model LocationNode {
+  id           String   @id @db.VarChar(100)
+  locationType String   @db.VarChar(20) @map("location_type")
+  path         String   @unique @db.VarChar(200)
+  blocCode     String?  @map("bloc_code") @db.VarChar(10)
+  equipementCode String? @map("equipement_code") @db.VarChar(50)
+  groupeCode   String?  @map("groupe_code") @db.VarChar(100)
+  libelle      String?  @db.VarChar(200)
+  parentPath   String?  @map("parent_path") @db.VarChar(200)
+  level        Int      @default(0)
+  metadata     Json?    @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([locationType])
+  @@index([path])
+  @@index([blocCode])
+  @@map("location_nodes")
+}
+
+

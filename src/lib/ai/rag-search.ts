@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { vectorize } from "./embeddings";
 
 export interface RagDocument {
@@ -18,22 +18,23 @@ export async function searchRagDocuments(
   }
 
   try {
-    const result = await query<{
-      content: string;
-      metadata_json: string;
-      similarity: number;
-    }>(
-      `SELECT content, metadata_json,
-              1 - (embedding <=> $1::vector(384)) as similarity
-       FROM chroma_index
-       WHERE collection = 'qa'
-         AND embedding IS NOT NULL
-       ORDER BY embedding <=> $1::vector(384)
-       LIMIT $2`,
-      [JSON.stringify(embedding), limit],
-    );
+    const result = await prisma.$queryRaw<
+      {
+        content: string;
+        metadata_json: string;
+        similarity: number;
+      }[]
+    >`
+      SELECT content, metadata_json,
+        1 - (embedding <=> ${embedding}::vector(384)) as similarity
+      FROM chroma_index
+      WHERE collection = 'qa'
+        AND embedding IS NOT NULL
+      ORDER BY embedding <=> ${embedding}::vector(384)
+      LIMIT ${limit}
+    `;
 
-    return result.rows.map((row) => ({
+    return result.map((row) => ({
       content: row.content,
       metadata: JSON.parse(row.metadata_json || "{}"),
       similarity: row.similarity,

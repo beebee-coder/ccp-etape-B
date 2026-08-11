@@ -1,4 +1,5 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { createLogger } from "@/lib/logger";
 
 import {
@@ -19,18 +20,6 @@ import {
 } from "@/lib/types/video";
 
 const log = createLogger({ module: "meetings-server-store" });
-
-interface MeetingRow {
-  id: string;
-  title: string;
-  started_at: string;
-  ended_at: string | null;
-  created_by: string;
-  participants: string;
-  recording_url: string | null;
-  created_at: string;
-  updated_at: string;
-}
 
 function parseParticipants(raw: unknown): MeetingParticipant[] {
   if (!raw) return [];
@@ -57,57 +46,73 @@ function parseParticipants(raw: unknown): MeetingParticipant[] {
   return [];
 }
 
-function serializeParticipants(participants: MeetingParticipant[]): string {
-  return JSON.stringify(participants);
-}
-
-function rowToMeeting(row: MeetingRow): Meeting {
+function rowToMeeting(row: {
+  id: string;
+  title: string;
+  startedAt: Date;
+  endedAt: Date | null;
+  createdBy: string;
+  participants: unknown;
+  recordingUrl: string | null;
+}): Meeting {
   return {
     id: row.id,
     title: row.title,
-    startedAt: new Date(row.started_at),
-    endedAt: row.ended_at ? new Date(row.ended_at) : undefined,
+    startedAt: row.startedAt,
+    endedAt: row.endedAt ?? undefined,
     participants: parseParticipants(row.participants),
-    recordingUrl: row.recording_url || undefined,
+    recordingUrl: row.recordingUrl || undefined,
   };
 }
 
-interface ChatMessageRow {
+function rowToChatMessage(row: {
   id: string;
-  meeting_id: string;
-  user_id: string;
-  user_name: string;
-  user_initials: string;
-  is_self: number | boolean;
+  meetingId: string;
+  userId: string;
+  userName: string;
+  userInitials: string;
+  isSelf: boolean;
   text: string;
-  timestamp: string;
-}
-
-function rowToChatMessage(row: ChatMessageRow): MeetingChatMessage {
+  timestamp: Date;
+}): MeetingChatMessage {
   return {
     id: row.id,
-    meetingId: row.meeting_id,
-    userId: row.user_id,
-    userName: row.user_name,
-    userInitials: row.user_initials,
-    isSelf: typeof row.is_self === "number" ? row.is_self === 1 : !!row.is_self,
+    meetingId: row.meetingId,
+    userId: row.userId,
+    userName: row.userName,
+    userInitials: row.userInitials,
+    isSelf: row.isSelf,
     text: row.text,
-    timestamp: new Date(row.timestamp),
+    timestamp: row.timestamp,
   };
 }
 
 export async function getAllMeetings(): Promise<Meeting[]> {
   log.info("getAllMeetings: fetching all meetings");
   try {
-    const result = await query<MeetingRow>(
-      `SELECT id, title, started_at, ended_at, created_by, participants, recording_url, created_at, updated_at
-       FROM meetings
-       ORDER BY started_at DESC`,
+    const meetings = await prisma.meeting.findMany({
+      orderBy: { startedAt: "desc" },
+      include: {
+        chatMessages: {
+          orderBy: { timestamp: "asc" },
+        },
+      },
+    });
+
+    const result = meetings.map((m) =>
+      rowToMeeting({
+        id: m.id,
+        title: m.title,
+        startedAt: m.startedAt,
+        endedAt: m.endedAt,
+        createdBy: m.createdBy,
+        participants: m.participants,
+        recordingUrl: m.recordingUrl,
+      }),
     );
 
-    const meetings = result.rows.map(rowToMeeting);
-    log.info("getAllMeetings: fetched meetings", { count: meetings.length });
-    return meetings;
+    log.info("getAllMeetings: fetched meetings", { count: result.length });
+    return result;
   } catch (error) {
     log.error("getAllMeetings: failed to fetch meetings", { error });
     throw error;
@@ -119,26 +124,34 @@ export async function getActiveMeeting(
 ): Promise<Meeting | null> {
   log.info("getActiveMeeting: fetching active meeting", { createdBy });
   try {
-    const result = await query<MeetingRow>(
-      `SELECT id, title, started_at, ended_at, created_by, participants, recording_url, created_at, updated_at
-       FROM meetings
-       WHERE ended_at IS NULL AND created_by = $1
-       ORDER BY started_at DESC
-       LIMIT 1`,
-      [createdBy],
-    );
+    const meeting = await prisma.meeting.findFirst({
+      where: {
+        endedAt: null,
+        createdBy,
+      },
+      orderBy: { startedAt: "desc" },
+    });
 
-    if (result.rows.length === 0) {
+    if (!meeting) {
       log.debug("getActiveMeeting: no active meeting found", { createdBy });
       return null;
     }
 
-    const meeting = rowToMeeting(result.rows[0]);
+    const result = rowToMeeting({
+      id: meeting.id,
+      title: meeting.title,
+      startedAt: meeting.startedAt,
+      endedAt: meeting.endedAt,
+      createdBy: meeting.createdBy,
+      participants: meeting.participants,
+      recordingUrl: meeting.recordingUrl,
+    });
+
     log.info("getActiveMeeting: active meeting found", {
-      meetingId: meeting.id,
+      meetingId: result.id,
       createdBy,
     });
-    return meeting;
+    return result;
   } catch (error) {
     log.error("getActiveMeeting: failed to fetch active meeting", {
       createdBy,
@@ -151,21 +164,27 @@ export async function getActiveMeeting(
 export async function getMeetingById(id: string): Promise<Meeting | null> {
   log.info("getMeetingById: fetching meeting", { id });
   try {
-    const result = await query<MeetingRow>(
-      `SELECT id, title, started_at, ended_at, created_by, participants, recording_url, created_at, updated_at
-       FROM meetings
-       WHERE id = $1`,
-      [id],
-    );
+    const meeting = await prisma.meeting.findUnique({
+      where: { id },
+    });
 
-    if (result.rows.length === 0) {
+    if (!meeting) {
       log.warn("getMeetingById: meeting not found", { id });
       return null;
     }
 
-    const meeting = rowToMeeting(result.rows[0]);
-    log.info("getMeetingById: meeting found", { id, title: meeting.title });
-    return meeting;
+    const result = rowToMeeting({
+      id: meeting.id,
+      title: meeting.title,
+      startedAt: meeting.startedAt,
+      endedAt: meeting.endedAt,
+      createdBy: meeting.createdBy,
+      participants: meeting.participants,
+      recordingUrl: meeting.recordingUrl,
+    });
+
+    log.info("getMeetingById: meeting found", { id, title: result.title });
+    return result;
   } catch (error) {
     log.error("getMeetingById: failed to fetch meeting", { id, error });
     throw error;
@@ -181,29 +200,33 @@ export async function createMeeting(
     createdBy: validated.createdBy,
   });
 
-  const now = new Date().toISOString();
   const participants = validated.participants || [];
 
   try {
-    const result = await query<MeetingRow>(
-      `INSERT INTO meetings (title, started_at, ended_at, created_by, participants, recording_url, created_at, updated_at)
-       VALUES ($1, $2, NULL, $3, $4, NULL, $5, $5)
-       RETURNING id, title, started_at, ended_at, created_by, participants, recording_url, created_at, updated_at`,
-      [
-        validated.title,
-        now,
-        validated.createdBy,
-        serializeParticipants(participants),
-        now,
-      ],
-    );
-
-    const meeting = rowToMeeting(result.rows[0]);
-    log.info("createMeeting: meeting created successfully", {
-      meetingId: meeting.id,
-      title: meeting.title,
+    const meeting = await prisma.meeting.create({
+      data: {
+        id: crypto.randomUUID(),
+        title: validated.title,
+        createdBy: validated.createdBy,
+        participants: participants as unknown as Prisma.InputJsonValue,
+      },
     });
-    return meeting;
+
+    const result = rowToMeeting({
+      id: meeting.id,
+      title: meeting.title,
+      startedAt: meeting.startedAt,
+      endedAt: meeting.endedAt,
+      createdBy: meeting.createdBy,
+      participants: meeting.participants,
+      recordingUrl: meeting.recordingUrl,
+    });
+
+    log.info("createMeeting: meeting created successfully", {
+      meetingId: result.id,
+      title: result.title,
+    });
+    return result;
   } catch (error) {
     log.error("createMeeting: failed to create meeting", {
       title: validated.title,
@@ -224,33 +247,36 @@ export async function endMeeting(
     hasRecordingUrl: !!validated.recordingUrl,
   });
 
-  const now = new Date().toISOString();
   const endedAt = validated.endedAt
-    ? new Date(validated.endedAt).toISOString()
-    : now;
+    ? new Date(validated.endedAt)
+    : new Date();
 
   try {
-    const result = await query<MeetingRow>(
-      `UPDATE meetings
-       SET ended_at = $1, recording_url = COALESCE($2, recording_url), updated_at = $3
-       WHERE id = $4
-       RETURNING id, title, started_at, ended_at, created_by, participants, recording_url, created_at, updated_at`,
-      [endedAt, validated.recordingUrl || null, now, id],
-    );
+    const meeting = await prisma.meeting.update({
+      where: { id },
+      data: {
+        endedAt,
+        recordingUrl: validated.recordingUrl || undefined,
+      },
+    });
 
-    if (result.rows.length === 0) {
-      log.warn("endMeeting: meeting not found", { id });
-      return null;
-    }
+    const result = rowToMeeting({
+      id: meeting.id,
+      title: meeting.title,
+      startedAt: meeting.startedAt,
+      endedAt: meeting.endedAt,
+      createdBy: meeting.createdBy,
+      participants: meeting.participants,
+      recordingUrl: meeting.recordingUrl,
+    });
 
-    const meeting = rowToMeeting(result.rows[0]);
     log.info("endMeeting: meeting ended successfully", {
-      meetingId: meeting.id,
-      durationMs: meeting.endedAt
-        ? meeting.endedAt.getTime() - meeting.startedAt.getTime()
+      meetingId: result.id,
+      durationMs: result.endedAt
+        ? result.endedAt.getTime() - result.startedAt.getTime()
         : undefined,
     });
-    return meeting;
+    return result;
   } catch (error) {
     log.error("endMeeting: failed to end meeting", { id, error });
     throw error;
@@ -274,7 +300,6 @@ export async function updateMeetingParticipants(
     if (!meeting) {
       log.warn("updateMeetingParticipants: meeting not found", {
         meetingId,
-        participantId,
       });
       return null;
     }
@@ -286,21 +311,28 @@ export async function updateMeetingParticipants(
       return p;
     });
 
-    const now = new Date().toISOString();
-    const result = await query<MeetingRow>(
-      `UPDATE meetings
-       SET participants = $1, updated_at = $2
-       WHERE id = $3
-       RETURNING id, title, started_at, ended_at, created_by, participants, recording_url, created_at, updated_at`,
-      [serializeParticipants(updatedParticipants), now, meetingId],
-    );
+    const updated = await prisma.meeting.update({
+      where: { id: meetingId },
+      data: {
+        participants: updatedParticipants as unknown as Prisma.InputJsonValue,
+      },
+    });
 
-    const updated = rowToMeeting(result.rows[0]);
+    const result = rowToMeeting({
+      id: updated.id,
+      title: updated.title,
+      startedAt: updated.startedAt,
+      endedAt: updated.endedAt,
+      createdBy: updated.createdBy,
+      participants: updated.participants,
+      recordingUrl: updated.recordingUrl,
+    });
+
     log.info("updateMeetingParticipants: participant state updated", {
       meetingId,
       participantId,
     });
-    return updated;
+    return result;
   } catch (error) {
     log.error("updateMeetingParticipants: failed to update participant state", {
       meetingId,
@@ -316,20 +348,16 @@ export async function getChatMessages(
 ): Promise<MeetingChatMessage[]> {
   log.info("getChatMessages: fetching chat messages", { meetingId });
   try {
-    const result = await query<ChatMessageRow>(
-      `SELECT id, meeting_id, user_id, user_name, user_initials, is_self, text, timestamp
-       FROM meeting_chat_messages
-       WHERE meeting_id = $1
-       ORDER BY timestamp ASC`,
-      [meetingId],
-    );
+    const messages = await prisma.meetingChatMessage.findMany({
+      where: { meetingId },
+      orderBy: { timestamp: "asc" },
+    });
 
-    const messages = result.rows.map(rowToChatMessage);
     log.info("getChatMessages: fetched messages", {
       meetingId,
       count: messages.length,
     });
-    return messages;
+    return messages.map(rowToChatMessage);
   } catch (error) {
     log.error("getChatMessages: failed to fetch chat messages", {
       meetingId,
@@ -349,31 +377,26 @@ export async function addChatMessage(
     isSelf: validated.isSelf ?? false,
   });
 
-  const now = new Date().toISOString();
-
   try {
-    const result = await query<ChatMessageRow>(
-      `INSERT INTO meeting_chat_messages (meeting_id, user_id, user_name, user_initials, is_self, text, timestamp)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, meeting_id, user_id, user_name, user_initials, is_self, text, timestamp`,
-      [
-        validated.meetingId,
-        validated.userId,
-        validated.userName,
-        validated.userInitials,
-        validated.isSelf ?? false,
-        validated.text,
-        now,
-      ],
-    );
+    const message = await prisma.meetingChatMessage.create({
+      data: {
+        id: crypto.randomUUID(),
+        meetingId: validated.meetingId,
+        userId: validated.userId,
+        userName: validated.userName,
+        userInitials: validated.userInitials,
+        isSelf: validated.isSelf ?? false,
+        text: validated.text,
+      },
+    });
 
-    const message = rowToChatMessage(result.rows[0]);
+    const result = rowToChatMessage(message);
     log.info("addChatMessage: message added successfully", {
-      messageId: message.id,
+      messageId: result.id,
       meetingId: validated.meetingId,
       userId: validated.userId,
     });
-    return message;
+    return result;
   } catch (error) {
     log.error("addChatMessage: failed to add chat message", {
       meetingId: validated.meetingId,

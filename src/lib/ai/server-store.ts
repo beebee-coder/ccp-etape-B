@@ -1,90 +1,75 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { createLogger } from "@/lib/logger";
 import type { ChatMessage } from "@/lib/types/chat";
 import type { Json } from "@/lib/types/json";
 
 const log = createLogger({ module: "ai-chat-server-store" });
 
-interface ChatMessageRow {
+function rowToChatMessage(row: {
   id: string;
-  conversation_id: string;
-  user_id: string;
+  conversationId: string;
+  userId: string;
   role: string;
   content: string;
   provider: string | null;
-  timestamp: string;
-  media: string | null;
-  procedure_id: string | null;
+  timestamp: Date;
+  media: unknown;
+  procedureId: string | null;
   source: string | null;
-  client_id: string | null;
-}
-
-function parseMedia(media: string | null): Json | null {
-  if (!media) return null;
-  try {
-    return JSON.parse(media) as Json;
-  } catch {
-    return null;
-  }
-}
-
-function rowToChatMessage(row: ChatMessageRow): ChatMessage {
+  clientId: string | null;
+}): ChatMessage {
   return {
     id: row.id,
-    conversationId: row.conversation_id,
-    userId: row.user_id,
+    conversationId: row.conversationId,
+    userId: row.userId,
     role: row.role as ChatMessage["role"],
     content: row.content,
     provider: row.provider ?? undefined,
-    timestamp: new Date(row.timestamp),
-    media: parseMedia(row.media) ?? undefined,
-    procedureId: row.procedure_id ?? undefined,
+    timestamp: row.timestamp,
+    media: row.media as Json,
+    procedureId: row.procedureId ?? undefined,
     source: row.source ?? undefined,
-    clientId: row.client_id ?? undefined,
+    clientId: row.clientId ?? undefined,
   };
 }
 
 export async function saveChatMessage(
   message: Omit<ChatMessage, "timestamp"> & { timestamp?: Date },
 ): Promise<ChatMessage> {
-  const id = message.id;
-  const now = (message.timestamp ?? new Date()).toISOString();
-  const mediaJson = message.media ? JSON.stringify(message.media) : null;
+  const now = message.timestamp ?? new Date();
 
   log.debug("saveChatMessage: inserting chat message", {
-    messageId: id,
+    messageId: message.id,
     conversationId: message.conversationId,
     userId: message.userId,
     role: message.role,
   });
 
   try {
-    const result = await query<ChatMessageRow>(
-      `INSERT INTO chat_messages (id, conversation_id, user_id, role, content, provider, timestamp, media, procedure_id, source, client_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING id, conversation_id, user_id, role, content, provider, timestamp, media, procedure_id, source, client_id`,
-      [
-        id,
-        message.conversationId,
-        message.userId,
-        message.role,
-        message.content,
-        message.provider ?? null,
-        now,
-        mediaJson,
-        message.procedureId ?? null,
-        message.source ?? null,
-        message.clientId ?? null,
-      ],
-    );
+    const created = await prisma.chatMessage.create({
+      data: {
+        id: message.id,
+        conversationId: message.conversationId,
+        userId: message.userId,
+        role: message.role,
+        content: message.content,
+        provider: message.provider ?? null,
+        timestamp: now,
+        media: message.media as unknown as Prisma.InputJsonValue,
+        procedureId: message.procedureId ?? null,
+        source: message.source ?? null,
+        clientId: message.clientId ?? null,
+      },
+    });
 
     log.info("saveChatMessage: message saved", {
-      messageId: id,
+      messageId: message.id,
       role: message.role,
     });
-    return rowToChatMessage(result.rows[0]);
+    return rowToChatMessage(created);
   } catch (error) {
-    log.error("saveChatMessage: database error", { messageId: id, error });
+    log.error("saveChatMessage: database error", { messageId: message.id, error });
     throw error;
   }
 }
@@ -101,22 +86,21 @@ export async function getChatHistory(
   });
 
   try {
-    const result = await query<ChatMessageRow>(
-      `SELECT id, conversation_id, user_id, role, content, provider, timestamp, media, procedure_id, source, client_id
-       FROM chat_messages
-       WHERE user_id = $1 AND conversation_id = $2
-       ORDER BY timestamp ASC
-       LIMIT $3`,
-      [userId, conversationId, limit],
-    );
+    const messages = await prisma.chatMessage.findMany({
+      where: {
+        userId,
+        conversationId,
+      },
+      orderBy: { timestamp: "asc" },
+      take: limit,
+    });
 
-    const messages = result.rows.map(rowToChatMessage);
     log.debug("getChatHistory: messages fetched", {
       userId,
       conversationId,
       count: messages.length,
     });
-    return messages;
+    return messages.map(rowToChatMessage);
   } catch (error) {
     log.error("getChatHistory: database error", {
       userId,
@@ -137,17 +121,19 @@ export async function deleteChatHistory(
   });
 
   try {
-    const result = await query<{ id: string }>(
-      `DELETE FROM chat_messages WHERE user_id = $1 AND conversation_id = $2 RETURNING id`,
-      [userId, conversationId],
-    );
+    const result = await prisma.chatMessage.deleteMany({
+      where: {
+        userId,
+        conversationId,
+      },
+    });
 
     log.info("deleteChatHistory: conversation deleted", {
       userId,
       conversationId,
-      deletedCount: result.rows.length,
+      deletedCount: result.count,
     });
-    return result.rows.length;
+    return result.count;
   } catch (error) {
     log.error("deleteChatHistory: database error", {
       userId,

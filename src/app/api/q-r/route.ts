@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getAllQAItems, createQAItem, updateQAItem, deleteQAItem } from "@/lib/q-r/server-store";
-import { QAItemCreatePayloadSchema, QAItemUpdatePayloadSchema, type QAItemCreatePayload, type QAItemUpdatePayload } from "@/lib/q-r/schemas";
+import { getAllQAItems, getQAItemsForUser, createQAItem, updateQAItem, deleteQAItem } from "@/lib/q-r/server-store";
+import { QAItemCreatePayloadSchema, QAItemUpdateWithIdSchema, type QAItemCreatePayload, type QAItemUpdateWithId } from "@/lib/q-r/schemas";
 import { validateApiRequest } from "@/lib/api/handlers";
 import { requireRole } from "@/lib/api/auth";
 import { createLogger } from "@/lib/logger";
@@ -8,16 +8,23 @@ import { createLogger } from "@/lib/logger";
 const log = createLogger({ module: "api-q-r" });
 
 export async function GET(request: Request) {
-  log.debug("GET /api/q-r: fetching all Q/R items");
-  const result = await validateApiRequest(request);
-  if (!result.ok) {
-    log.warn("GET /api/q-r: validation failed", { status: result.response.status });
-    return result.response;
+  log.debug("GET /api/q-r: fetching Q/R items");
+  const authResult = await requireRole(request, ["admin", "user"]);
+  if (authResult.response) {
+    log.warn("GET /api/q-r: auth failed", { status: authResult.response.status });
+    return authResult.response;
   }
 
   try {
-    const items = await getAllQAItems();
-    log.debug("GET /api/q-r: returning items", { count: items.length });
+    const url = new URL(request.url);
+    const limit = Number(url.searchParams.get("limit")) || undefined;
+    const offset = Number(url.searchParams.get("offset")) || undefined;
+
+    const isAdmin = authResult.user!.role === "admin";
+    const items = isAdmin
+      ? await getAllQAItems({ limit, offset })
+      : await getQAItemsForUser(authResult.user!.sub);
+    log.debug("GET /api/q-r: returning items", { count: items.length, isAdmin, limit, offset });
     return NextResponse.json({ data: items });
   } catch (error) {
     log.error("GET /api/q-r: error fetching items", { error });
@@ -66,15 +73,14 @@ export async function PUT(request: Request) {
     requireAuth: false,
     allowedContentTypes: ["application/json"],
     rateLimiter: "q-r",
-    schema: QAItemUpdatePayloadSchema,
+    schema: QAItemUpdateWithIdSchema,
   });
   if (!result.ok) {
     log.warn("PUT /api/q-r: validation failed", { status: result.response.status });
     return result.response;
   }
 
-  const body = result.ctx.body as QAItemUpdatePayload & { id: string };
-  const { id, ...payload } = body;
+  const { id, ...payload } = result.ctx.body as QAItemUpdateWithId;
 
   if (!id) {
     log.warn("PUT /api/q-r: missing id in body");

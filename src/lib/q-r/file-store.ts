@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { readdir } from "fs/promises";
 import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
@@ -29,30 +29,19 @@ export async function getUploadedFiles(): Promise<
     createdAt: string;
   }>
 > {
-  const result = await query<{
-    id: string;
-    file_name: string;
-    set_name: string;
-    version: number;
-    directory: string;
-    file_path: string;
-    qa_count: number;
-    created_at: string;
-  }>(
-    `SELECT id, file_name, set_name, version, directory, file_path, qa_count, created_at
-     FROM q_r_uploads
-     ORDER BY created_at DESC`
-  );
+  const files = await prisma.qRUpload.findMany({
+    orderBy: { createdAt: "desc" },
+  });
 
-  return result.rows.map((row) => ({
+  return files.map((row) => ({
     id: row.id,
-    fileName: row.file_name,
-    setName: row.set_name,
+    fileName: row.fileName,
+    setName: row.setName,
     version: row.version,
     directory: row.directory,
-    filePath: row.file_path,
-    qaCount: row.qa_count,
-    createdAt: row.created_at,
+    filePath: row.filePath,
+    qaCount: row.qaCount,
+    createdAt: row.createdAt.toISOString(),
   }));
 }
 
@@ -67,37 +56,27 @@ export async function getUploadedFileById(
       directory: string;
       filePath: string;
       qaCount: number;
+      content: string | null;
       createdAt: string;
     }
   | null
 > {
-  const result = await query<{
-    id: string;
-    file_name: string;
-    set_name: string;
-    version: number;
-    directory: string;
-    file_path: string;
-    qa_count: number;
-    created_at: string;
-  }>(
-    `SELECT id, file_name, set_name, version, directory, file_path, qa_count, created_at
-     FROM q_r_uploads
-     WHERE id = $1`,
-    [id]
-  );
+  const file = await prisma.qRUpload.findUnique({
+    where: { id },
+  });
 
-  if (result.rows.length === 0) return null;
-  const row = result.rows[0];
+  if (!file) return null;
+
   return {
-    id: row.id,
-    fileName: row.file_name,
-    setName: row.set_name,
-    version: row.version,
-    directory: row.directory,
-    filePath: row.file_path,
-    qaCount: row.qa_count,
-    createdAt: row.created_at,
+    id: file.id,
+    fileName: file.fileName,
+    setName: file.setName,
+    version: file.version,
+    directory: file.directory,
+    filePath: file.filePath,
+    qaCount: file.qaCount,
+    content: file.content,
+    createdAt: file.createdAt.toISOString(),
   };
 }
 
@@ -108,16 +87,24 @@ export async function storeUploadedFile(
   directory: string,
   filePath: string,
   qaCount: number,
-  userId: string
+  userId: string,
+  content: string
 ): Promise<{ id: string }> {
   const id = `qr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-  const now = new Date().toISOString();
 
-  await query(
-    `INSERT INTO q_r_uploads (id, user_id, file_name, set_name, version, directory, file_path, qa_count, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [id, userId, fileName, setName, version, directory, filePath, qaCount, now, now]
-  );
+  await prisma.qRUpload.create({
+    data: {
+      id,
+      userId,
+      fileName,
+      setName,
+      version,
+      directory,
+      filePath,
+      qaCount,
+      content,
+    },
+  });
 
   return { id };
 }
@@ -192,9 +179,12 @@ export function parseQrFileContent(content: string): Array<{ question: string; a
 }
 
 export async function deleteUploadedFile(id: string): Promise<boolean> {
-  const result = await query<{ id: string }>(
-    `DELETE FROM q_r_uploads WHERE id = $1 RETURNING id`,
-    [id]
-  );
-  return result.rows.length > 0;
+  try {
+    await prisma.qRUpload.delete({
+      where: { id },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

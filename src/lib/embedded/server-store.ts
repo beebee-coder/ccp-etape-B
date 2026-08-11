@@ -1,4 +1,5 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { createLogger } from "@/lib/logger";
 import type {
   SensorReading,
@@ -8,25 +9,15 @@ import type {
 
 const log = createLogger({ module: "embedded-server-store" });
 
-interface ActuatorRow {
-  id: string;
-  device_id: string;
-  name: string;
-  type: string;
-  state: string;
-  enabled: boolean;
-  updated_at: string;
-}
-
 interface DeviceRow {
   id: string;
   name: string;
-  connection_type: string;
-  connection_status: string;
+  connectionType: string;
+  connectionStatus: string;
   rssi: number | null;
-  sensors_json: string;
-  created_at: string;
-  updated_at: string;
+  sensorsJson: unknown;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 function getDefaultSensors(deviceId: string): SensorReading {
@@ -84,38 +75,56 @@ export async function getOrCreateDevice(
   name: string,
 ): Promise<DeviceRow> {
   log.debug("getOrCreateDevice: checking device existence", { deviceId, name });
-  const now = new Date().toISOString();
 
   try {
-    const result = await query<DeviceRow>(
-      `SELECT id, name, connection_type, connection_status, rssi, sensors_json, created_at, updated_at
-       FROM iot_devices
-       WHERE id = $1`,
-      [deviceId],
-    );
+    const existing = await prisma.iotDevice.findUnique({
+      where: { id: deviceId },
+    });
 
-    if (result.rows.length > 0) {
+    if (existing) {
       log.debug("getOrCreateDevice: device found", {
         deviceId,
-        connectionStatus: result.rows[0].connection_status,
+        connectionStatus: existing.connectionStatus,
       });
-      return result.rows[0];
+      return {
+        id: existing.id,
+        name: existing.name,
+        connectionType: existing.connectionType,
+        connectionStatus: existing.connectionStatus,
+        rssi: existing.rssi ?? null,
+        sensorsJson: existing.sensorsJson,
+        createdAt: existing.createdAt,
+        updatedAt: existing.updatedAt,
+      };
     }
 
     log.debug("getOrCreateDevice: device not found, creating", { deviceId });
-    const sensors = JSON.stringify(getDefaultSensors(deviceId));
-    const insertResult = await query<DeviceRow>(
-      `INSERT INTO iot_devices (id, name, connection_type, connection_status, rssi, sensors_json, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, name, connection_type, connection_status, rssi, sensors_json, created_at, updated_at`,
-      [deviceId, name, "wireless", "disconnected", null, sensors, now, now],
-    );
+    const sensors = getDefaultSensors(deviceId);
+
+    const created = await prisma.iotDevice.create({
+      data: {
+        id: deviceId,
+        name,
+        connectionType: "wireless",
+        connectionStatus: "disconnected",
+        sensorsJson: sensors as unknown as Prisma.InputJsonValue,
+      },
+    });
 
     log.info("getOrCreateDevice: device created", { deviceId, name });
 
     await seedActuators(deviceId);
 
-    return insertResult.rows[0];
+    return {
+      id: created.id,
+      name: created.name,
+      connectionType: created.connectionType,
+      connectionStatus: created.connectionStatus,
+      rssi: created.rssi ?? null,
+      sensorsJson: created.sensorsJson,
+      createdAt: created.createdAt,
+      updatedAt: created.updatedAt,
+    };
   } catch (error) {
     log.error("getOrCreateDevice: database error", { deviceId, error });
     throw error;
@@ -125,24 +134,19 @@ export async function getOrCreateDevice(
 export async function seedActuators(deviceId: string): Promise<void> {
   log.debug("seedActuators: seeding default actuators", { deviceId });
   const actuators = getDefaultActuators();
-  const now = new Date().toISOString();
 
   for (const actuator of actuators) {
     try {
-      await query(
-        `INSERT INTO iot_actuators (id, device_id, name, type, state, enabled, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (id) DO NOTHING`,
-        [
-          actuator.id,
+      await prisma.iotActuator.create({
+        data: {
+          id: actuator.id,
           deviceId,
-          actuator.name,
-          actuator.type,
-          actuator.state,
-          actuator.enabled,
-          now,
-        ],
-      );
+          name: actuator.name,
+          type: actuator.type,
+          state: actuator.state,
+          enabled: actuator.enabled,
+        },
+      });
     } catch (error) {
       log.error("seedActuators: failed to insert actuator", {
         deviceId,
@@ -163,33 +167,25 @@ export async function getDeviceSnapshot(deviceId: string): Promise<{
   log.debug("getDeviceSnapshot: fetching device snapshot", { deviceId });
 
   try {
-    const deviceResult = await query<DeviceRow>(
-      `SELECT id, name, connection_type, connection_status, rssi, sensors_json, created_at, updated_at
-       FROM iot_devices
-       WHERE id = $1`,
-      [deviceId],
-    );
+    const device = await prisma.iotDevice.findUnique({
+      where: { id: deviceId },
+    });
 
-    if (deviceResult.rows.length === 0) {
+    if (!device) {
       log.debug("getDeviceSnapshot: device not found, returning null", {
         deviceId,
       });
       return null;
     }
 
-    const device = deviceResult.rows[0];
-
-    const actuatorResult = await query<ActuatorRow>(
-      `SELECT id, device_id, name, type, state, enabled, updated_at
-       FROM iot_actuators
-       WHERE device_id = $1
-       ORDER BY updated_at DESC`,
-      [deviceId],
-    );
+    const actuatorRows = await prisma.iotActuator.findMany({
+      where: { deviceId },
+      orderBy: { updatedAt: "desc" },
+    });
 
     let sensors: SensorReading;
     try {
-      sensors = JSON.parse(device.sensors_json) as SensorReading;
+      sensors = device.sensorsJson as unknown as SensorReading;
     } catch {
       log.warn(
         "getDeviceSnapshot: failed to parse sensors_json, using defaults",
@@ -198,7 +194,7 @@ export async function getDeviceSnapshot(deviceId: string): Promise<{
       sensors = getDefaultSensors(deviceId);
     }
 
-    const actuators: ActuatorState[] = actuatorResult.rows.map((row) => ({
+    const actuators: ActuatorState[] = actuatorRows.map((row) => ({
       id: row.id,
       name: row.name,
       type: row.type as ActuatorState["type"],
@@ -207,8 +203,8 @@ export async function getDeviceSnapshot(deviceId: string): Promise<{
     }));
 
     const connection: DeviceConnectionInfo = {
-      type: device.connection_type as DeviceConnectionInfo["type"],
-      status: device.connection_status as DeviceConnectionInfo["status"],
+      type: device.connectionType as DeviceConnectionInfo["type"],
+      status: device.connectionStatus as DeviceConnectionInfo["status"],
       rssi: device.rssi ?? undefined,
     };
 
@@ -229,16 +225,13 @@ export async function upsertSensorReading(
 ): Promise<void> {
   log.debug("upsertSensorReading: saving sensor reading", { deviceId });
 
-  const sensorsJson = JSON.stringify(sensors);
-  const now = new Date().toISOString();
-
   try {
-    await query(
-      `UPDATE iot_devices
-       SET sensors_json = $1, updated_at = $2
-       WHERE id = $3`,
-      [sensorsJson, now, deviceId],
-    );
+    await prisma.iotDevice.update({
+      where: { id: deviceId },
+      data: {
+        sensorsJson: sensors as unknown as Prisma.InputJsonValue,
+      },
+    });
 
     log.debug("upsertSensorReading: sensor reading saved to device", {
       deviceId,
@@ -259,15 +252,14 @@ export async function saveSensorReadingHistory(
     deviceId,
   });
 
-  const sensorsJson = JSON.stringify(sensors);
-  const now = new Date().toISOString();
-
   try {
-    await query(
-      `INSERT INTO iot_sensor_readings (device_id, reading_json, created_at)
-       VALUES ($1, $2, $3)`,
-      [deviceId, sensorsJson, now],
-    );
+    await prisma.iotSensorReading.create({
+      data: {
+        id: `${deviceId}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        deviceId,
+        readingJson: sensors as unknown as Prisma.InputJsonValue,
+      },
+    });
 
     log.debug("saveSensorReadingHistory: historical reading saved", {
       deviceId,
@@ -284,14 +276,11 @@ export async function getActuators(deviceId: string): Promise<ActuatorState[]> {
   log.debug("getActuators: fetching actuators", { deviceId });
 
   try {
-    const result = await query<ActuatorRow>(
-      `SELECT id, device_id, name, type, state, enabled, updated_at
-       FROM iot_actuators
-       WHERE device_id = $1`,
-      [deviceId],
-    );
+    const actuatorRows = await prisma.iotActuator.findMany({
+      where: { deviceId },
+    });
 
-    const actuators: ActuatorState[] = result.rows.map((row) => ({
+    const actuators: ActuatorState[] = actuatorRows.map((row) => ({
       id: row.id,
       name: row.name,
       type: row.type as ActuatorState["type"],
@@ -323,15 +312,23 @@ export async function updateActuatorState(
     enabled,
   });
 
-  const now = new Date().toISOString();
-
   try {
-    await query(
-      `UPDATE iot_actuators
-       SET state = $1, enabled = $2, updated_at = $3
-       WHERE device_id = $4 AND id = $5`,
-      [state, enabled, now, deviceId, actuatorId],
-    );
+    const existing = await prisma.iotActuator.findFirst({
+      where: { id: actuatorId, deviceId },
+    });
+
+    if (!existing) {
+      log.warn("updateActuatorState: actuator not found after update", {
+        deviceId,
+        actuatorId,
+      });
+      return null;
+    }
+
+    const updated = await prisma.iotActuator.update({
+      where: { id: actuatorId },
+      data: { state, enabled },
+    });
 
     log.info("updateActuatorState: actuator updated", {
       deviceId,
@@ -340,28 +337,12 @@ export async function updateActuatorState(
       enabled,
     });
 
-    const result = await query<ActuatorRow>(
-      `SELECT id, device_id, name, type, state, enabled, updated_at
-       FROM iot_actuators
-       WHERE device_id = $1 AND id = $2`,
-      [deviceId, actuatorId],
-    );
-
-    if (result.rows.length === 0) {
-      log.warn("updateActuatorState: actuator not found after update", {
-        deviceId,
-        actuatorId,
-      });
-      return null;
-    }
-
-    const row = result.rows[0];
     return {
-      id: row.id,
-      name: row.name,
-      type: row.type as ActuatorState["type"],
-      state: row.state as ActuatorState["state"],
-      enabled: row.enabled,
+      id: updated.id,
+      name: updated.name,
+      type: updated.type as ActuatorState["type"],
+      state: updated.state as ActuatorState["state"],
+      enabled: updated.enabled,
     };
   } catch (error) {
     log.error("updateActuatorState: database error", {
@@ -386,15 +367,15 @@ export async function upsertDeviceConnection(
     rssi,
   });
 
-  const now = new Date().toISOString();
-
   try {
-    await query(
-      `UPDATE iot_devices
-       SET connection_type = $1, connection_status = $2, rssi = $3, updated_at = $4
-       WHERE id = $5`,
-      [connectionType, connectionStatus, rssi ?? null, now, deviceId],
-    );
+    await prisma.iotDevice.update({
+      where: { id: deviceId },
+      data: {
+        connectionType,
+        connectionStatus,
+        rssi: rssi ?? null,
+      },
+    });
 
     log.debug("upsertDeviceConnection: device connection updated", {
       deviceId,

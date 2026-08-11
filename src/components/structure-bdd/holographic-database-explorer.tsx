@@ -3,16 +3,7 @@
 /**
  * HolographicDatabaseExplorer
  *
- * Affiche fidèlement l'arborescence physique de .locale-db et .registry.
- *
- * Stratégie de chargement & CRUD selon le contexte :
- *  - Mode dev / Tauri  → API /api/structure/fs (lit les vrais répertoires disque)
- *  - Mode navigateur + OPFS → OPFS directement (pas de serveur), uniquement .locale-db
- *  - Mode Vercel sans OPFS  → API /api/structure/fs (retourne reconstitué depuis DB)
- *
- * CRUD :
- *  - opfsInUse = true  → opfsStorage.create/delete/rename/write (100% client)
- *  - opfsInUse = false → fetch /api/structure/fs (serveur)
+ * Affiche l'arborescence de la BDD web via l'API /api/structure/fs.
  */
 
 import { useEffect, useMemo, useState, useCallback } from "react";
@@ -28,7 +19,6 @@ import {
   Wand2,
   RefreshCw,
   HardDrive,
-  Globe,
   Server,
   FolderOpen,
 } from "lucide-react";
@@ -50,7 +40,6 @@ import {
   aggregateStats,
 } from "@/lib/structure-bdd/tree-utils";
 import { TreeNode } from "./tree-node";
-import type { OpfsTreeNode } from "@/lib/browser-db/opfs-storage";
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -105,40 +94,16 @@ function convertApiNodes(
   });
 }
 
-function convertOpfsNodes(
-  nodes: OpfsTreeNode[],
-  vectorizedPaths: Set<string>,
-): DatabaseTreeNode[] {
-  return nodes.map((node) => {
-    const isVec = node.kind !== "directory" && vectorizedPaths.has(node.path);
-    const fullPath = `.locale-db/${node.path}`;
-    return {
-      id: fullPath,
-      name: node.name,
-      kind: node.kind as DatabaseTreeNode["kind"],
-      path: fullPath,
-      indexed: isVec,
-      vectorized: isVec,
-      children: node.children ? convertOpfsNodes(node.children, vectorizedPaths) : undefined,
-      stats: node.stats ? { chunks: 1, vectors: isVec ? 1 : 0, sizeBytes: node.stats.sizeBytes } : undefined,
-    };
-  });
-}
-
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 type ModalMode = "create" | "rename" | null;
-type ActiveRoot = "locale-db" | "registry";
+type ActiveRoot = "registry" | "registry";
 
 export function HolographicDatabaseExplorer() {
-  // Arborescences
   const [localeDbStructure, setLocaleDbStructure] = useState<DatabaseStructure | null>(null);
   const [registryStructure, setRegistryStructure]  = useState<DatabaseStructure | null>(null);
-  const [tauriDbStructure, setTauriDbStructure]    = useState<DatabaseStructure | null>(null);
-
   const [loading, setLoading]         = useState(true);
   const [dataSource, setDataSource]   = useState<DataSource>("empty");
-  const [opfsInUse, setOpfsInUse]     = useState(false);
   const [vectorizedFiles, setVectorizedFiles] = useState<Set<string>>(() => new Set());
 
   // UI state
@@ -155,7 +120,7 @@ export function HolographicDatabaseExplorer() {
   const [modalName, setModalName]   = useState("");
   const [modalKind, setModalKind]   = useState<"file" | "directory">("file");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [expanded, setExpanded]     = useState<Set<string>>(() => new Set([".locale-db", ".registry"]));
+  const [expanded, setExpanded]     = useState<Set<string>>(() => new Set([".registry", ".registry"]));
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loadedChildren, setLoadedChildren] = useState<Set<string>>(() => new Set());
@@ -176,14 +141,13 @@ export function HolographicDatabaseExplorer() {
     const src: DataSource = (data.source as DataSource) ?? "disk";
     setDataSource(src);
     setVectorizedFiles(vecPaths);
-    setOpfsInUse(false);
 
     if (data.localeDb) {
       setLocaleDbStructure({
-        id: ".locale-db",
-        name: src === "disk" ? ".locale-db" : ".locale-db (reconstitué)",
+        id: ".registry",
+        name: src === "disk" ? ".registry" : ".registry (reconstitué)",
         kind: "database",
-        path: ".locale-db",
+        path: ".registry",
         indexed: false,
         vectorized: false,
         children: convertApiNodes(data.localeDb.children ?? [], vecPaths),
@@ -201,198 +165,42 @@ export function HolographicDatabaseExplorer() {
         children: convertApiNodes(data.registry.children ?? []),
       });
     }
-
-    try {
-      const tauriRes = await fetch(`/api/structure/fs?root=tauri-local-db&t=${Date.now()}`);
-      if (tauriRes.ok) {
-        const tauriData = await tauriRes.json() as { children?: ApiTreeNode[] };
-        setTauriDbStructure({
-          id: ".tauri-local-db",
-          name: ".tauri-local-db",
-          kind: "database",
-          path: ".tauri-local-db",
-          indexed: false,
-          vectorized: false,
-          children: convertApiNodes(tauriData.children ?? []),
-        });
-      }
-    } catch (e) {
-      console.warn("[HolographicDatabaseExplorer] loadBothFromApi tauri error", e);
-    }
   }, []);
-
-  const loadTauriDbFromApi = useCallback(async () => {
-    try {
-      const res  = await fetch(`/api/structure/fs?root=tauri-local-db&t=${Date.now()}`);
-      const data = await res.json() as { children?: ApiTreeNode[] };
-      setTauriDbStructure({
-        id: ".tauri-local-db",
-        name: ".tauri-local-db",
-        kind: "database",
-        path: ".tauri-local-db",
-        indexed: false,
-        vectorized: false,
-        children: convertApiNodes(data.children ?? []),
-      });
-    } catch (e) {
-      console.warn("[HolographicDatabaseExplorer] loadTauriDbFromApi error", e);
-    }
-  }, [setTauriDbStructure]);
 
   const loadStructure = useCallback(async () => {
     setLoading(true);
     try {
-      const isBrowser = typeof window !== "undefined";
-      const isTauri   = isBrowser && "__TAURI__" in window;
-
-      // ── Straterie de chargement :
-      //   1. Essayer d'abord l'API serveur (source de vérité après déploiement)
-      //   2. Si l'API échoue ou ne retourne rien, fallback OPFS
-      //   3. En dev / Tauri, l'API est toujours prioritaire
-      // ────────────────────────────────────────────────────────────────────────
-      let apiSucceeded = false;
-      if (isBrowser) {
-        try {
-          const res = await fetch(`/api/structure/fs?unified=true&t=${Date.now()}`);
-          if (res.ok) {
-            const data = await res.json() as {
-              localeDb?: ApiTreeNode;
-              registry?: ApiTreeNode;
-              vectorizedPaths?: string[];
-              source?: string;
-            };
-            const vecPaths = new Set<string>(data.vectorizedPaths ?? []);
-            const src: DataSource = (data.source as DataSource) ?? "disk";
-            setDataSource(src);
-            setVectorizedFiles(vecPaths);
-            setOpfsInUse(false);
-
-            if (data.localeDb && (data.localeDb.children?.length ?? 0) > 0) {
-              setLocaleDbStructure({
-                id: ".locale-db",
-                name: src === "disk" ? ".locale-db" : ".locale-db (reconstitué)",
-                kind: "database",
-                path: ".locale-db",
-                indexed: false,
-                vectorized: false,
-                children: convertApiNodes(data.localeDb.children ?? [], vecPaths),
-              });
-              apiSucceeded = true;
-            }
-
-            if (data.registry && (data.registry.children?.length ?? 0) > 0) {
-              setRegistryStructure({
-                id: ".registry",
-                name: ".registry",
-                kind: "database",
-                path: ".registry",
-                indexed: false,
-                vectorized: false,
-                children: convertApiNodes(data.registry.children ?? []),
-              });
-              apiSucceeded = true;
-            }
-          }
-        } catch {
-          // API indisponible, on tentera OPFS ci-dessous
-        }
-      } else {
-        await loadBothFromApi();
-        return;
-      }
-
-      // ── Fallback OPFS seulement si l'API n'a rien retourné ────────────────
-      if (!apiSucceeded && isBrowser && !isTauri) {
-        const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-        if (opfsStorage.isSupported()) {
-          const [opfsNodes, vecPaths] = await Promise.all([
-            opfsStorage.getTree(),
-            opfsStorage.getVectorizedPaths(),
-          ]);
-
-          const hasData = opfsNodes.some((n) => n.name === "Centrale" || n.name === "Groupes" || n.kind === "document");
-
-          if (hasData) {
-            const children = convertOpfsNodes(opfsNodes, vecPaths);
-            setLocaleDbStructure({
-              id: ".locale-db",
-              name: ".locale-db (OPFS — Navigateur)",
-              kind: "database",
-              path: ".locale-db",
-              indexed: false,
-              vectorized: false,
-              children,
-            });
-            setVectorizedFiles(vecPaths);
-            setOpfsInUse(true);
-            setDataSource("opfs");
-            setLoading(false);
-            return;
-          }
-        }
-      }
-
-      // Si l'API a retourné des données partielles, on tente de charger la BDD locale Tauri via API
-      if (apiSucceeded) {
-        await loadTauriDbFromApi();
-        // Invalider le cache OPFS pour éviter qu'une structure obsolète
-        // ne soit réutilisée lors des prochains chargements.
-        try {
-          const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-          if (opfsStorage.isSupported()) {
-            await opfsStorage.clear();
-          }
-        } catch {
-          // ignore OPFS clear errors
-        }
-      } else {
-        await loadTauriDbFromApi();
-      }
+      await loadBothFromApi();
     } catch (e) {
       console.error("[HolographicDatabaseExplorer] loadStructure error", e);
       toast.error("Erreur lors du chargement des répertoires");
     } finally {
       setLoading(false);
     }
-  }, [loadBothFromApi, loadTauriDbFromApi]);
+  }, [loadBothFromApi]);
 
   useEffect(() => { loadStructure(); }, [loadStructure]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handler = () => loadStructure();
-    window.addEventListener("local-db-synced", handler);
-    return () => window.removeEventListener("local-db-synced", handler);
-  }, [loadStructure]);
 
   // ─── CRUD — Delete ────────────────────────────────────────────────────────
 
   const handleDelete = useCallback(async (nodePath: string, root: ActiveRoot) => {
     if (!confirm("Supprimer ce fichier/dossier ?")) return;
     try {
-      if (opfsInUse && root === "locale-db") {
-        const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-        // nodePath est préfixé ".locale-db/" en mode OPFS — on l'enlève
-        const relPath = nodePath.replace(/^\.locale-db\/?/, "");
-        await opfsStorage.deleteEntry(relPath);
-        toast.success("Élément supprimé (OPFS)");
-      } else {
-        const res = await fetch(
-          `/api/structure/fs?root=${root}&path=${encodeURIComponent(nodePath)}&t=${Date.now()}`,
-          { method: "DELETE" },
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: "Erreur suppression" }));
-          throw new Error((err as { error: string }).error);
-        }
-        toast.success("Élément supprimé");
+      const res = await fetch(
+        `/api/structure/fs?root=${root}&path=${encodeURIComponent(nodePath)}&t=${Date.now()}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur suppression" }));
+        throw new Error((err as { error?: string }).error || "Erreur suppression");
       }
+      toast.success("Élément supprimé");
       if (selectedId === nodePath) setSelectedId(null);
       await loadStructure();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
     }
-  }, [opfsInUse, selectedId, loadStructure]);
+  }, [selectedId, loadStructure]);
 
   // ─── CRUD — Create ────────────────────────────────────────────────────────
 
@@ -401,46 +209,26 @@ export function HolographicDatabaseExplorer() {
     try {
       const root = modal.root;
 
-      if (opfsInUse && root === "locale-db") {
-        const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-        const relParent = modal.parentPath.replace(/^\.locale-db\/?/, "");
-
-        if (modalKind === "file") {
-          if (!selectedFile) { toast.error("Veuillez sélectionner un fichier"); return; }
-          const text = selectedFile.type.startsWith("image/")
-            ? ""
-            : await selectedFile.text();
-          const relPath = relParent ? `${relParent}/${selectedFile.name}` : selectedFile.name;
-          await opfsStorage.createFile(relPath, text);
-          toast.success("Fichier créé (OPFS)");
-        } else {
-          if (!modalName.trim()) { toast.error("Veuillez saisir un nom de dossier"); return; }
-          const relPath = relParent ? `${relParent}/${modalName.trim()}` : modalName.trim();
-          await opfsStorage.createDirectory(relPath);
-          toast.success("Dossier créé (OPFS)");
-        }
+      if (modalKind === "file") {
+        if (!selectedFile) { toast.error("Veuillez sélectionner un fichier"); return; }
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("path", modal.parentPath);
+        formData.append("root", root);
+        const res = await fetch(`/api/structure/fs?root=${root}&t=${Date.now()}`, {
+          method: "POST", body: formData,
+        });
+        if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Erreur upload");
+        toast.success("Fichier uploadé");
       } else {
-        if (modalKind === "file") {
-          if (!selectedFile) { toast.error("Veuillez sélectionner un fichier"); return; }
-          const formData = new FormData();
-          formData.append("file", selectedFile);
-          formData.append("path", modal.parentPath);
-          formData.append("root", root);
-          const res = await fetch(`/api/structure/fs?root=${root}&t=${Date.now()}`, {
-            method: "POST", body: formData,
-          });
-          if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Erreur upload");
-          toast.success("Fichier uploadé");
-        } else {
-          if (!modalName.trim()) { toast.error("Veuillez saisir un nom de dossier"); return; }
-          const res = await fetch(`/api/structure/fs?root=${root}&t=${Date.now()}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ root, path: modal.parentPath, name: modalName.trim(), kind: "directory" }),
-          });
-          if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Erreur création");
-          toast.success("Dossier créé");
-        }
+        if (!modalName.trim()) { toast.error("Veuillez saisir un nom de dossier"); return; }
+        const res = await fetch(`/api/structure/fs?root=${root}&t=${Date.now()}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ root, path: modal.parentPath, name: modalName.trim(), kind: "directory" }),
+        });
+        if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Erreur création");
+        toast.success("Dossier créé");
       }
       setModal(null);
       setModalName("");
@@ -449,7 +237,7 @@ export function HolographicDatabaseExplorer() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur lors de la création");
     }
-  }, [modal, opfsInUse, modalKind, modalName, selectedFile, loadStructure]);
+  }, [modal, modalKind, modalName, selectedFile, loadStructure]);
 
   // ─── CRUD — Rename ────────────────────────────────────────────────────────
 
@@ -457,51 +245,36 @@ export function HolographicDatabaseExplorer() {
     if (!modal?.targetPath || !modalName.trim()) return;
     try {
       const root = modal.root;
-
-      if (opfsInUse && root === "locale-db") {
-        const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-        const relPath = modal.targetPath.replace(/^\.locale-db\/?/, "");
-        await opfsStorage.renameEntry(relPath, modalName.trim());
-        toast.success("Renommé (OPFS)");
-      } else {
-        const res = await fetch(`/api/structure/fs?t=${Date.now()}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ root, path: modal.targetPath, newName: modalName.trim() }),
-        });
-        if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Erreur renommage");
-        toast.success("Élément renommé");
-      }
+      const res = await fetch(`/api/structure/fs?t=${Date.now()}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ root, path: modal.targetPath, newName: modalName.trim() }),
+      });
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Erreur renommage");
+      toast.success("Élément renommé");
       setModal(null);
       setModalName("");
       await loadStructure();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur lors du renommage");
     }
-  }, [modal, opfsInUse, modalName, loadStructure]);
+  }, [modal, modalName, loadStructure]);
 
   // ─── CRUD — Preview ───────────────────────────────────────────────────────
 
   const handlePreview = useCallback(async (node: DatabaseTreeNode, root: ActiveRoot) => {
     if (node.kind !== "document") return;
     try {
-      if (opfsInUse && root === "locale-db") {
-        const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-        const relPath = node.path.replace(/^\.locale-db\/?/, "");
-        const { content, isImage } = await opfsStorage.readFile(relPath);
-        setPreview({ path: node.path, content, name: node.name, isImage, root });
-      } else {
-        const res = await fetch(
-          `/api/structure/fs?root=${root}&path=${encodeURIComponent(node.path)}&read=true&t=${Date.now()}`,
-        );
-        if (!res.ok) throw new Error();
-        const data = await res.json() as { content: string; isImage?: boolean };
-        setPreview({ path: node.path, content: data.content, name: node.name, isImage: data.isImage, root });
-      }
+      const res = await fetch(
+        `/api/structure/fs?root=${root}&path=${encodeURIComponent(node.path)}&read=true&t=${Date.now()}`,
+      );
+      if (!res.ok) throw new Error();
+      const data = await res.json() as { content: string; isImage?: boolean };
+      setPreview({ path: node.path, content: data.content, name: node.name, isImage: data.isImage, root });
     } catch {
       setPreview({ path: node.path, content: "[Impossible de lire le fichier]", name: node.name, root: root });
     }
-  }, [opfsInUse]);
+  }, []);
 
   // ─── Vectorisation ────────────────────────────────────────────────────────
 
@@ -510,7 +283,7 @@ export function HolographicDatabaseExplorer() {
       const res = await fetch(`/api/structure/fs?t=${Date.now()}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ root: "locale-db", path: nodePath, action: "vectorize" }),
+        body: JSON.stringify({ root: "registry", path: nodePath, action: "vectorize" }),
       });
       if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Erreur vectorisation");
       setVectorizedFiles((prev) => { const n = new Set(prev); n.add(nodePath); return n; });
@@ -535,7 +308,7 @@ export function HolographicDatabaseExplorer() {
         const res = await fetch(`/api/structure/fs?t=${Date.now()}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ root: "locale-db", path: filePath, action: "vectorize" }),
+          body: JSON.stringify({ root: "registry", path: filePath, action: "vectorize" }),
         });
         if (res.ok) {
           count++;
@@ -545,34 +318,6 @@ export function HolographicDatabaseExplorer() {
     }
     toast.success(`${count} fichier(s) vectorisé(s)`);
   }, [localeDbStructure, vectorizedFiles]);
-
-  const syncOpfsFromServer = useCallback(async () => {
-    try {
-      setLoading(true);
-      const { opfsStorage } = await import("@/lib/browser-db/opfs-storage");
-      if (!opfsStorage.isSupported()) {
-        toast.error("OPFS non supporté par ce navigateur");
-        return;
-      }
-
-      toast.info("Téléchargement de l'archive .locale-db...");
-      const res = await fetch("/api/local-db/download-archive");
-      if (!res.ok) throw new Error("Impossible de télécharger l'archive");
-      const blob = await res.blob();
-      const arrayBuffer = await blob.arrayBuffer();
-
-      toast.info("Extraction vers OPFS...");
-      await opfsStorage.clear();
-      const result = await opfsStorage.extractZipToOpfs(arrayBuffer);
-
-      toast.success(`OPFS synchronisé : ${result.filesExtracted} fichiers extraits`);
-      await loadStructure();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur lors de la synchronisation OPFS");
-    } finally {
-      setLoading(false);
-    }
-  }, [loadStructure]);
 
   // ─── Helpers UI ───────────────────────────────────────────────────────────
 
@@ -624,7 +369,7 @@ export function HolographicDatabaseExplorer() {
       if (!data.children) return;
       const newChildren = convertApiNodes(data.children);
       setLoadedChildren((prev) => { const n = new Set(prev); n.add(nodeId); return n; });
-      if (root === "locale-db") {
+      if (root === "registry") {
         setLocaleDbStructure((prev) => insertChildrenIntoTree(prev, nodeId, newChildren));
       } else {
         setRegistryStructure((prev) => insertChildrenIntoTree(prev, nodeId, newChildren));
@@ -639,12 +384,12 @@ export function HolographicDatabaseExplorer() {
   useEffect(() => {
     const loadMissingChildren = async () => {
       for (const nodeId of Array.from(expanded)) {
-        if (nodeId === ".locale-db" || nodeId === ".registry") continue;
+        if (nodeId === ".registry" || nodeId === ".registry") continue;
         const structure = nodeId.startsWith(".registry") ? registryStructure : localeDbStructure;
         if (!structure) continue;
         const node = findNodeById(structure, nodeId);
         if (node && (!node.children || node.children.length === 0)) {
-          const root = nodeId.startsWith(".registry") ? "registry" : "locale-db";
+          const root = nodeId.startsWith(".registry") ? "registry" : "registry";
           await loadChildrenForNode(nodeId, root);
         }
       }
@@ -655,7 +400,7 @@ export function HolographicDatabaseExplorer() {
   // ─── Stats & indices vectorisation ───────────────────────────────────────
 
   const indexedLocaleDb = useMemo<DatabaseStructure>(() => {
-    if (!localeDbStructure) return { id: ".locale-db-idx", name: ".locale-db", kind: "database", path: ".locale-db-idx", indexed: false, vectorized: false, children: [] };
+    if (!localeDbStructure) return { id: ".registry-idx", name: ".registry", kind: "database", path: ".registry-idx", indexed: false, vectorized: false, children: [] };
     const clone = JSON.parse(JSON.stringify(localeDbStructure)) as DatabaseStructure;
     const filter = (node: DatabaseTreeNode): DatabaseTreeNode => {
       if (node.kind === "document") {
@@ -670,7 +415,7 @@ export function HolographicDatabaseExplorer() {
       return node;
     };
     const filtered = filter(clone);
-    return { ...filtered, kind: "database", id: ".locale-db-idx", path: ".locale-db-idx" } as DatabaseStructure;
+    return { ...filtered, kind: "database", id: ".registry-idx", path: ".registry-idx" } as DatabaseStructure;
   }, [localeDbStructure, vectorizedFiles]);
 
   const vectorizationState = useMemo<"complete" | "pending" | "in-progress">(() => {
@@ -709,7 +454,6 @@ export function HolographicDatabaseExplorer() {
 
   const selected = allNodes.find((n) => n.id === selectedId) ?? null;
   const localeDbStats  = useMemo(() => localeDbStructure  ? aggregateStats(localeDbStructure)  : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [localeDbStructure]);
-  const tauriDbStats   = useMemo(() => tauriDbStructure    ? aggregateStats(tauriDbStructure)    : { documents: 0, vectors: 0, chunks: 0, collections: 0, dimension: 0 }, [tauriDbStructure]);
   const indexedStats   = useMemo(() => aggregateStats(indexedLocaleDb), [indexedLocaleDb]);
 
   // ─── Badge de source ──────────────────────────────────────────────────────
@@ -717,7 +461,6 @@ export function HolographicDatabaseExplorer() {
   const sourceBadge = useMemo(() => {
     switch (dataSource) {
       case "disk":           return { icon: HardDrive, label: "Disque (dev)", color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/10" };
-      case "opfs":           return { icon: Globe,     label: "OPFS (navigateur)", color: "text-violet-400 border-violet-500/30 bg-violet-500/10" };
       case "db-reconstructed": return { icon: Server,  label: "Reconstitué (Vercel)", color: "text-amber-400 border-amber-500/30 bg-amber-500/10" };
       default:               return { icon: FolderOpen, label: "Vide", color: "text-muted-foreground border-border/30 bg-muted/10" };
     }
@@ -758,26 +501,6 @@ export function HolographicDatabaseExplorer() {
             Rafraîchir
           </Button>
 
-          {!opfsInUse && (
-            <Button
-              variant="outline" size="sm"
-              onClick={loadBothFromApi}
-              className="h-8 rounded-xl border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Recharger depuis le serveur
-            </Button>
-          )}
-
-          <Button
-            variant="outline" size="sm"
-            onClick={syncOpfsFromServer}
-            className="h-8 rounded-xl border-border/60 bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary"
-          >
-            <HardDrive className="h-4 w-4 mr-2" />
-            Synchroniser OPFS
-          </Button>
-
           <Button
             variant="default" size="sm"
             onClick={handleVectorizeAll}
@@ -798,22 +521,6 @@ export function HolographicDatabaseExplorer() {
         </Badge>
       </div>
 
-      {/* Alerte OPFS */}
-      {opfsInUse && !loading && (
-        <Card className="dashboard-card mb-4 border-violet-500/30 bg-violet-500/5 p-4">
-          <div className="flex items-start gap-3">
-            <Globe className="h-5 w-5 text-violet-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Stockage OPFS — Navigateur local</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Les données sont stockées dans ce navigateur. Les modifications sont <strong>uniquement locales</strong>.
-                Exportez régulièrement vos données pour éviter toute perte en cas de nettoyage du navigateur.
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
-
       {/* Chargement */}
       {loading && (
         <Card className="dashboard-card flex h-24 items-center justify-center">
@@ -824,12 +531,12 @@ export function HolographicDatabaseExplorer() {
         </Card>
       )}
 
-      {!loading && (localeDbStructure ?? tauriDbStructure) && (
+      {!loading && localeDbStructure && (
         <>
           {/* Stats ribbon */}
           <DbStatsRibbon
             localeDbFiles={localeDbStats.documents}
-            registryFiles={tauriDbStats.documents}
+            registryFiles={registryStructure ? aggregateStats(registryStructure).documents : 0}
             totalVectors={indexedStats.vectors}
             totalChunks={indexedStats.chunks}
           />
@@ -866,11 +573,11 @@ export function HolographicDatabaseExplorer() {
 
           {/* Grille 3 panneaux */}
           <div className="relative isolate mt-6 grid grid-cols-1 gap-6 md:grid-cols-[1fr_8rem_1fr]">
-            {/* Panneau gauche — .locale-db */}
+            {/* Panneau gauche — .registry */}
             {localeDbStructure && (
               <TreePanel
-                label=".locale-db"
-                subtitle={opfsInUse ? "Stockage OPFS navigateur" : "Répertoire physique disque"}
+                label=".registry"
+                subtitle="Répertoire physique disque"
                 structure={localeDbStructure}
                 accent="schema"
                 expanded={expanded}
@@ -882,14 +589,14 @@ export function HolographicDatabaseExplorer() {
                 searchTerm={searchTerm}
                 matchIds={matchIds}
                 highlightAncestors={highlightAncestors}
-                onPreview={(node) => handlePreview(node, "locale-db")}
-                onDelete={(p) => handleDelete(p, "locale-db")}
+                onPreview={(node) => handlePreview(node, "registry")}
+                onDelete={(p) => handleDelete(p, "registry")}
                 onRename={(p, name) => {
-                  setModal({ mode: "rename", root: "locale-db", targetPath: p, defaultName: name });
+                  setModal({ mode: "rename", root: "registry", targetPath: p, defaultName: name });
                   setModalName(name);
                 }}
                 onCreate={(p) => {
-                  setModal({ mode: "create", root: "locale-db", parentPath: p });
+                  setModal({ mode: "create", root: "registry", parentPath: p });
                   setModalName("");
                   setModalKind("file");
                   setSelectedFile(null);
@@ -909,45 +616,12 @@ export function HolographicDatabaseExplorer() {
               }}
               vectorizationState={vectorizationState}
             />
-
-            {/* Panneau droit — BDD locale Tauri */}
-            {tauriDbStructure && (
-              <TreePanel
-                label="BDD locale"
-                subtitle="Base locale Tauri"
-                structure={tauriDbStructure}
-                accent="schema"
-                expanded={expanded}
-                onToggle={toggleNode}
-                onSelect={onSelect}
-                selectedId={selectedId}
-                hoveredId={null}
-                onHover={() => {}}
-                searchTerm={searchTerm}
-                matchIds={matchIds}
-                highlightAncestors={highlightAncestors}
-                onPreview={(node) => handlePreview(node, "locale-db")}
-                onDelete={(p) => handleDelete(p, "locale-db")}
-                onRename={(p, name) => {
-                  setModal({ mode: "rename", root: "locale-db", targetPath: p, defaultName: name });
-                  setModalName(name);
-                }}
-                onCreate={(p) => {
-                  setModal({ mode: "create", root: "locale-db", parentPath: p });
-                  setModalName("");
-                  setModalKind("file");
-                  setSelectedFile(null);
-                }}
-                onVectorize={handleVectorize}
-                loadingNodes={loadingNodes}
-              />
-            )}
           </div>
 
           <div className="relative mt-8 text-center text-xs text-muted-foreground/60">
             <span className="inline-flex items-center gap-1.5">
               <Layers className="h-3 w-3" />
-              Panneau gauche : arborescence physique <code className="font-mono">.locale-db</code> —
+              Panneau gauche : arborescence physique <code className="font-mono">.registry</code> —
               Panneau droit : arborescence BDD locale Tauri
             </span>
           </div>
@@ -1143,7 +817,7 @@ function DbStatsRibbon({
   localeDbFiles: number; registryFiles: number; totalVectors: number; totalChunks: number;
 }) {
   const counters: { label: string; value: number; Icon: ComponentType<{ className?: string }>; color: string }[] = [
-    { label: ".locale-db fichiers", value: localeDbFiles,  Icon: Database, color: "hsl(210 90% 65%)" },
+    { label: ".registry fichiers", value: localeDbFiles,  Icon: Database, color: "hsl(210 90% 65%)" },
     { label: "BDD locale Tauri",   value: registryFiles,  Icon: FolderOpen, color: "hsl(270 80% 65%)" },
     { label: "Vecteurs",            value: totalVectors,   Icon: BarChart3, color: "hsl(150 80% 50%)" },
     { label: "Chunks",              value: totalChunks,    Icon: Layers,   color: "hsl(270 80% 70%)" },

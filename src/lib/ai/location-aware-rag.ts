@@ -1,11 +1,20 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { vectorize } from "./embeddings";
-import { getLocationFilterClause, type LocationRef } from "@/lib/location/parser";
+import { type LocationRef } from "@/lib/location/parser";
 
 export interface RagDocument {
   content: string;
   metadata: Record<string, unknown>;
   similarity: number;
+}
+
+function matchesLocation(metadata: Record<string, unknown>, loc: LocationRef): boolean {
+  if (loc.blocCode && metadata.bloc_code !== loc.blocCode) return false;
+  if (loc.equipementCode && metadata.equipement_code !== loc.equipementCode) return false;
+  if (loc.groupePath && !String(metadata.groupe_path).startsWith(loc.groupePath)) return false;
+  if (loc.locationPath && !String(metadata.location_path).startsWith(loc.locationPath)) return false;
+  if (loc.alarmCode && metadata.alarm_code !== loc.alarmCode) return false;
+  return true;
 }
 
 export async function searchRagDocuments(
@@ -21,25 +30,24 @@ export async function searchRagDocuments(
 
   try {
     const collectionsToSearch = collections || ["qa", "procedures", "alarms", "media"];
-    const placeholders = collectionsToSearch.map((_, i) => `$${i + 1}`).join(", ");
 
-    const sql = `SELECT content, metadata_json,
-                   1 - (embedding <=> $${collectionsToSearch.length + 1}::vector(384)) as similarity
-             FROM chroma_index
-             WHERE collection = ANY(ARRAY[${placeholders}]::text[])
-               AND embedding IS NOT NULL
-             ORDER BY embedding <=> $${collectionsToSearch.length + 1}::vector(384)
-             LIMIT $${collectionsToSearch.length + 2}`;
+    const result = await prisma.$queryRaw<
+      {
+        content: string;
+        metadata_json: string;
+        similarity: number;
+      }[]
+    >`
+      SELECT content, metadata_json,
+        1 - (embedding <=> ${embedding}::vector(384)) as similarity
+      FROM chroma_index
+      WHERE collection = ANY(${collectionsToSearch}::text[])
+        AND embedding IS NOT NULL
+      ORDER BY embedding <=> ${embedding}::vector(384)
+      LIMIT ${limit}
+    `;
 
-    const params = [...collectionsToSearch, JSON.stringify(embedding), limit];
-
-    const result = await query<{
-      content: string;
-      metadata_json: string;
-      similarity: number;
-    }>(sql, params);
-
-    return result.rows.map((row) => ({
+    return result.map((row) => ({
       content: row.content,
       metadata: JSON.parse(row.metadata_json || "{}"),
       similarity: row.similarity,
@@ -63,46 +71,31 @@ export async function searchRagWithLocation(
 
   try {
     const collectionsToSearch = collections || ["qa", "procedures", "alarms", "media"];
-    const placeholders = collectionsToSearch.map((_, i) => `$${i + 1}`).join(", ");
 
-    let whereClause = `WHERE collection = ANY(ARRAY[${placeholders}]::text[])
-                        AND embedding IS NOT NULL`;
+    const result = await prisma.$queryRaw<
+      {
+        content: string;
+        metadata_json: string;
+        similarity: number;
+      }[]
+    >`
+      SELECT content, metadata_json,
+        1 - (embedding <=> ${embedding}::vector(384)) as similarity
+      FROM chroma_index
+      WHERE collection = ANY(${collectionsToSearch}::text[])
+        AND embedding IS NOT NULL
+      ORDER BY embedding <=> ${embedding}::vector(384)
+      LIMIT ${limit * 10}
+    `;
 
-    if (locations.length > 0) {
-      const locationFilters = locations
-        .map((loc) => {
-          const filterClause = getLocationFilterClause(loc, "metadata_json");
-          if (!filterClause) return null;
-          return `(${filterClause})`;
-        })
-        .filter(Boolean);
-
-      if (locationFilters.length > 0) {
-        whereClause += ` AND (${locationFilters.join(" OR ")})`;
-      }
-    }
-
-    const paramOffset = collectionsToSearch.length + 1;
-    const sql = `SELECT content, metadata_json,
-                   1 - (embedding <=> $${paramOffset}::vector(384)) as similarity
-             FROM chroma_index
-             ${whereClause}
-             ORDER BY embedding <=> $${paramOffset}::vector(384)
-             LIMIT $${paramOffset + 1}`;
-
-    const params = [...collectionsToSearch, JSON.stringify(embedding), limit];
-
-    const result = await query<{
-      content: string;
-      metadata_json: string;
-      similarity: number;
-    }>(sql, params);
-
-    return result.rows.map((row) => ({
-      content: row.content,
-      metadata: JSON.parse(row.metadata_json || "{}"),
-      similarity: row.similarity,
-    }));
+    return result
+      .map((row) => ({
+        content: row.content,
+        metadata: JSON.parse(row.metadata_json || "{}"),
+        similarity: row.similarity,
+      }))
+      .filter((doc) => locations.some((loc) => matchesLocation(doc.metadata, loc)))
+      .slice(0, limit);
   } catch {
     return [];
   }
@@ -110,12 +103,12 @@ export async function searchRagWithLocation(
 
 export async function searchAlarmsByCode(code: string): Promise<Record<string, unknown> | null> {
   try {
-    const result = await query(
-      `SELECT * FROM alarms WHERE code = $1 LIMIT 1`,
-      [code.toUpperCase()],
-    );
-    if (result.rows.length === 0) return null;
-    return result.rows[0] as Record<string, unknown>;
+    const alarm = await prisma.alarm.findFirst({
+      where: { code: code.toUpperCase() },
+    });
+
+    if (!alarm) return null;
+    return alarm as unknown as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -124,16 +117,20 @@ export async function searchAlarmsByCode(code: string): Promise<Record<string, u
 export async function searchByBloc(blocCode: string, limit = 10, collections?: string[]): Promise<RagDocument[]> {
   const collectionsToSearch = collections || ["qa", "procedures", "alarms", "media"];
   try {
-    const placeholders = collectionsToSearch.map((_, i) => `$${i + 1}`).join(", ");
-    const sql = `SELECT content, metadata_json, 1 - (embedding <=> embedding) as similarity
-             FROM chroma_index
-             WHERE collection = ANY(ARRAY[${placeholders}]::text[])
-               AND embedding IS NOT NULL
-               AND (metadata_json->>'bloc_code' = $${collectionsToSearch.length + 1} OR metadata_json->>'location_path' LIKE $${collectionsToSearch.length + 2})
-             LIMIT $${collectionsToSearch.length + 3}`;
-    const params = [...collectionsToSearch, blocCode, `${blocCode}%`, limit];
-    const result = await query<{ content: string; metadata_json: string; similarity: number }>(sql, params);
-    return result.rows.map((row) => ({
+    const result = await prisma.$queryRaw<{
+      content: string;
+      metadata_json: string;
+      similarity: number;
+    }[]>`
+      SELECT content, metadata_json, 1 - (embedding <=> embedding) as similarity
+      FROM chroma_index
+      WHERE collection = ANY(${collectionsToSearch}::text[])
+        AND embedding IS NOT NULL
+        AND (metadata_json->>'bloc_code' = ${blocCode} OR metadata_json->>'location_path' LIKE ${`${blocCode}%`})
+      LIMIT ${limit}
+    `;
+
+    return result.map((row) => ({
       content: row.content,
       metadata: JSON.parse(row.metadata_json || "{}"),
       similarity: row.similarity,

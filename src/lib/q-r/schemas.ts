@@ -24,6 +24,11 @@ export const QAItemUpdatePayloadSchema = QAItemSchema.omit({
   id: true,
 }).partial();
 
+export const QAItemUpdateWithIdSchema = QAItemUpdatePayloadSchema.extend({
+  id: z.string().uuid(),
+});
+
 export type QAItem = z.infer<typeof QAItemSchema>;
 export type QAItemCreatePayload = z.infer<typeof QAItemCreatePayloadSchema>;
 export type QAItemUpdatePayload = z.infer<typeof QAItemUpdatePayloadSchema>;
+export type QAItemUpdateWithId = z.infer<typeof QAItemUpdateWithIdSchema>;

@@ -2,7 +2,7 @@
 
 import { Component, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 interface Props {
   children: ReactNode;
@@ -15,48 +15,49 @@ interface State {
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+  public state: State = {
+    hasError: false,
+    error: null,
+  };
 
-  static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  public componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
+    console.error("[ErrorBoundary] Procedure guide crashed", {
+      error: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+    });
   }
 
-  private handleReset = (): void => {
-    this.setState({ hasError: false, error: null });
-  };
-
-  render(): ReactNode {
+  public render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
         return this.props.fallback;
       }
+
       return (
-        <div className="flex flex-col items-center justify-center min-h-[40vh] p-8 text-center">
-          <div className="mb-4 rounded-full bg-destructive/10 p-4">
-            <AlertTriangle className="h-8 w-8 text-destructive" />
-          </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">
-            Une erreur est survenue
-          </h2>
-          <p className="text-sm text-muted-foreground mb-4 max-w-md">
-            {this.state.error?.message ?? "Une erreur inattendue s&apos;est produite."}
+        <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+          <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+          <p className="text-lg font-medium text-foreground">Une erreur est survenue dans le guide</p>
+          <p className="text-sm text-muted-foreground mt-1 max-w-md">
+            {this.state.error?.message || "Erreur inconnue"}
           </p>
-          <Button variant="outline" onClick={this.handleReset} className="gap-2">
-            <RefreshCw className="h-4 w-4" />
+          <Button
+            variant="outline"
+            className="mt-4 gap-2"
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+            }}
+          >
             Réessayer
           </Button>
         </div>
       );
     }
+
     return this.props.children;
   }
 }
-
-export default ErrorBoundary;

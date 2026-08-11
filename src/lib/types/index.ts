@@ -6,7 +6,6 @@ export * from "./etat-des-lieux";
 export * from "./media";
 export * from "./knowledge";
 export * from "./structure-bdd";
-export * from "./local-db";
 export * from "./reports";
 export * from "./teams";
 export * from "./workflows";

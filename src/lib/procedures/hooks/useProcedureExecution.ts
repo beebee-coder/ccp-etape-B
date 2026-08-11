@@ -33,6 +33,7 @@ export interface UseProcedureExecutionReturn {
     nextStep: () => void;
     previousStep: () => void;
     completeStep: (stepId: string) => void;
+    uncompleteStep: (stepId: string) => void;
     setPhase: (phase: GuidePhase) => void;
     abort: (reason: string) => void;
     reset: () => void;
@@ -64,6 +65,8 @@ export function useProcedureExecution({
 
   const timerIntervalRef = useRef<number | null>(null);
   const currentStepRef = useRef<TStep | null>(null);
+  const currentStepTitleRef = useRef<string>("");
+  const lastActionTimeRef = useRef<number>(0);
 
   const sortedSteps = useRef<TStep[]>([...procedure.steps].sort((a, b) => a.order - b.order));
 
@@ -73,6 +76,7 @@ export function useProcedureExecution({
 
   const currentStep = sortedSteps.current[context.currentStepIndex] || null;
   currentStepRef.current = currentStep;
+  currentStepTitleRef.current = currentStep?.title || "";
 
   const clearTimer = useCallback(() => {
     if (timerIntervalRef.current) {
@@ -92,7 +96,7 @@ export function useProcedureExecution({
             setIsTimerRunning(false);
             setContext((ctx) => ({
               ...ctx,
-              anomalies: [...ctx.anomalies, `Temps écoulé pour l'étape: ${currentStep.title}`],
+              anomalies: [...ctx.anomalies, `Temps écoulé pour l'étape: ${currentStepTitleRef.current}`],
             }));
             return 0;
           }
@@ -181,12 +185,31 @@ export function useProcedureExecution({
 
   const completeStep = useCallback(
     (stepId: string) => {
+      const now = Date.now();
+      if (now - lastActionTimeRef.current < 300) return;
+      lastActionTimeRef.current = now;
+
+      setContext((ctx) => {
+        const next = new Set(ctx.completedSteps);
+        if (!next.has(stepId)) {
+          next.add(stepId);
+        }
+        return { ...ctx, completedSteps: next };
+      });
+    },
+    []
+  );
+
+  const uncompleteStep = useCallback(
+    (stepId: string) => {
+      const now = Date.now();
+      if (now - lastActionTimeRef.current < 300) return;
+      lastActionTimeRef.current = now;
+
       setContext((ctx) => {
         const next = new Set(ctx.completedSteps);
         if (next.has(stepId)) {
           next.delete(stepId);
-        } else {
-          next.add(stepId);
         }
         return { ...ctx, completedSteps: next };
       });
@@ -239,6 +262,7 @@ export function useProcedureExecution({
       nextStep,
       previousStep,
       completeStep,
+      uncompleteStep,
       setPhase,
       abort,
       reset,

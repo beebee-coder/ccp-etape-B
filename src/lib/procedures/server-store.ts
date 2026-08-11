@@ -1,12 +1,28 @@
-import { query, getPool } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { createLogger } from "@/lib/logger";
 import {
   validateProcedure,
   TProcedure,
   TProcedureExecution,
+  MediaRequirementSchema,
+  AlarmConfigSchema,
 } from "./services/validator.service";
+import { invalidateProceduresCache } from "@/app/api/registry/fs/route";
 
 const log = createLogger({ module: "server-store" });
+
+function safeParseArray<T>(data: unknown, schema: { parse: (input: unknown) => T }, fallback: T[]): T[] {
+  try {
+    if (!Array.isArray(data)) return fallback;
+    return data.map((item) => schema.parse(item));
+  } catch (error) {
+    log.error("server-store: invalid JSON array field, using fallback", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return fallback;
+  }
+}
 
 export interface ExecutionRecord {
   procedureCode: string;
@@ -22,38 +38,116 @@ export interface ExecutionRecord {
   events: unknown[];
 }
 
-function mapRowToProcedure(row: Record<string, unknown>): TProcedure {
+interface ProcedureStepRow {
+  id: string;
+  procedureId: string;
+  stepOrder: number;
+  stepId: string;
+  title: string;
+  subtitle: string | null;
+  instructions: string;
+  stepType: string;
+  isMandatory: boolean;
+  dependencies: string[];
+  mediaRequirements: unknown;
+  alarms: unknown;
+  alarmCodes: string[];
+  attachments: string[];
+  timerEnabled: boolean;
+  timerSeconds: number;
+}
+
+interface ProcedureRow {
+  id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: string;
+  estimatedTimeMin: number;
+  requiredRoles: string[];
+  globalSafetyInstructions: string[];
+  locationType: string | null;
+  locationPath: string | null;
+  blocCode: string | null;
+  equipementCode: string | null;
+  criticality: string | null;
+  status: string | null;
+  subcategory: string | null;
+  department: string | null;
+  version: string | null;
+  parameters: unknown;
+  postExecution: unknown;
+  mediaLibrary: unknown;
+  prerequisites: unknown;
+  lastExecutedAt: Date | null;
+  executionCount: number;
+  authorId: string | null;
+  metadataJson: unknown;
+  createdAt: Date;
+  updatedAt: Date | null;
+  steps: ProcedureStepRow[];
+}
+
+function mapRowToProcedure(row: ProcedureRow): TProcedure {
   const metadata: TProcedure["metadata"] = {
-    title: (row.title as string) ?? "",
-    code: (row.code as string) ?? "",
-    description: row.description as string | undefined,
-    category: (row.category as string) ?? "",
-    priority: (row.priority as "basse" | "moyenne" | "haute" | "critique") ?? "moyenne",
-    estimatedTimeMinutes: (row.estimated_time_min as number) ?? 30,
-    requiredRoles: (row.required_roles as string[]) ?? [],
-    globalSafetyInstructions: (row.global_safety_instructions as string[]) ?? [],
-    locationType: row.location_type as TProcedure["metadata"]["locationType"],
-    locationPath: row.location_path as TProcedure["metadata"]["locationPath"],
-    blocCode: row.bloc_code as TProcedure["metadata"]["blocCode"],
-    equipementCode: row.equipement_code as TProcedure["metadata"]["equipementCode"],
-    criticality: row.criticality as TProcedure["metadata"]["criticality"],
-    status: row.status as TProcedure["metadata"]["status"],
-    subcategory: row.subcategory as TProcedure["metadata"]["subcategory"],
-    department: row.department as TProcedure["metadata"]["department"],
-    version: row.version as TProcedure["metadata"]["version"],
-    lastExecutedAt: row.last_executed_at as TProcedure["metadata"]["lastExecutedAt"],
-    executionCount: (row.execution_count as number) ?? 0,
-    authorId: row.author_id as TProcedure["metadata"]["authorId"],
-    createdAt: row.created_at as TProcedure["metadata"]["createdAt"],
-    updatedAt: row.updated_at as TProcedure["metadata"]["updatedAt"],
+    title: row.title,
+    code: row.code,
+    description: row.description || undefined,
+    category: row.category,
+    priority: row.priority as TProcedure["metadata"]["priority"],
+    estimatedTimeMinutes: row.estimatedTimeMin,
+    requiredRoles: row.requiredRoles,
+    globalSafetyInstructions: row.globalSafetyInstructions,
+    locationType: row.locationType as TProcedure["metadata"]["locationType"],
+    locationPath: row.locationPath || undefined,
+    blocCode: row.blocCode || undefined,
+    equipementCode: row.equipementCode || undefined,
+    criticality: (row.criticality || "NORMAL") as TProcedure["metadata"]["criticality"],
+    status: (row.status || "DRAFT") as TProcedure["metadata"]["status"],
+    subcategory: row.subcategory || undefined,
+    department: row.department || undefined,
+    version: row.version || undefined,
+    lastExecutedAt: row.lastExecutedAt?.getTime() ?? undefined,
+    executionCount: row.executionCount,
+    authorId: row.authorId || undefined,
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt?.getTime() ?? undefined,
   };
 
   return {
     metadata,
-    steps: (row.steps as TProcedure["steps"]) ?? [],
+    steps: row.steps.map((step) => {
+      const safeMediaRequirements = safeParseArray(
+        step.mediaRequirements,
+        MediaRequirementSchema,
+        []
+      );
+      const safeAlarms = safeParseArray(step.alarms, AlarmConfigSchema, []);
+
+      return {
+        id: step.stepId,
+        procedureId: step.procedureId,
+        stepOrder: step.stepOrder,
+        stepId: step.stepId,
+        title: step.title,
+        subtitle: step.subtitle || undefined,
+        instructions: step.instructions,
+        type: step.stepType as TProcedure["steps"][number]["type"],
+        isMandatory: step.isMandatory,
+        dependencies: step.dependencies,
+        mediaRequirements: safeMediaRequirements,
+        alarms: safeAlarms,
+        alarmCodes: step.alarmCodes,
+        attachments: step.attachments,
+        order: step.stepOrder,
+        timerEnabled: step.timerEnabled,
+        timerSeconds: step.timerSeconds,
+      };
+    }),
     parameters: row.parameters as TProcedure["parameters"],
-    postExecution: row.post_execution as TProcedure["postExecution"],
-    mediaLibrary: row.media_library as TProcedure["mediaLibrary"],
+    postExecution: row.postExecution as TProcedure["postExecution"],
+    mediaLibrary: row.mediaLibrary as TProcedure["mediaLibrary"],
     prerequisites: row.prerequisites as TProcedure["prerequisites"],
   };
 }
@@ -61,45 +155,21 @@ function mapRowToProcedure(row: Record<string, unknown>): TProcedure {
 export async function getAllProcedures(): Promise<TProcedure[]> {
   log.debug("getAllProcedures: fetching all procedures");
   try {
-    const result = await query<Record<string, unknown>>(
-      `SELECT p.id, p.code, p.title, p.description, p.category, p.priority, p.estimated_time_min,
-              p.required_roles, p.global_safety_instructions, p.location_type, p.location_path,
-              p.bloc_code, p.equipement_code, p.criticality, p.status, p.subcategory, p.department,
-              p.version, p.parameters, p.post_execution, p.media_library, p.prerequisites,
-              p.last_executed_at, p.execution_count, p.author_id, p.created_at, p.updated_at,
-              COALESCE(JSON_AGG(
-                JSON_BUILD_OBJECT(
-                  'id', ps.step_id,
-                  'procedureId', ps.procedure_id,
-                  'stepOrder', ps.step_order,
-                  'stepId', ps.step_id,
-                  'title', ps.title,
-                  'subtitle', ps.subtitle,
-                  'instructions', ps.instructions,
-                  'type', ps.step_type,
-                  'isMandatory', ps.is_mandatory,
-                  'dependencies', ps.dependencies,
-                  'mediaRequirements', ps.media_requirements,
-                  'alarms', ps.alarms,
-                  'alarmCodes', ps.alarm_codes,
-                  'attachments', ps.attachments,
-                  'order', ps.step_order,
-                  'timerEnabled', ps.timer_enabled,
-                  'timerSeconds', ps.timer_seconds
-                )
-              ORDER BY ps.step_order ASC), '[]'::json) as steps
-       FROM procedures p
-       LEFT JOIN procedure_steps ps ON p.id = ps.procedure_id
-       GROUP BY p.id
-       ORDER BY p.created_at DESC`,
-    );
+    const procedures = await prisma.procedure.findMany({
+      include: {
+        steps: {
+          orderBy: { stepOrder: "asc" },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-    const procedures = result.rows.map(mapRowToProcedure);
+    const result = procedures.map(mapRowToProcedure);
 
     log.info("getAllProcedures: procedures fetched", {
-      count: procedures.length,
+      count: result.length,
     });
-    return procedures;
+    return result;
   } catch (error) {
     log.error("getAllProcedures: failed to fetch procedures", { error });
     throw error;
@@ -111,49 +181,24 @@ export async function getProcedureById(
 ): Promise<TProcedure | null> {
   log.debug("getProcedureById: fetching procedure", { code });
   try {
-    const result = await query<Record<string, unknown>>(
-      `SELECT p.id, p.code, p.title, p.description, p.category, p.priority, p.estimated_time_min,
-              p.required_roles, p.global_safety_instructions, p.location_type, p.location_path,
-              p.bloc_code, p.equipement_code, p.criticality, p.status, p.subcategory, p.department,
-              p.version, p.parameters, p.post_execution, p.media_library, p.prerequisites,
-              p.last_executed_at, p.execution_count, p.author_id, p.created_at, p.updated_at,
-              COALESCE(JSON_AGG(
-                JSON_BUILD_OBJECT(
-                  'id', ps.step_id,
-                  'procedureId', ps.procedure_id,
-                  'stepOrder', ps.step_order,
-                  'stepId', ps.step_id,
-                  'title', ps.title,
-                  'subtitle', ps.subtitle,
-                  'instructions', ps.instructions,
-                  'type', ps.step_type,
-                  'isMandatory', ps.is_mandatory,
-                  'dependencies', ps.dependencies,
-                  'mediaRequirements', ps.media_requirements,
-                  'alarms', ps.alarms,
-                  'alarmCodes', ps.alarm_codes,
-                  'attachments', ps.attachments,
-                  'order', ps.step_order,
-                  'timerEnabled', ps.timer_enabled,
-                  'timerSeconds', ps.timer_seconds
-                )
-              ORDER BY ps.step_order ASC), '[]'::json) as steps
-       FROM procedures p
-       LEFT JOIN procedure_steps ps ON p.id = ps.procedure_id
-       WHERE p.code = $1
-       GROUP BY p.id`,
-      [code],
-    );
+    const procedure = await prisma.procedure.findUnique({
+      where: { code },
+      include: {
+        steps: {
+          orderBy: { stepOrder: "asc" },
+        },
+      },
+    });
 
-    if (result.rows.length === 0) {
+    if (!procedure) {
       log.warn("getProcedureById: procedure not found", { code });
       return null;
     }
 
-    const procedure = mapRowToProcedure(result.rows[0]);
+    const mapped = mapRowToProcedure(procedure);
 
     try {
-      validateProcedure(procedure);
+      validateProcedure(mapped);
     } catch (validationError) {
       log.error("getProcedureById: procedure data failed schema validation", {
         code,
@@ -167,9 +212,9 @@ export async function getProcedureById(
 
     log.info("getProcedureById: procedure fetched", {
       code,
-      stepCount: procedure.steps.length,
+      stepCount: mapped.steps.length,
     });
-    return procedure;
+    return mapped;
   } catch (error) {
     log.error("getProcedureById: failed to fetch procedure", { code, error });
     throw error;
@@ -185,148 +230,155 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
     title: metadata.title,
   });
 
-  const client = await getPool().connect();
-  try {
-    await client.query("BEGIN");
+  await prisma.$transaction(async (tx) => {
+    const procedureData = {
+      code: metadata.code,
+      title: metadata.title,
+      description: metadata.description || undefined,
+      category: metadata.category,
+      priority: metadata.priority,
+      estimatedTimeMin: metadata.estimatedTimeMinutes,
+      requiredRoles: metadata.requiredRoles,
+      globalSafetyInstructions: metadata.globalSafetyInstructions,
+      locationType: metadata.locationType || undefined,
+      locationPath: metadata.locationPath || undefined,
+      blocCode: metadata.blocCode || undefined,
+      equipementCode: metadata.equipementCode || undefined,
+      criticality: metadata.criticality || undefined,
+      status: metadata.status || undefined,
+      subcategory: metadata.subcategory || undefined,
+      department: metadata.department || undefined,
+      version: metadata.version || undefined,
+      parameters: validated.parameters ?? undefined,
+      postExecution: validated.postExecution ?? undefined,
+      mediaLibrary: validated.mediaLibrary ?? undefined,
+      prerequisites: validated.prerequisites ?? undefined,
+      lastExecutedAt: metadata.lastExecutedAt ? new Date(metadata.lastExecutedAt) : undefined,
+      executionCount: metadata.executionCount ?? 0,
+      authorId: metadata.authorId || undefined,
+      metadataJson: metadata,
+    };
 
-    const result = await client.query<{ id: string }>(
-      `INSERT INTO procedures (
-         code, title, description, category, priority, estimated_time_min,
-         required_roles, global_safety_instructions, location_type, location_path,
-         bloc_code, equipement_code, criticality, status, subcategory, department,
-         version, parameters, post_execution, media_library, prerequisites,
-         last_executed_at, execution_count, author_id, metadata_json, created_at, updated_at
-       ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-         $17, $18, $19, $20, $21, $22, $23, $24, $25, COALESCE($26, NOW())
-       )
-       ON CONFLICT (code) DO UPDATE SET
-         title = EXCLUDED.title,
-         description = EXCLUDED.description,
-         category = EXCLUDED.category,
-         priority = EXCLUDED.priority,
-         estimated_time_min = EXCLUDED.estimated_time_min,
-         required_roles = EXCLUDED.required_roles,
-         global_safety_instructions = EXCLUDED.global_safety_instructions,
-         location_type = EXCLUDED.location_type,
-         location_path = EXCLUDED.location_path,
-         bloc_code = EXCLUDED.bloc_code,
-         equipement_code = EXCLUDED.equipement_code,
-         criticality = EXCLUDED.criticality,
-         status = EXCLUDED.status,
-         subcategory = EXCLUDED.subcategory,
-         department = EXCLUDED.department,
-         version = EXCLUDED.version,
-         parameters = EXCLUDED.parameters,
-         post_execution = EXCLUDED.post_execution,
-         media_library = EXCLUDED.media_library,
-         prerequisites = EXCLUDED.prerequisites,
-         last_executed_at = EXCLUDED.last_executed_at,
-         execution_count = EXCLUDED.execution_count,
-         author_id = EXCLUDED.author_id,
-         metadata_json = EXCLUDED.metadata_json,
-         updated_at = NOW()
-       RETURNING id`,
-      [
-        metadata.code,
-        metadata.title,
-        metadata.description || null,
-        metadata.category,
-        metadata.priority,
-        metadata.estimatedTimeMinutes,
-        metadata.requiredRoles,
-        metadata.globalSafetyInstructions,
-        metadata.locationType || null,
-        metadata.locationPath || null,
-        metadata.blocCode || null,
-        metadata.equipementCode || null,
-        metadata.criticality || null,
-        metadata.status || null,
-        metadata.subcategory || null,
-        metadata.department || null,
-        metadata.version || null,
-        validated.parameters ?? null,
-        validated.postExecution ?? null,
-        validated.mediaLibrary ?? null,
-        validated.prerequisites ?? null,
-        metadata.lastExecutedAt ?? null,
-        metadata.executionCount ?? 0,
-        metadata.authorId || null,
-        JSON.stringify(metadata),
-      ],
-    );
+    const result = await tx.procedure.upsert({
+      where: { code: metadata.code },
+      update: procedureData,
+      create: {
+        id: metadata.code,
+        ...procedureData,
+      },
+    });
 
-    const procedureId = result.rows[0].id;
+    const procedureId = result.id;
     log.debug("saveProcedure: procedure upserted", {
       code: metadata.code,
       procedureId,
     });
 
-    await client.query("DELETE FROM procedure_steps WHERE procedure_id = $1", [
-      procedureId,
-    ]);
+    const existingSteps = await tx.procedureStep.findMany({
+      where: { procedureId },
+      select: { id: true, stepId: true },
+    });
 
-    for (const step of validated.steps) {
-      await client.query(
-        `INSERT INTO procedure_steps (
-           procedure_id, step_order, step_id, title, subtitle, instructions,
-           step_type, is_mandatory, dependencies, media_requirements, alarms,
-           alarm_codes, attachments, timer_enabled, timer_seconds
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-        [
-          procedureId,
-          step.order,
-          step.id,
-          step.title,
-          step.subtitle || null,
-          step.instructions,
-          step.type,
-          step.isMandatory,
-          step.dependencies,
-          JSON.stringify(step.mediaRequirements),
-          JSON.stringify(step.alarms),
-          JSON.stringify(step.alarmCodes ?? []),
-          step.attachments,
-          step.timerEnabled,
-          step.timerSeconds,
-        ],
-      );
+    const existingStepIds = new Set(existingSteps.map((s) => s.stepId));
+    const incomingStepIds = new Set(validated.steps.map((s) => s.stepId || s.id));
+
+    const stepsToDelete = existingSteps.filter((s) => !incomingStepIds.has(s.stepId));
+    if (stepsToDelete.length > 0) {
+      await tx.procedureStep.deleteMany({
+        where: { id: { in: stepsToDelete.map((s) => s.id) } },
+      });
+      log.debug("saveProcedure: deleted obsolete steps", {
+        code: metadata.code,
+        deletedCount: stepsToDelete.length,
+      });
     }
 
-    await client.query("COMMIT");
+    const stepsToUpdate: { stepId: string; data: Prisma.ProcedureStepUpdateManyMutationInput }[] = [];
+    const stepsToCreate: Prisma.ProcedureStepCreateManyInput[] = [];
+
+    for (const step of validated.steps) {
+      const stepId = step.stepId || step.id;
+      if (existingStepIds.has(stepId)) {
+        stepsToUpdate.push({
+          stepId,
+          data: {
+            stepOrder: step.order,
+            title: step.title,
+            subtitle: step.subtitle || null,
+            instructions: step.instructions,
+            stepType: step.type,
+            isMandatory: step.isMandatory,
+            dependencies: step.dependencies,
+            mediaRequirements: step.mediaRequirements as unknown as Prisma.InputJsonValue,
+            alarms: step.alarms as unknown as Prisma.InputJsonValue,
+            alarmCodes: step.alarmCodes,
+            attachments: step.attachments,
+            timerEnabled: step.timerEnabled,
+            timerSeconds: step.timerSeconds,
+          },
+        });
+      } else {
+        stepsToCreate.push({
+          id: crypto.randomUUID(),
+          procedureId,
+          stepOrder: step.order,
+          stepId,
+          title: step.title,
+          subtitle: step.subtitle || null,
+          instructions: step.instructions,
+          stepType: step.type,
+          isMandatory: step.isMandatory,
+          dependencies: step.dependencies,
+          mediaRequirements: step.mediaRequirements as unknown as Prisma.InputJsonValue,
+          alarms: step.alarms as unknown as Prisma.InputJsonValue,
+          alarmCodes: step.alarmCodes,
+          attachments: step.attachments,
+          timerEnabled: step.timerEnabled,
+          timerSeconds: step.timerSeconds,
+        });
+      }
+    }
+
+    for (const update of stepsToUpdate) {
+      await tx.procedureStep.updateMany({
+        where: { procedureId, stepId: update.stepId },
+        data: update.data,
+      });
+    }
+
+    if (stepsToCreate.length > 0) {
+      await tx.procedureStep.createMany({ data: stepsToCreate });
+    }
+
     log.info("saveProcedure: procedure saved", {
       code: metadata.code,
       procedureId,
       stepCount: validated.steps.length,
+      created: stepsToCreate.length,
+      updated: stepsToUpdate.length,
     });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    log.error("saveProcedure: failed to save procedure", {
-      code: metadata.code,
-      error,
-    });
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
+
+  invalidateProceduresCache();
 }
 
 export async function deleteProcedure(code: string): Promise<void> {
   log.debug("deleteProcedure: deleting procedure", { code });
   try {
-    const result = await query<{ id: string }>(
-      "DELETE FROM procedures WHERE code = $1 RETURNING id",
-      [code],
-    );
-    if (result.rows.length > 0) {
-      const procedureId = result.rows[0].id;
-      await query("DELETE FROM procedure_steps WHERE procedure_id = $1", [
-        procedureId,
-      ]);
-      log.info("deleteProcedure: procedure deleted", { code, procedureId });
+    const result = await prisma.procedure.deleteMany({
+      where: { code },
+    });
+
+    if (result.count > 0) {
+      log.info("deleteProcedure: procedure deleted", {
+        code,
+        deletedCount: result.count,
+      });
     } else {
       log.warn("deleteProcedure: procedure not found for deletion", { code });
     }
+
+    invalidateProceduresCache();
   } catch (error) {
     log.error("deleteProcedure: failed to delete procedure", { code, error });
     throw error;
@@ -343,9 +395,9 @@ export async function saveProcedureExecution(
     operatorId: operatorId ?? null,
   });
 
-  const startTime = new Date(execution.context.startedAt).toISOString();
+  const startTime = new Date(execution.context.startedAt);
   const endTime = execution.context.finishedAt
-    ? new Date(execution.context.finishedAt).toISOString()
+    ? new Date(execution.context.finishedAt)
     : null;
   const totalDuration = execution.context.finishedAt
     ? Math.round(
@@ -362,46 +414,41 @@ export async function saveProcedureExecution(
   }
 
   try {
-    const procResult = await query<{ id: string }>(
-      "SELECT id FROM procedures WHERE code = $1",
-      [execution.procedureCode]
-    );
+    const procedure = await prisma.procedure.findUnique({
+      where: { code: execution.procedureCode },
+      select: { id: true },
+    });
 
-    if (procResult.rows.length === 0) {
+    if (!procedure) {
       log.warn("saveProcedureExecution: procedure not found by code", {
         procedureCode: execution.procedureCode,
       });
       throw new Error(`Procedure not found: ${execution.procedureCode}`);
     }
 
-    const procedureId = procResult.rows[0].id;
+    const procedureId = procedure.id;
 
-    const result = await query<{ id: string }>(
-      `INSERT INTO procedure_executions
-         (procedure_id, procedure_code, operator_id, start_time, end_time, status, steps_status, total_duration, current_step, alarms, fallbacks, events)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING id`,
-      [
+    const result = await prisma.procedureExecution.create({
+      data: {
+        id: crypto.randomUUID(),
         procedureId,
-        execution.procedureCode,
-        operatorId ?? null,
+        procedureCode: execution.procedureCode,
+        operatorId: operatorId ?? "unknown",
         startTime,
         endTime,
-        execution.status,
-        JSON.stringify(execution.context.completedSteps),
+        status: execution.status,
+        stepsStatus: execution.context.completedSteps as unknown as Prisma.InputJsonValue,
         totalDuration,
-        execution.context.currentStepIndex,
-        JSON.stringify(execution.context.anomalies),
-        JSON.stringify([]),
-        JSON.stringify(events),
-      ]
-    );
+        currentStep: execution.context.currentStepIndex,
+        alarms: execution.context.anomalies as unknown as Prisma.InputJsonValue,
+        events: events as unknown as Prisma.InputJsonValue,
+      },
+    });
 
-    const executionId = result.rows[0].id;
     log.info("saveProcedureExecution: execution saved", {
       procedureCode: execution.procedureCode,
       procedureId,
-      executionId,
+      executionId: result.id,
       status: execution.status,
       operatorId: operatorId ?? null,
       totalDurationSeconds: totalDuration,
@@ -409,7 +456,7 @@ export async function saveProcedureExecution(
       anomaliesCount: execution.context.anomalies.length,
     });
 
-    return executionId;
+    return result.id;
   } catch (error) {
     log.error("saveProcedureExecution: failed to save execution", {
       procedureCode: execution.procedureCode,
@@ -425,20 +472,30 @@ export async function getProcedureExecutions(
 ): Promise<unknown[]> {
   log.debug("getProcedureExecutions: fetching executions", { procedureCode });
   try {
-    const result = await query<Record<string, unknown>>(
-      `SELECT id, operator_id, start_time, end_time, status, steps_status, total_duration, current_step, alarms, events, created_at
-       FROM procedure_executions
-       WHERE procedure_code = $1
-       ORDER BY created_at DESC`,
-      [procedureCode],
-    );
+    const executions = await prisma.procedureExecution.findMany({
+      where: { procedureCode },
+      orderBy: { createdAt: "desc" },
+    });
 
     log.info("getProcedureExecutions: executions fetched", {
       procedureCode,
-      count: result.rowCount,
+      count: executions.length,
     });
 
-    return result.rows;
+    return executions.map((e) => ({
+      id: e.id,
+      procedureCode: e.procedureCode,
+      operatorId: e.operatorId,
+      startTime: e.startTime.toISOString(),
+      endTime: e.endTime?.toISOString() ?? null,
+      status: e.status,
+      stepsStatus: e.stepsStatus,
+      totalDuration: e.totalDuration,
+      currentStep: e.currentStep,
+      alarms: e.alarms,
+      events: e.events,
+      createdAt: e.createdAt.toISOString(),
+    }));
   } catch (error) {
     log.error("getProcedureExecutions: failed to fetch executions", {
       procedureCode,

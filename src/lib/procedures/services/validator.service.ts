@@ -117,9 +117,11 @@ export function validateStep(data: unknown): TStep {
 }
 
 export function hasCircularDependencies(steps: TStep[]): boolean {
+  const stepIds = new Set(steps.map((s) => s.id));
   const adj = new Map<string, string[]>();
   for (const step of steps) {
-    adj.set(step.id, step.dependencies);
+    const validDeps = step.dependencies.filter((d) => stepIds.has(d));
+    adj.set(step.id, validDeps);
   }
 
   const visited = new Set<string>();

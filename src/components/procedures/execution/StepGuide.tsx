@@ -25,7 +25,8 @@ interface StepGuideProps {
   stepIndex: number;
   totalSteps: number;
   isCompleted: boolean;
-  onToggleComplete: () => void;
+  onCompleteStep: () => void;
+  onUncompleteStep: () => void;
   advice: string;
 }
 
@@ -56,7 +57,8 @@ export function StepGuide({
   stepIndex,
   totalSteps,
   isCompleted,
-  onToggleComplete,
+  onCompleteStep,
+  onUncompleteStep,
   advice,
 }: StepGuideProps) {
   const mediaList = useMemo(() => step.mediaRequirements || [], [step.mediaRequirements]);
@@ -117,10 +119,10 @@ export function StepGuide({
             <Checkbox
               id={`guide-complete-${step.id}`}
               checked={isCompleted}
-              onCheckedChange={onToggleComplete}
+              onCheckedChange={() => (isCompleted ? onUncompleteStep() : onCompleteStep())}
             />
             <Label htmlFor={`guide-complete-${step.id}`} className="text-xs cursor-pointer">
-              Marquer comme effectuée
+              {isCompleted ? "Annuler" : "Marquer comme effectuée"}
             </Label>
           </div>
           {step.timerEnabled && step.timerSeconds > 0 && (

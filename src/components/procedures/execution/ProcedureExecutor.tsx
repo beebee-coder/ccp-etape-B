@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { TProcedure, TProcedureExecution } from "@/lib/procedures/services/validator.service";
 import { GuidePhase, ProcedureExecutionContext } from "@/lib/procedures/types";
 import { useProcedureExecution } from "@/lib/procedures/hooks/useProcedureExecution";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
 import { generateAssistantAdvice } from "@/lib/procedures/assistants/assistant-service";
 import { apiClient } from "@/lib/api/client";
+import { toast } from "sonner";
 import { BriefingStage } from "./BriefingStage";
 import { PrerequisitesStage } from "./PrerequisitesStage";
 import { RunningStage } from "./RunningStage";
@@ -60,26 +61,18 @@ async function persistExecution(
   ctx: ProcedureExecutionContext,
   status: "COMPLETED" | "ABORTED",
 ): Promise<void> {
-  try {
-    const execution = contextToExecution(procedure, ctx, status);
-    logStructured("log", "Persisting procedure execution", {
-      procedureCode: execution.procedureCode,
-      status: execution.status,
-      completedSteps: execution.context.completedSteps.length,
-      totalSteps: procedure.steps.length,
-    });
-    await apiClient.post<{ id: string; success: boolean }>("/api/procedures/executions", execution);
-    logStructured("log", "Procedure execution persisted", {
-      procedureCode: execution.procedureCode,
-      status: execution.status,
-    });
-  } catch (error) {
-    logStructured("error", "Failed to persist procedure execution", {
-      procedureCode: procedure.metadata.code,
-      status,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  const execution = contextToExecution(procedure, ctx, status);
+  logStructured("log", "Persisting procedure execution", {
+    procedureCode: execution.procedureCode,
+    status: execution.status,
+    completedSteps: execution.context.completedSteps.length,
+    totalSteps: procedure.steps.length,
+  });
+  await apiClient.post<{ id: string; success: boolean }>("/api/procedures/executions", execution);
+  logStructured("log", "Procedure execution persisted", {
+    procedureCode: execution.procedureCode,
+    status: execution.status,
+  });
 }
 
 export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps) {
@@ -106,7 +99,6 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
           : undefined,
         anomalies: ctx.anomalies,
       });
-      void persistExecution(procedure, ctx, "COMPLETED");
     },
     onAbort: (ctx, reason) => {
       logStructured("warn", "Procedure aborted", {
@@ -118,7 +110,6 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
         finishedAt: ctx.finishedAt,
         anomalies: ctx.anomalies,
       });
-      void persistExecution(procedure, ctx, "ABORTED");
     },
   });
 
@@ -134,6 +125,40 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
 
   const [currentAdvice, setCurrentAdvice] = useState("");
   const [adviceLoading, setAdviceLoading] = useState(false);
+  const [isSavingExecution, setIsSavingExecution] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if ((phase !== "completed" && phase !== "aborted") || saveAttemptedRef.current) return;
+    if (!context) return;
+
+    saveAttemptedRef.current = true;
+    setIsSavingExecution(true);
+    setSaveError(null);
+
+    const status = phase === "completed" ? "COMPLETED" : "ABORTED";
+    persistExecution(procedure, context, status)
+      .then(() => {
+        logStructured("log", "Procedure execution persisted", {
+          procedureCode: procedure.metadata.code,
+          status,
+        });
+      })
+      .catch((error) => {
+        logStructured("error", "Failed to persist procedure execution", {
+          procedureCode: procedure.metadata.code,
+          status,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        const message = error instanceof Error ? error.message : "Erreur de sauvegarde";
+        setSaveError(message);
+        toast.error("Erreur lors de la sauvegarde de l'exécution");
+      })
+      .finally(() => {
+        setIsSavingExecution(false);
+      });
+  }, [phase, context, procedure]);
 
   const handleReadAloud = useCallback(() => {
     if (voice.isSpeaking) {
@@ -274,6 +299,8 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
       <CompletedStage
         procedure={procedure}
         context={context}
+        isSaving={isSavingExecution}
+        saveError={saveError}
         onClose={onClose}
       />
     );
@@ -285,6 +312,8 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
         procedure={procedure}
         context={context}
         reason={context.anomalies[context.anomalies.length - 1] || "Interruption"}
+        isSaving={isSavingExecution}
+        saveError={saveError}
         onClose={onClose}
       />
     );
@@ -298,7 +327,8 @@ export function ProcedureExecutor({ procedure, onClose }: ProcedureExecutorProps
       advice={adviceLoading ? "Chargement du conseil..." : currentAdvice}
       onPrevious={actions.previousStep}
       onNext={actions.nextStep}
-      onToggleComplete={actions.completeStep}
+      onCompleteStep={actions.completeStep}
+      onUncompleteStep={actions.uncompleteStep}
       onSendMessage={handleSendMessage}
       isSpeaking={voice.isSpeaking}
       isAutoRead={true}

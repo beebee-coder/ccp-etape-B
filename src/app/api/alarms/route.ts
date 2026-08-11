@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { validateApiRequest } from "@/lib/api/handlers";
 import { requireRole } from "@/lib/api/auth";
 import { createLogger } from "@/lib/logger";
@@ -30,31 +31,18 @@ export async function GET(request: Request) {
     const locationPath = url.searchParams.get("location_path");
     const status = url.searchParams.get("status");
 
-    let sql = "SELECT * FROM alarms WHERE 1=1";
-    const params: unknown[] = [];
-    let idx = 1;
+    const where: Record<string, unknown> = {};
+    if (blocCode) where.blocCode = blocCode;
+    if (locationType) where.locationType = locationType;
+    if (locationPath) where.locationPath = { startsWith: locationPath };
+    if (status) where.status = status;
 
-    if (blocCode) {
-      sql += ` AND bloc_code = $${idx++}`;
-      params.push(blocCode);
-    }
-    if (locationType) {
-      sql += ` AND location_type = $${idx++}`;
-      params.push(locationType);
-    }
-    if (locationPath) {
-      sql += ` AND location_path LIKE $${idx++}`;
-      params.push(`${locationPath}%`);
-    }
-    if (status) {
-      sql += ` AND status = $${idx++}`;
-      params.push(status);
-    }
+    const alarms = await prisma.alarm.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+    });
 
-    sql += " ORDER BY created_at DESC";
-
-    const data = await query(sql, params);
-    return NextResponse.json({ data: data.rows });
+    return NextResponse.json({ data: alarms });
   } catch (error) {
     log.error("GET /api/alarms: error", { error });
     return NextResponse.json({ error: "Erreur lors de la récupération des alarmes" }, { status: 500 });
@@ -74,31 +62,27 @@ export async function POST(request: Request) {
 
   try {
     const body = result.ctx.body as z.infer<typeof AlarmSchema>;
-    const now = new Date().toISOString();
-    const data = await query(
-      `INSERT INTO alarms (code, bloc_code, equipement_code, location_type, location_path, groupe_path, type, severity, description, condition, remedy, status, metadata, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-       RETURNING *`,
-      [
-        body.code,
-        body.blocCode,
-        body.equipementCode,
-        body.locationType,
-        body.locationPath,
-        body.groupePath || null,
-        body.type,
-        body.severity,
-        body.description,
-        body.condition || null,
-        body.remedy ? JSON.stringify(body.remedy) : null,
-        body.status,
-        JSON.stringify({}),
-        now,
-        now,
-      ],
-    );
 
-    return NextResponse.json({ data: data.rows[0] }, { status: 201 });
+    const alarm = await prisma.alarm.create({
+      data: {
+        id: crypto.randomUUID(),
+        code: body.code,
+        blocCode: body.blocCode || "",
+        equipementCode: body.equipementCode || "",
+        locationType: body.locationType || "global",
+        locationPath: body.locationPath || "",
+        groupePath: body.groupePath || null,
+        type: body.type,
+        severity: body.severity,
+        description: body.description,
+        condition: body.condition || null,
+        remedy: body.remedy as unknown as Prisma.InputJsonValue,
+        status: body.status,
+        metadata: {},
+      },
+    });
+
+    return NextResponse.json({ data: alarm }, { status: 201 });
   } catch (error) {
     log.error("POST /api/alarms: error", { error });
     return NextResponse.json({ error: "Erreur lors de la création de l'alarme" }, { status: 400 });

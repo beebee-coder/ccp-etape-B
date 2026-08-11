@@ -60,12 +60,13 @@ async function logAndThrow<T>(
 }
 
 export const imageService = {
-  async getAll(opts?: { page?: number; limit?: number }): Promise<MediaItem[]> {
+  async getAll(opts?: { page?: number; limit?: number; includeDataUrl?: boolean }): Promise<MediaItem[]> {
     return logAndThrow("getAll", async () => {
       return withRetry(async () => {
         const params = new URLSearchParams();
         if (opts?.page) params.set("page", String(opts.page));
         if (opts?.limit) params.set("limit", String(opts.limit));
+        if (opts?.includeDataUrl === false) params.set("include_data_url", "false");
         const qs = params.toString();
         const url = qs ? `${API_BASE}?${qs}` : API_BASE;
         const items = await apiClient.get<MediaItem[]>(url);
@@ -73,6 +74,7 @@ export const imageService = {
           count: items.length,
           page: opts?.page,
           limit: opts?.limit,
+          includeDataUrl: opts?.includeDataUrl !== false,
         });
         return items;
       });

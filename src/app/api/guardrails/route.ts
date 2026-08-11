@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/api/auth";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 async function getGuardrailRules() {
-  const result = await query(
-    `SELECT id, section, rule, is_active as "isActive", created_at as "createdAt", updated_at as "updatedAt"
-     FROM guardrail_rules
-     ORDER BY section ASC, created_at ASC`
-  );
-  return result.rows;
+  const rules = await prisma.guardrailRule.findMany({
+    orderBy: { section: "asc", createdAt: "asc" },
+  });
+  return rules.map((rule) => ({
+    id: rule.id,
+    section: rule.section,
+    rule: rule.rule,
+    isActive: rule.isActive,
+    createdAt: rule.createdAt.toISOString(),
+    updatedAt: rule.updatedAt.toISOString(),
+  }));
 }
 
 export async function GET() {
@@ -35,14 +40,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Le champ 'rule' est requis" }, { status: 400 });
     }
 
-    const result = await query(
-      `INSERT INTO guardrail_rules (section, rule)
-       VALUES ($1, $2)
-       RETURNING id, section, rule, is_active as "isActive", created_at as "createdAt", updated_at as "updatedAt"`,
-      [section || "general", rule.trim()]
-    );
+    const created = await prisma.guardrailRule.create({
+      data: {
+        id: crypto.randomUUID(),
+        section: section || "general",
+        rule: rule.trim(),
+      },
+    });
 
-    return NextResponse.json({ data: result.rows[0] }, { status: 201 });
+    return NextResponse.json({ data: {
+      id: created.id,
+      section: created.section,
+      rule: created.rule,
+      isActive: created.isActive,
+      createdAt: created.createdAt.toISOString(),
+      updatedAt: created.updatedAt.toISOString(),
+    }}, { status: 201 });
   } catch (error) {
     console.error("POST /api/guardrails error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

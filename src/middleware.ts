@@ -18,9 +18,9 @@ const PUBLIC_API_ROUTES = [
   "/api/auth/logout",
   "/api/health",
   "/api/openapi",
-  "/api/local-db/fs",
-  "/api/local-db/sync-registry",
   "/api/registry/fs",
+  "/api/locale-db/init",
+  "/api/locale-db/fs",
 ];
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "*";

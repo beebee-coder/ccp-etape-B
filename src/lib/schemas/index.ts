@@ -99,35 +99,3 @@ export {
   type UpdateTeamPayload,
   type UpdateTeamMemberPayload,
 } from "@/lib/teams/schemas";
-
-export {
-  MeetingSchema,
-  MeetingChatMessageSchema,
-  CreateMeetingSchema,
-  CreateMeetingChatMessageSchema,
-  EndMeetingSchema,
-  UpdateParticipantSchema,
-  MeetingParticipantSchema,
-  type Meeting,
-  type MeetingChatMessage,
-  type CreateMeetingInput,
-  type CreateMeetingChatMessageInput,
-  type EndMeetingInput,
-  type UpdateParticipantInput,
-  type MeetingParticipant,
-} from "@/lib/types/video";
-
-export {
-  EntityTypeSchema,
-  LocalMetaSchema,
-  LocalMetaInputSchema,
-  LocalMetaFileSchema,
-  SyncQueueItemSchema,
-  SyncManifestSchema,
-  type EntityType,
-  type LocalMeta,
-  type LocalMetaInput,
-  type LocalMetaFile,
-  type SyncQueueItem,
-  type SyncManifest,
-} from "@/lib/types/local-db";

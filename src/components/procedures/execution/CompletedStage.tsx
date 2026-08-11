@@ -12,6 +12,8 @@ import { CheckCircle2, Clock, FileText, AlertTriangle, XCircle } from "lucide-re
 interface CompletedStageProps {
   procedure: TProcedure;
   context: ProcedureExecutionContext;
+  isSaving?: boolean;
+  saveError?: string | null;
   onClose: () => void;
 }
 
@@ -21,7 +23,7 @@ function formatDuration(seconds: number): string {
   return `${mins} min ${secs} s`;
 }
 
-export function CompletedStage({ procedure, context, onClose }: CompletedStageProps) {
+export function CompletedStage({ procedure, context, isSaving, saveError, onClose }: CompletedStageProps) {
   const totalDuration = context.finishedAt
     ? Math.round((context.finishedAt - context.startedAt) / 1000)
     : Math.round((Date.now() - context.startedAt) / 1000);
@@ -95,6 +97,23 @@ export function CompletedStage({ procedure, context, onClose }: CompletedStagePr
               </div>
             </div>
 
+            {saveError && (
+              <>
+                <Separator />
+                <div className="flex items-center gap-2 text-sm text-destructive">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>Erreur de sauvegarde : {saveError}</span>
+                </div>
+              </>
+            )}
+
+            {isSaving && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                Sauvegarde de l&apos;exécution en cours...
+              </div>
+            )}
+
             {context.anomalies.length > 0 && (
               <>
                 <Separator />
@@ -119,7 +138,7 @@ export function CompletedStage({ procedure, context, onClose }: CompletedStagePr
             )}
 
             <div className="flex items-center gap-3 pt-2">
-              <Button onClick={onClose} className="gap-1.5">
+              <Button onClick={onClose} className="gap-1.5" disabled={isSaving}>
                 {proceduresFR.guide.completed.closeButton}
               </Button>
             </div>

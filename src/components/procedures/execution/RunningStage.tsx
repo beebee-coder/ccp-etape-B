@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Bot, Send, SkipBack, SkipForward, Volume2, VolumeX, CheckCircle2, Pause } from "lucide-react";
+import { Bot, Send, SkipBack, SkipForward, Volume2, VolumeX, CheckCircle2, Pause, XCircle } from "lucide-react";
 
 interface RunningStageProps {
   steps: TStep[];
@@ -18,7 +18,8 @@ interface RunningStageProps {
   advice: string;
   onPrevious: () => void;
   onNext: () => void;
-  onToggleComplete: (stepId: string) => void;
+  onCompleteStep: (stepId: string) => void;
+  onUncompleteStep: (stepId: string) => void;
   onSendMessage: (message: string) => Promise<string>;
   isSpeaking: boolean;
   isAutoRead: boolean;
@@ -40,7 +41,8 @@ export function RunningStage({
   advice,
   onPrevious,
   onNext,
-  onToggleComplete,
+  onCompleteStep,
+  onUncompleteStep,
   onSendMessage,
   isSpeaking,
   isAutoRead,
@@ -177,7 +179,8 @@ export function RunningStage({
                   stepIndex={currentStepIndex}
                   totalSteps={steps.length}
                   isCompleted={isStepCompleted}
-                  onToggleComplete={() => onToggleComplete(currentStep.id)}
+                  onCompleteStep={() => onCompleteStep(currentStep.id)}
+                  onUncompleteStep={() => onUncompleteStep(currentStep.id)}
                   advice={advice}
                 />
               )}
@@ -194,15 +197,27 @@ export function RunningStage({
                   {proceduresFR.guide.executing.previousStep}
                 </Button>
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant={isStepCompleted ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => onToggleComplete(currentStep?.id || "")}
-                    className="gap-1.5"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    {isStepCompleted ? "Effectuée" : "Marquer effectuée"}
-                  </Button>
+                  {isStepCompleted ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onUncompleteStep(currentStep?.id || "")}
+                      className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Annuler
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => onCompleteStep(currentStep?.id || "")}
+                      className="gap-1.5"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Marquer effectuée
+                    </Button>
+                  )}
                   {isLastStep ? (
                     <Button size="sm" onClick={onNext} className="gap-1.5">
                       <CheckCircle2 className="h-3.5 w-3.5" />

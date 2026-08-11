@@ -13,10 +13,12 @@ interface AbortedStageProps {
   procedure: TProcedure;
   context: ProcedureExecutionContext;
   reason: string;
+  isSaving?: boolean;
+  saveError?: string | null;
   onClose: () => void;
 }
 
-export function AbortedStage({ procedure, context, reason, onClose }: AbortedStageProps) {
+export function AbortedStage({ procedure, context, reason, isSaving, saveError, onClose }: AbortedStageProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b border-border bg-card/50">
@@ -55,6 +57,20 @@ export function AbortedStage({ procedure, context, reason, onClose }: AbortedSta
                 </div>
               </div>
 
+              {saveError && (
+                <div className="flex items-start gap-2 text-sm text-destructive">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>Erreur de sauvegarde : {saveError}</span>
+                </div>
+              )}
+
+              {isSaving && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Sauvegarde de l&apos;exécution en cours...
+                </div>
+              )}
+
               {context.anomalies.length > 0 && (
                 <div className="space-y-1.5">
                   <p className="text-xs font-medium text-muted-foreground">
@@ -85,7 +101,7 @@ export function AbortedStage({ procedure, context, reason, onClose }: AbortedSta
             </div>
 
             <div className="flex items-center gap-3 pt-2">
-              <Button onClick={onClose} variant="outline" className="gap-1.5">
+              <Button onClick={onClose} variant="outline" className="gap-1.5" disabled={isSaving}>
                 {proceduresFR.guide.aborted.closeButton}
               </Button>
             </div>

@@ -4,11 +4,39 @@ import path from "path";
 import { getProjectRoot } from "@/lib/project-root";
 import { registryTreeCache } from "@/lib/api/tree-cache";
 import { withFileLock } from "@/lib/api/file-lock";
+import { prisma } from "@/lib/db";
 
 const PROJECT_ROOT = getProjectRoot();
 const REGISTRY_ROOT = path.join(PROJECT_ROOT, ".registry");
 const REGISTRY_LOCK = path.join(REGISTRY_ROOT, ".registry.lock");
 const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
+const PROCEDURES_CACHE_TTL_MS = 30_000;
+
+type ProcedureRow = { code: string; title: string; category?: string; description?: string; priority?: string };
+
+const proceduresCache = new Map<string, { value: ProcedureRow[]; expiresAt: number }>();
+
+function getCachedProcedures(): ProcedureRow[] | null {
+  const entry = proceduresCache.get("all");
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    proceduresCache.delete("all");
+    return null;
+  }
+  return entry.value;
+}
+
+function setCachedProcedures(procedures: ProcedureRow[]): void {
+  proceduresCache.set("all", {
+    value: procedures,
+    expiresAt: Date.now() + PROCEDURES_CACHE_TTL_MS,
+  });
+}
+
+export function invalidateProceduresCache(): void {
+  proceduresCache.delete("all");
+  registryTreeCache.invalidate("tree:");
+}
 
 console.info("[API /api/registry/fs] init", {
   PROJECT_ROOT,
@@ -110,6 +138,111 @@ function buildRegistryFallbackTree(): ApiTreeNode {
   };
 }
 
+async function mergeDbProceduresIntoTree(
+  tree: ApiTreeNode,
+): Promise<ApiTreeNode> {
+  try {
+    let procedures = getCachedProcedures();
+    if (!procedures) {
+      const raw = await prisma.procedure.findMany({
+        select: { code: true, title: true, category: true, description: true, priority: true },
+      });
+      procedures = raw.map((p) => ({
+        code: p.code,
+        title: p.title,
+        category: p.category ?? undefined,
+        description: p.description ?? undefined,
+        priority: p.priority ?? undefined,
+      }));
+      setCachedProcedures(procedures);
+    }
+
+    const treeCopy: ApiTreeNode = {
+      ...tree,
+      children: tree.children ? tree.children.map((c) => ({ ...c })) : undefined,
+    };
+
+    if (procedures.length === 0) {
+      treeCopy.children = treeCopy.children?.filter((c) => c.name !== "procedures") || treeCopy.children;
+      return treeCopy;
+    }
+
+    const dbCodes = new Set(procedures.map((p) => p.code));
+    const proceduresDir = treeCopy.children?.find(
+      (c) => c.name === "procedures" && c.kind === "directory",
+    );
+
+    if (!proceduresDir) {
+      treeCopy.children = treeCopy.children || [];
+      treeCopy.children.push({
+        name: "procedures",
+        path: "procedures",
+        kind: "directory",
+        children: procedures.map((proc) => ({
+          name: proc.code,
+          path: `procedures/${proc.code}`,
+          kind: "directory",
+          children: [
+            {
+              name: "procedure.json",
+              path: `procedures/${proc.code}/procedure.json`,
+              kind: "document",
+              stats: { sizeBytes: JSON.stringify(proc).length },
+              libelle: proc.title,
+            },
+          ],
+          libelle: proc.title,
+        })),
+      });
+      return treeCopy;
+    }
+
+    proceduresDir.children = proceduresDir.children ? [...proceduresDir.children] : [];
+    const existingCodes = new Set(proceduresDir.children.map((c) => c.name));
+
+    for (const proc of procedures) {
+      if (existingCodes.has(proc.code)) {
+        const existing = proceduresDir.children.find((c) => c.name === proc.code);
+        if (existing) {
+          existing.libelle = proc.title;
+          const doc = existing.children?.find((c) => c.name === "procedure.json");
+          if (doc) {
+            doc.libelle = proc.title;
+            doc.stats = { sizeBytes: JSON.stringify(proc).length };
+          }
+        }
+        continue;
+      }
+      proceduresDir.children.push({
+        name: proc.code,
+        path: `procedures/${proc.code}`,
+        kind: "directory",
+        children: [
+          {
+            name: "procedure.json",
+            path: `procedures/${proc.code}/procedure.json`,
+            kind: "document",
+            stats: { sizeBytes: JSON.stringify(proc).length },
+            libelle: proc.title,
+          },
+        ],
+        libelle: proc.title,
+      });
+    }
+
+    proceduresDir.children = proceduresDir.children.filter((c) => dbCodes.has(c.name));
+
+    if (proceduresDir.children.length === 0) {
+      treeCopy.children = treeCopy.children?.filter((c) => c.name !== "procedures") || treeCopy.children;
+    }
+
+    return treeCopy;
+  } catch (error) {
+    console.error("[API /api/registry/fs] merge DB procedures error", error);
+    return tree;
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const target = searchParams.get("path") || "";
@@ -160,13 +293,14 @@ export async function GET(request: Request) {
 
     if (!fs.existsSync(REGISTRY_ROOT)) {
       const tree = buildRegistryFallbackTree();
+      const merged = await mergeDbProceduresIntoTree(tree);
       console.info("[API /api/registry/fs] registry-missing fallback", {
         target,
-        childrenCount: tree.children?.length ?? 0,
-        childrenNames: tree.children?.map((c) => c.name),
+        childrenCount: merged.children?.length ?? 0,
+        childrenNames: merged.children?.map((c) => c.name),
       });
       return NextResponse.json({
-        children: tree.children,
+        children: merged.children,
         source: "registry-missing",
       });
     }
@@ -175,13 +309,14 @@ export async function GET(request: Request) {
     const cached = registryTreeCache.get<ApiTreeNode>(cacheKey);
     if (cached) {
       console.info("[API /api/registry/fs] cache hit", { target });
+      const merged = await mergeDbProceduresIntoTree(cached);
       return NextResponse.json({
-        children: cached.children,
+        children: merged.children,
         debug: {
           target,
           fullPath: safeJoin(target),
-          childrenCount: cached.children?.length ?? 0,
-          childrenNames: cached.children?.map((c) => c.name),
+          childrenCount: merged.children?.length ?? 0,
+          childrenNames: merged.children?.map((c) => c.name),
           cached: true,
         },
       });
@@ -199,20 +334,21 @@ export async function GET(request: Request) {
     }
 
     const tree = buildTree(target);
-    registryTreeCache.set(cacheKey, tree);
+    const merged = await mergeDbProceduresIntoTree(tree);
+    registryTreeCache.set(cacheKey, merged);
     console.info("[API /api/registry/fs] tree response", {
       target,
-      childrenCount: tree.children?.length ?? 0,
-      childrenNames: tree.children?.map((c) => c.name),
+      childrenCount: merged.children?.length ?? 0,
+      childrenNames: merged.children?.map((c) => c.name),
       cached: false,
     });
     return NextResponse.json({
-      children: tree.children,
+      children: merged.children,
       debug: {
         target,
         fullPath,
-        childrenCount: tree.children?.length ?? 0,
-        childrenNames: tree.children?.map((c) => c.name),
+        childrenCount: merged.children?.length ?? 0,
+        childrenNames: merged.children?.map((c) => c.name),
       },
     });
   } catch (error: unknown) {

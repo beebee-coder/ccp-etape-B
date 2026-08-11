@@ -97,28 +97,28 @@ function dir(
 
 function buildRegistryStructure(): DatabaseTreeNode[] {
   return [
-    dir("bank", ".local-db/registry/bank", [
+    dir("bank", ".registry/bank", [
       dir(
         "test",
-        ".local-db/registry/bank/test",
+        ".registry/bank/test",
         [
           dir(
             "metadata.json",
-            ".local-db/registry/bank/test/metadata.json",
+            ".registry/bank/test/metadata.json",
             [
               doc(
                 "1_metadata.json",
-                ".local-db/registry/bank/test/metadata.json/1_metadata.json",
+                ".registry/bank/test/metadata.json/1_metadata.json",
                 { vectors: 1, indexed: true },
               ),
               doc(
                 "2_metadata.json",
-                ".local-db/registry/bank/test/metadata.json/2_metadata.json",
+                ".registry/bank/test/metadata.json/2_metadata.json",
                 { vectors: 1, indexed: true },
               ),
               doc(
                 "3_metadata.json",
-                ".local-db/registry/bank/test/metadata.json/3_metadata.json",
+                ".registry/bank/test/metadata.json/3_metadata.json",
                 { vectors: 1, indexed: true },
               ),
             ],
@@ -129,20 +129,20 @@ function buildRegistryStructure(): DatabaseTreeNode[] {
       ),
       dir(
         "test1",
-        ".local-db/registry/bank/test1",
+        ".registry/bank/test1",
         [
           dir(
             "metadata.json",
-            ".local-db/registry/bank/test1/metadata.json",
+            ".registry/bank/test1/metadata.json",
             [
               doc(
                 "1_metadata.json",
-                ".local-db/registry/bank/test1/metadata.json/1_metadata.json",
+                ".registry/bank/test1/metadata.json/1_metadata.json",
                 { vectors: 1, indexed: true },
               ),
               doc(
                 "2_metadata.json",
-                ".local-db/registry/bank/test1/metadata.json/2_metadata.json",
+                ".registry/bank/test1/metadata.json/2_metadata.json",
                 { vectors: 1, indexed: true },
               ),
             ],
@@ -153,20 +153,20 @@ function buildRegistryStructure(): DatabaseTreeNode[] {
       ),
       dir(
         "test_11",
-        ".local-db/registry/bank/test_11",
+        ".registry/bank/test_11",
         [
           dir(
             "metadata.json",
-            ".local-db/registry/bank/test_11/metadata.json",
+            ".registry/bank/test_11/metadata.json",
             [
               doc(
                 "1_metadata.json",
-                ".local-db/registry/bank/test_11/metadata.json/1_metadata.json",
+                ".registry/bank/test_11/metadata.json/1_metadata.json",
                 { vectors: 1, indexed: true },
               ),
               doc(
                 "2_metadata.json",
-                ".local-db/registry/bank/test_11/metadata.json/2_metadata.json",
+                ".registry/bank/test_11/metadata.json/2_metadata.json",
                 { vectors: 1, indexed: true },
               ),
             ],
@@ -176,19 +176,19 @@ function buildRegistryStructure(): DatabaseTreeNode[] {
         { indexed: true, vectorized: true },
       ),
     ]),
-    dir("items", ".local-db/registry/items", [
+    dir("items", ".registry/items", [
       dir(
         "alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
-        ".local-db/registry/items/alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
+        ".registry/items/alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
         [
           doc(
             "1_alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
-            ".local-db/registry/items/alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json/1_alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
+            ".registry/items/alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json/1_alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
             { vectors: 1, indexed: true },
           ),
           doc(
             "2_alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
-            ".local-db/registry/items/alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json/2_alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
+            ".registry/items/alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json/2_alarmes-et-seuils-de-declenchement-de-la-turbine-a-gaz-TG.json",
             { vectors: 1, indexed: true },
           ),
         ],
@@ -196,16 +196,16 @@ function buildRegistryStructure(): DatabaseTreeNode[] {
       ),
       dir(
         "niveau-condenseur.json",
-        ".local-db/registry/items/niveau-condenseur.json",
+        ".registry/items/niveau-condenseur.json",
         [
           doc(
             "1_niveau-condenseur.json",
-            ".local-db/registry/items/niveau-condenseur.json/1_niveau-condenseur.json",
+            ".registry/items/niveau-condenseur.json/1_niveau-condenseur.json",
             { vectors: 1, indexed: true },
           ),
           doc(
             "2_niveau-condenseur.json",
-            ".local-db/registry/items/niveau-condenseur.json/2_niveau-condenseur.json",
+            ".registry/items/niveau-condenseur.json/2_niveau-condenseur.json",
             { vectors: 1, indexed: true },
           ),
         ],
@@ -213,39 +213,39 @@ function buildRegistryStructure(): DatabaseTreeNode[] {
       ),
       dir(
         "rag_qr_2026-07-15T14-56-03-057Z.json",
-        ".local-db/registry/items/rag_qr_2026-07-15T14-56-03-057Z.json",
+        ".registry/items/rag_qr_2026-07-15T14-56-03-057Z.json",
         [
           doc(
             "1_rag_qr_2026-07-15T14-56-03-057Z.json",
-            ".local-db/registry/items/rag_qr_2026-07-15T14-56-03-057Z.json/1_rag_qr_2026-07-15T14-56-03-057Z.json",
+            ".registry/items/rag_qr_2026-07-15T14-56-03-057Z.json/1_rag_qr_2026-07-15T14-56-03-057Z.json",
             { vectors: 1, indexed: true },
           ),
           doc(
             "2_rag_qr_2026-07-15T14-56-03-057Z.json",
-            ".local-db/registry/items/rag_qr_2026-07-15T14-56-03-057Z.json/2_rag_qr_2026-07-15T14-56-03-057Z.json",
+            ".registry/items/rag_qr_2026-07-15T14-56-03-057Z.json/2_rag_qr_2026-07-15T14-56-03-057Z.json",
             { vectors: 1, indexed: true },
           ),
         ],
         { indexed: true, vectorized: true },
       ),
     ]),
-    dir("procedures", ".local-db/registry/procedures", [
+    dir("procedures", ".registry/procedures", [
       dir(
         "crf-start-001",
-        ".local-db/registry/procedures/crf-start-001",
+        ".registry/procedures/crf-start-001",
         [
           dir(
             "procedure.json",
-            ".local-db/registry/procedures/crf-start-001/procedure.json",
+            ".registry/procedures/crf-start-001/procedure.json",
             [
               doc(
                 "1_procedure.json",
-                ".local-db/registry/procedures/crf-start-001/procedure.json/1_procedure.json",
+                ".registry/procedures/crf-start-001/procedure.json/1_procedure.json",
                 { vectors: 1, indexed: true },
               ),
               doc(
                 "2_procedure.json",
-                ".local-db/registry/procedures/crf-start-001/procedure.json/2_procedure.json",
+                ".registry/procedures/crf-start-001/procedure.json/2_procedure.json",
                 { vectors: 1, indexed: true },
               ),
             ],
@@ -263,9 +263,9 @@ function buildCentraleChildren(): DatabaseTreeNode[] {
   return Object.entries(data.Centrale).map(([key, branch]) =>
     dir(
       key,
-      `.local-db/Centrale/${key}`,
+      `Centrale/${key}`,
       branch.descendants.map((leaf) =>
-        dir(leaf.nom, `.local-db/Centrale/${key}/${leaf.nom}`, [], {
+        dir(leaf.nom, `Centrale/${key}/${leaf.nom}`, [], {
           indexed: false,
           vectorized: false,
           libelle: leaf.libelle,
@@ -285,9 +285,9 @@ function buildGroupesChildren(): DatabaseTreeNode[] {
   return Object.entries(data.Groupes).map(([groupName, group]) =>
     dir(
       groupName,
-      `.local-db/Groupes/${groupName}`,
+      `Groupes/${groupName}`,
       group.descendants.map((leaf) =>
-        dir(leaf.nom, `.local-db/Groupes/${groupName}/${leaf.nom}`, [], {
+        dir(leaf.nom, `Groupes/${groupName}/${leaf.nom}`, [], {
           indexed: false,
           vectorized: false,
           libelle: leaf.libelle,
@@ -302,134 +302,28 @@ function buildGroupesChildren(): DatabaseTreeNode[] {
   );
 }
 
-function buildRawLocalDb(): DatabaseTreeNode[] {
-  return [
-    dir("Alarmes", ".local-db/Alarmes", [], {
-      indexed: false,
-      vectorized: false,
-    }),
-    dir("bank", ".local-db/bank", [], { indexed: false, vectorized: false }),
-    dir("Centrale", ".local-db/Centrale", buildCentraleChildren(), {
-      indexed: false,
-      vectorized: false,
-    }),
-    dir("Groupes", ".local-db/Groupes", buildGroupesChildren(), {
-      indexed: false,
-      vectorized: false,
-    }),
-    dir("registry", ".local-db/registry", buildRegistryStructure(), {
-      indexed: true,
-      vectorized: true,
-    }),
-    dir(
-      "ressources humaines",
-      ".local-db/ressources humaines",
-      [
-        dir(
-          "equipes",
-          ".local-db/ressources humaines/equipes",
-          [
-            dir(
-              "equipe A",
-              ".local-db/ressources humaines/equipes/equipe A",
-              [],
-              { indexed: false, vectorized: false },
-            ),
-            dir(
-              "equipe B",
-              ".local-db/ressources humaines/equipes/equipe B",
-              [],
-              { indexed: false, vectorized: false },
-            ),
-            dir(
-              "equipe C",
-              ".local-db/ressources humaines/equipes/equipe C",
-              [],
-              { indexed: false, vectorized: false },
-            ),
-            dir(
-              "equipe D",
-              ".local-db/ressources humaines/equipes/equipe D",
-              [],
-              { indexed: false, vectorized: false },
-            ),
-          ],
-          { indexed: false, vectorized: false },
-        ),
-      ],
-      { indexed: false, vectorized: false },
-    ),
-    dir("web-sync", ".local-db/web-sync", [], {
-      indexed: false,
-      vectorized: false,
-    }),
-    dir("iot", ".local-db/iot", [
-      dir("devices", ".local-db/iot/devices", [], {
-        indexed: false,
-        vectorized: false,
-      }),
-      dir("actuators", ".local-db/iot/actuators", [], {
-        indexed: false,
-        vectorized: false,
-      }),
-      dir("sensor_readings", ".local-db/iot/sensor_readings", [], {
-        indexed: false,
-        vectorized: false,
-      }),
-    ], { indexed: false, vectorized: false }),
-    doc(".local-db-manifest.json", ".local-db/.local-db-manifest.json", {
-      indexed: false,
-    }),
-    doc("chroma-index.json", ".local-db/chroma-index.json", { indexed: false }),
-    doc("local-db-manifest.json", ".local-db/local-db-manifest.json", {
-      indexed: false,
-    }),
-  ];
-}
-
-function buildIndexedLocalDb(): DatabaseTreeNode[] {
-  return buildRawLocalDb().map((node) => {
-    if (node.path === ".local-db/registry") {
-      return node;
-    }
-    return {
-      ...node,
-      indexed: false,
-      vectorized: false,
-      stats: undefined,
-      children: node.children?.map((c) => ({
-        ...c,
-        indexed: c.path.startsWith(".local-db/registry"),
-        vectorized: c.path.startsWith(".local-db/registry"),
-        stats: c.path.startsWith(".local-db/registry") ? c.stats : undefined,
-      })),
-    };
-  });
-}
-
-export function buildDatabaseSchemaStructure(): DatabaseStructure {
+export function getWebDatabaseStructure(): DatabaseStructure {
   return {
-    id: ".local-db",
-    name: ".local-db",
+    id: "web",
+    name: "web",
     kind: "database",
-    path: ".local-db",
+    path: "web",
     indexed: false,
     vectorized: false,
-    children: buildRawLocalDb(),
-  };
-}
-
-export function buildIndexedDatabaseStructure(): DatabaseStructure {
-  const children = buildIndexedLocalDb();
-  const vectors = children.reduce((acc, c) => acc + (c.stats?.vectors ?? 0), 0);
-  return {
-    id: ".local-db-indexed",
-    name: ".local-db",
-    kind: "database",
-    path: ".local-db-indexed",
-    indexed: true,
-    vectorized: vectors > 0,
-    children,
+    children: [
+      dir("registry", ".registry", buildRegistryStructure(), {
+        indexed: true,
+        vectorized: true,
+      }),
+      dir("Centrale", "Centrale", buildCentraleChildren(), {
+        indexed: false,
+        vectorized: false,
+      }),
+      dir("Groupes", "Groupes", buildGroupesChildren(), {
+        indexed: false,
+        vectorized: false,
+      }),
+    ],
   };
 }
 

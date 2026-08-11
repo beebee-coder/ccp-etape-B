@@ -1,4 +1,5 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { createLogger } from "@/lib/logger";
 import type {
   TeamInfo,
@@ -12,32 +13,10 @@ import type {
 
 const log = createLogger({ module: "teams-server-store" });
 
-interface TeamRow {
-  id: number;
-  name: string;
-  description: string | null;
-  color: string;
-  member_count: number;
-  created_at: string;
-  updated_at: string | null;
-}
-
-interface TeamMemberRow {
-  id: number;
-  team_id: number;
-  name: string;
-  email: string | null;
-  role: string;
-  status: string;
-  avatar: string;
-  created_at: string;
-  updated_at: string | null;
-}
-
-function rowToTeamMember(row: TeamMemberRow): TeamMember {
+function rowToTeamMember(row: Prisma.TeamMemberGetPayload<object>): TeamMember {
   return {
     id: row.id,
-    teamId: row.team_id,
+    teamId: row.teamId,
     name: row.name,
     email: row.email || undefined,
     role: row.role,
@@ -46,76 +25,51 @@ function rowToTeamMember(row: TeamMemberRow): TeamMember {
   };
 }
 
-function rowToTeam(row: TeamRow, members: TeamMember[]): TeamInfo {
+function rowToTeam(row: Prisma.TeamGetPayload<{ include: { members: true } }>): TeamInfo {
   return {
     id: row.id,
     name: row.name,
     description: row.description || "",
     color: row.color,
-    members: members.length,
-    membersList: members,
+    members: row.members.length,
+    membersList: row.members.map(rowToTeamMember),
   };
 }
 
 export async function getAllTeams(): Promise<TeamInfo[]> {
   log.debug("getAllTeams: fetching all teams with members");
-  const teamResult = await query<TeamRow>(
-    `SELECT id, name, description, color, 
-            (SELECT COUNT(*) FROM team_members WHERE team_members.team_id = teams.id) as member_count,
-            created_at, updated_at
-     FROM teams
-     ORDER BY name ASC`,
-  );
-
-  log.debug("getAllTeams: teams fetched", { count: teamResult.rows.length });
-
-  const teams: TeamInfo[] = [];
-  for (const teamRow of teamResult.rows) {
-    const memberResult = await query<TeamMemberRow>(
-      `SELECT id, team_id, name, email, role, status, avatar, created_at, updated_at
-       FROM team_members
-       WHERE team_id = $1
-       ORDER BY name ASC`,
-      [teamRow.id],
-    );
-    const members = memberResult.rows.map(rowToTeamMember);
-    teams.push(rowToTeam(teamRow, members));
-  }
-
-  log.debug("getAllTeams: building complete team objects", {
-    teamCount: teams.length,
+  const teams = await prisma.team.findMany({
+    include: {
+      members: {
+        orderBy: { name: "asc" },
+      },
+    },
+    orderBy: { name: "asc" },
   });
-  return teams;
+
+  log.debug("getAllTeams: teams fetched", { count: teams.length });
+  return teams.map(rowToTeam);
 }
 
 export async function getTeamById(id: number): Promise<TeamInfo | null> {
   log.debug("getTeamById: fetching team", { id });
-  const teamResult = await query<TeamRow>(
-    `SELECT id, name, description, color,
-            (SELECT COUNT(*) FROM team_members WHERE team_members.team_id = teams.id) as member_count,
-            created_at, updated_at
-     FROM teams
-     WHERE id = $1`,
-    [id],
-  );
+  const team = await prisma.team.findUnique({
+    where: { id },
+    include: {
+      members: {
+        orderBy: { name: "asc" },
+      },
+    },
+  });
 
-  if (teamResult.rows.length === 0) {
+  if (!team) {
     log.debug("getTeamById: team not found", { id });
     return null;
   }
 
-  const memberResult = await query<TeamMemberRow>(
-    `SELECT id, team_id, name, email, role, status, avatar, created_at, updated_at
-     FROM team_members
-     WHERE team_id = $1
-     ORDER BY name ASC`,
-    [id],
-  );
-
-  const members = memberResult.rows.map(rowToTeamMember);
-  const team = rowToTeam(teamResult.rows[0], members);
-  log.debug("getTeamById: team found", { id, memberCount: members.length });
-  return team;
+  const info = rowToTeam(team);
+  log.debug("getTeamById: team found", { id, memberCount: info.membersList.length });
+  return info;
 }
 
 export async function createTeam(
@@ -127,58 +81,34 @@ export async function createTeam(
     memberCount: payload.members?.length ?? 0,
   });
 
-  const now = new Date().toISOString();
-  const teamResult = await query<TeamRow>(
-    `INSERT INTO teams (name, description, color, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, name, description, color, created_at, updated_at`,
-    [payload.name, payload.description, payload.color, now, now],
-  );
+  const team = await prisma.team.create({
+    data: {
+      name: payload.name,
+      description: payload.description,
+      color: payload.color,
+      members: {
+        create: payload.members?.map((member) => ({
+          name: member.name,
+          email: member.email,
+          role: member.role,
+          status: member.status,
+          avatar: member.avatar,
+        })) ?? [],
+      },
+    },
+    include: {
+      members: {
+        orderBy: { name: "asc" },
+      },
+    },
+  });
 
-  const teamId = teamResult.rows[0].id;
-  log.debug("createTeam: team row created", { teamId });
-
-  const members: TeamMember[] = [];
-  if (payload.members && payload.members.length > 0) {
-    for (const member of payload.members) {
-      const memberResult = await query<TeamMemberRow>(
-        `INSERT INTO team_members (team_id, name, email, role, status, avatar, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING id, team_id, name, email, role, status, avatar, created_at, updated_at`,
-        [
-          teamId,
-          member.name,
-          member.email || null,
-          member.role,
-          member.status,
-          member.avatar,
-          now,
-          now,
-        ],
-      );
-      members.push(rowToTeamMember(memberResult.rows[0]));
-    }
-    log.debug("createTeam: members added", {
-      teamId,
-      memberCount: members.length,
-    });
-  }
-
-  const teamRow: TeamRow = {
-    id: teamResult.rows[0].id,
-    name: teamResult.rows[0].name,
-    description: teamResult.rows[0].description,
-    color: teamResult.rows[0].color,
-    member_count: members.length,
-    created_at: teamResult.rows[0].created_at,
-    updated_at: teamResult.rows[0].updated_at,
-  };
-  const team = rowToTeam(teamRow, members);
+  const info = rowToTeam(team);
   log.info("createTeam: team created successfully", {
-    teamId,
+    teamId: team.id,
     name: payload.name,
   });
-  return team;
+  return info;
 }
 
 export async function updateTeam(
@@ -186,96 +116,62 @@ export async function updateTeam(
   payload: UpdateTeamPayload,
 ): Promise<TeamInfo | null> {
   log.debug("updateTeam: updating team", { id, payload });
-  const now = new Date().toISOString();
 
-  const setClauses: string[] = [];
-  const values: unknown[] = [];
-  let idx = 1;
+  const data: Prisma.TeamUpdateInput = {};
+  if (payload.name !== undefined) data.name = payload.name;
+  if (payload.description !== undefined) data.description = payload.description;
+  if (payload.color !== undefined) data.color = payload.color;
 
-  if (payload.name !== undefined) {
-    setClauses.push(`name = $${idx++}`);
-    values.push(payload.name);
-  }
-  if (payload.description !== undefined) {
-    setClauses.push(`description = $${idx++}`);
-    values.push(payload.description);
-  }
-  if (payload.color !== undefined) {
-    setClauses.push(`color = $${idx++}`);
-    values.push(payload.color);
-  }
+  const team = await prisma.team.update({
+    where: { id },
+    data,
+    include: {
+      members: {
+        orderBy: { name: "asc" },
+      },
+    },
+  });
 
-  if (setClauses.length === 0) {
-    log.debug("updateTeam: no fields to update, returning existing team", {
-      id,
-    });
-    return getTeamById(id);
-  }
-
-  setClauses.push(`updated_at = $${idx++}`);
-  values.push(now);
-  values.push(id);
-
-  const teamResult = await query<TeamRow>(
-    `UPDATE teams SET ${setClauses.join(", ")} WHERE id = $${idx}
-     RETURNING id, name, description, color, created_at, updated_at`,
-    values,
-  );
-
-  if (teamResult.rows.length === 0) {
-    log.warn("updateTeam: team not found", { id });
-    return null;
-  }
-
-  const memberResult = await query<TeamMemberRow>(
-    `SELECT id, team_id, name, email, role, status, avatar, created_at, updated_at
-     FROM team_members WHERE team_id = $1 ORDER BY name ASC`,
-    [id],
-  );
-  const members = memberResult.rows.map(rowToTeamMember);
-  const teamRow: TeamRow = {
-    id: teamResult.rows[0].id,
-    name: teamResult.rows[0].name,
-    description: teamResult.rows[0].description,
-    color: teamResult.rows[0].color,
-    member_count: members.length,
-    created_at: teamResult.rows[0].created_at,
-    updated_at: teamResult.rows[0].updated_at,
-  };
-  const team = rowToTeam(teamRow, members);
   log.debug("updateTeam: team updated", { id });
-  return team;
+  return rowToTeam(team);
 }
 
 export async function deleteTeam(id: number): Promise<boolean> {
   log.info("deleteTeam: deleting team", { id });
-  const result = await query<{ id: number }>(
-    `DELETE FROM teams WHERE id = $1 RETURNING id`,
-    [id],
-  );
+  try {
+    await prisma.team.delete({
+      where: { id },
+    });
 
-  if (result.rows.length === 0) {
-    log.warn("deleteTeam: team not found", { id });
-    return false;
+    log.info("deleteTeam: team deleted", { id });
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2025"
+    ) {
+      log.warn("deleteTeam: team not found", { id });
+      return false;
+    }
+    log.error("deleteTeam: failed to delete team", { id, error });
+    throw error;
   }
-  log.info("deleteTeam: team deleted", { id });
-  return true;
 }
 
 export async function getTeamMembers(teamId: number): Promise<TeamMember[]> {
   log.debug("getTeamMembers: fetching members", { teamId });
-  const result = await query<TeamMemberRow>(
-    `SELECT id, team_id, name, email, role, status, avatar, created_at, updated_at
-     FROM team_members
-     WHERE team_id = $1
-     ORDER BY name ASC`,
-    [teamId],
-  );
+  const members = await prisma.teamMember.findMany({
+    where: { teamId },
+    orderBy: { name: "asc" },
+  });
+
   log.debug("getTeamMembers: members fetched", {
     teamId,
-    count: result.rows.length,
+    count: members.length,
   });
-  return result.rows.map(rowToTeamMember);
+  return members.map(rowToTeamMember);
 }
 
 export async function getTeamMemberById(
@@ -283,19 +179,17 @@ export async function getTeamMemberById(
   memberId: number,
 ): Promise<TeamMember | null> {
   log.debug("getTeamMemberById: fetching member", { teamId, memberId });
-  const result = await query<TeamMemberRow>(
-    `SELECT id, team_id, name, email, role, status, avatar, created_at, updated_at
-     FROM team_members
-     WHERE id = $1 AND team_id = $2`,
-    [memberId, teamId],
-  );
+  const member = await prisma.teamMember.findFirst({
+    where: { id: memberId, teamId },
+  });
 
-  if (result.rows.length === 0) {
+  if (!member) {
     log.debug("getTeamMemberById: member not found", { teamId, memberId });
     return null;
   }
+
   log.debug("getTeamMemberById: member found", { teamId, memberId });
-  return rowToTeamMember(result.rows[0]);
+  return rowToTeamMember(member);
 }
 
 export async function createTeamMember(
@@ -304,37 +198,31 @@ export async function createTeamMember(
 ): Promise<TeamMember | null> {
   log.info("createTeamMember: creating member", { teamId, name: payload.name });
 
-  const teamCheck = await query<{ id: number }>(
-    `SELECT id FROM teams WHERE id = $1`,
-    [teamId],
-  );
-  if (teamCheck.rows.length === 0) {
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { id: true },
+  });
+  if (!team) {
     log.warn("createTeamMember: team not found", { teamId });
     return null;
   }
 
-  const now = new Date().toISOString();
-  const result = await query<TeamMemberRow>(
-    `INSERT INTO team_members (team_id, name, email, role, status, avatar, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING id, team_id, name, email, role, status, avatar, created_at, updated_at`,
-    [
+  const member = await prisma.teamMember.create({
+    data: {
       teamId,
-      payload.name,
-      payload.email || null,
-      payload.role,
-      payload.status,
-      payload.avatar,
-      now,
-      now,
-    ],
-  );
+      name: payload.name,
+      email: payload.email,
+      role: payload.role,
+      status: payload.status,
+      avatar: payload.avatar,
+    },
+  });
 
   log.info("createTeamMember: member created", {
     teamId,
-    memberId: result.rows[0].id,
+    memberId: member.id,
   });
-  return rowToTeamMember(result.rows[0]);
+  return rowToTeamMember(member);
 }
 
 export async function updateTeamMember(
@@ -343,58 +231,30 @@ export async function updateTeamMember(
   payload: UpdateTeamMemberPayload,
 ): Promise<TeamMember | null> {
   log.debug("updateTeamMember: updating member", { teamId, memberId, payload });
-  const now = new Date().toISOString();
 
-  const setClauses: string[] = [];
-  const values: unknown[] = [];
-  let idx = 1;
-
-  if (payload.name !== undefined) {
-    setClauses.push(`name = $${idx++}`);
-    values.push(payload.name);
-  }
-  if (payload.email !== undefined) {
-    setClauses.push(`email = $${idx++}`);
-    values.push(payload.email || null);
-  }
-  if (payload.role !== undefined) {
-    setClauses.push(`role = $${idx++}`);
-    values.push(payload.role);
-  }
-  if (payload.status !== undefined) {
-    setClauses.push(`status = $${idx++}`);
-    values.push(payload.status);
-  }
-  if (payload.avatar !== undefined) {
-    setClauses.push(`avatar = $${idx++}`);
-    values.push(payload.avatar);
-  }
-
-  if (setClauses.length === 0) {
-    log.debug(
-      "updateTeamMember: no fields to update, returning existing member",
-      { teamId, memberId },
-    );
-    return getTeamMemberById(teamId, memberId);
-  }
-
-  setClauses.push(`updated_at = $${idx++}`);
-  values.push(now);
-  values.push(memberId);
-  values.push(teamId);
-
-  const result = await query<TeamMemberRow>(
-    `UPDATE team_members SET ${setClauses.join(", ")} WHERE id = $${idx} AND team_id = $${idx + 1}
-     RETURNING id, team_id, name, email, role, status, avatar, created_at, updated_at`,
-    values,
-  );
-
-  if (result.rows.length === 0) {
+  const existing = await prisma.teamMember.findFirst({
+    where: { id: memberId, teamId },
+    select: { id: true },
+  });
+  if (!existing) {
     log.warn("updateTeamMember: member not found", { teamId, memberId });
     return null;
   }
+
+  const data: Prisma.TeamMemberUpdateInput = {};
+  if (payload.name !== undefined) data.name = payload.name;
+  if (payload.email !== undefined) data.email = payload.email;
+  if (payload.role !== undefined) data.role = payload.role;
+  if (payload.status !== undefined) data.status = payload.status;
+  if (payload.avatar !== undefined) data.avatar = payload.avatar;
+
+  const member = await prisma.teamMember.update({
+    where: { id: memberId },
+    data,
+  });
+
   log.debug("updateTeamMember: member updated", { teamId, memberId });
-  return rowToTeamMember(result.rows[0]);
+  return rowToTeamMember(member);
 }
 
 export async function deleteTeamMember(
@@ -402,15 +262,20 @@ export async function deleteTeamMember(
   memberId: number,
 ): Promise<boolean> {
   log.info("deleteTeamMember: deleting member", { teamId, memberId });
-  const result = await query<{ id: number }>(
-    `DELETE FROM team_members WHERE id = $1 AND team_id = $2 RETURNING id`,
-    [memberId, teamId],
-  );
 
-  if (result.rows.length === 0) {
+  const existing = await prisma.teamMember.findFirst({
+    where: { id: memberId, teamId },
+    select: { id: true },
+  });
+  if (!existing) {
     log.warn("deleteTeamMember: member not found", { teamId, memberId });
     return false;
   }
+
+  await prisma.teamMember.delete({
+    where: { id: memberId },
+  });
+
   log.info("deleteTeamMember: member deleted", { teamId, memberId });
   return true;
 }

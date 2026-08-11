@@ -1,10 +1,9 @@
 /**
- * /api/structure/fs — API unifiée pour l'exploration et la manipulation
- * des deux répertoires physiques de l'application :
- *   - .locale-db/  (base de données locale)
+ * /api/structure/fs — API pour l'exploration et la manipulation
+ * du répertoire physique de l'application :
  *   - .registry/   (registre des ressources)
  *
- * GET  ?root=locale-db|registry&path=...&read=true  → lire arborescence ou fichier
+ * GET  ?root=registry&path=...&read=true  → lire arborescence ou fichier
  * POST body { root, path, name, kind } | FormData   → créer dossier ou uploader fichier
  * DELETE ?root=...&path=...                          → supprimer entrée
  * PUT  body { root, path, newName }                  → renommer entrée
@@ -15,117 +14,27 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getProjectRoot } from "@/lib/project-root";
-import { localDbTreeCache, registryTreeCache } from "@/lib/api/tree-cache";
+import { registryTreeCache } from "@/lib/api/tree-cache";
 import { withFileLock } from "@/lib/api/file-lock";
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import { safeJoin, normalizePath, buildTree, type ApiTreeNode } from "@/lib/api/fs-tree";
 
 const PROJECT_ROOT = getProjectRoot();
-const LOCALE_DB_ROOT = path.join(PROJECT_ROOT, ".locale-db");
 const REGISTRY_ROOT  = path.join(PROJECT_ROOT, ".registry");
-const LOCALE_DB_LOCK = path.join(LOCALE_DB_ROOT, ".locale-db.lock");
 const REGISTRY_LOCK  = path.join(REGISTRY_ROOT,  ".registry.lock");
-const VECTOR_INDEX_DIR = path.join(LOCALE_DB_ROOT, ".vector-index");
-const TAURI_DB_ROOT = path.join(PROJECT_ROOT, ".tauri-local-db");
-const TAURI_DB_LOCK = path.join(TAURI_DB_ROOT, ".tauri-local-db.lock");
+const LOCALE_DB_ROOT = path.join(PROJECT_ROOT, ".locale-db");
 const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
 
 console.info("[API /api/structure/fs] init", {
   PROJECT_ROOT,
-  localeDbExists: fs.existsSync(LOCALE_DB_ROOT),
   registryExists: fs.existsSync(REGISTRY_ROOT),
-  tauriDbExists: fs.existsSync(TAURI_DB_ROOT),
 });
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function getRootInfo(rootParam: string | null): { root: string; lock: string } {
   if (rootParam === "registry") return { root: REGISTRY_ROOT, lock: REGISTRY_LOCK };
-  if (rootParam === "tauri-local-db") return { root: TAURI_DB_ROOT, lock: TAURI_DB_LOCK };
-  return { root: LOCALE_DB_ROOT, lock: LOCALE_DB_LOCK };
-}
-
-function safeJoin(base: string, targetPath: string): string {
-  const resolved = path.resolve(base, targetPath);
-  if (!resolved.startsWith(base)) throw new Error("Accès hors du répertoire autorisé");
-  return resolved;
-}
-
-function normalizePath(p: string): string {
-  return p.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
-}
-
-function getVectorizedPaths(): Set<string> {
-  const paths = new Set<string>();
-  if (!fs.existsSync(VECTOR_INDEX_DIR)) return paths;
-  try {
-    for (const entry of fs.readdirSync(VECTOR_INDEX_DIR)) {
-      if (!entry.endsWith(".json")) continue;
-      try {
-        const content = fs.readFileSync(path.join(VECTOR_INDEX_DIR, entry), "utf-8");
-        const data = JSON.parse(content);
-        if (data.path) paths.add(normalizePath(data.path));
-      } catch { /* skip */ }
-    }
-  } catch { /* skip */ }
-  return paths;
-}
-
-interface ApiTreeNode {
-  name: string;
-  path: string;
-  kind: "directory" | "document";
-  children?: ApiTreeNode[];
-  stats?: { sizeBytes: number };
-  vectorized?: boolean;
-  libelle?: string;
-}
-
-function readMeta(fullPath: string): string | undefined {
-  const metaPath = path.join(fullPath, ".meta.json");
-  try {
-    if (fs.existsSync(metaPath) && fs.statSync(metaPath).isFile()) {
-      const parsed = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-      if (parsed && typeof parsed.libelle === "string") return parsed.libelle;
-    }
-  } catch { /* skip */ }
-  return undefined;
-}
-
-function buildTree(
-  base: string,
-  relPath: string,
-  vectorizedPaths: Set<string> = new Set(),
-): ApiTreeNode {
-  const fullPath = safeJoin(base, relPath);
-  const stat = fs.statSync(fullPath);
-  const name = path.basename(fullPath) || relPath.split("/").pop() || relPath;
-  const normalizedRelPath = normalizePath(relPath);
-
-  if (stat.isFile()) {
-    const relPathForVec = normalizePath(path.relative(base, fullPath));
-    return {
-      name,
-      path: normalizedRelPath,
-      kind: "document",
-      stats: { sizeBytes: stat.size },
-      vectorized: vectorizedPaths.has(relPathForVec),
-    };
-  }
-
-  const entries = fs.readdirSync(fullPath).filter((e) => e !== ".meta.json");
-  const libelle = readMeta(fullPath);
-  const children = entries.map((entryName) =>
-    buildTree(base, relPath ? `${relPath}/${entryName}` : entryName, vectorizedPaths),
-  );
-
-  return {
-    name,
-    path: normalizedRelPath,
-    kind: "directory",
-    children,
-    vectorized: false,
-    ...(libelle ? { libelle } : {}),
-  };
+  return { root: REGISTRY_ROOT, lock: REGISTRY_LOCK };
 }
 
 interface LocationNodeRow {
@@ -191,8 +100,8 @@ function ensurePath(root: ApiTreeNode, segments: string[]): ApiTreeNode {
 
 async function buildReconstructedTreeFromDb(): Promise<ApiTreeNode> {
   const root: ApiTreeNode = {
-    name: ".locale-db",
-    path: ".locale-db",
+    name: ".registry",
+    path: ".registry",
     kind: "directory",
     children: [],
     vectorized: false,
@@ -206,18 +115,30 @@ async function buildReconstructedTreeFromDb(): Promise<ApiTreeNode> {
       teamsResult,
       mediaItemsResult,
     ] = await Promise.all([
-      query<LocationNodeRow>("SELECT path, libelle, location_type, bloc_code, equipement_code, groupe_code, level FROM location_nodes ORDER BY level ASC, path ASC").catch(() => ({ rows: [] as LocationNodeRow[], rowCount: 0 })),
-      query<ProcedureRow>("SELECT code, title, category, description, priority FROM procedures").catch(() => ({ rows: [] as ProcedureRow[], rowCount: 0 })),
-      query<KnowledgeItemRow>("SELECT id, title, type, category, location_path FROM knowledge_items").catch(() => ({ rows: [] as KnowledgeItemRow[], rowCount: 0 })),
-      query<TeamRow>("SELECT id, name, groupe_path FROM teams").catch(() => ({ rows: [] as TeamRow[], rowCount: 0 })),
-      query<MediaItemRow>("SELECT id, title, category, kind, mime_type, location_path FROM media_items WHERE location_path IS NOT NULL").catch(() => ({ rows: [] as MediaItemRow[], rowCount: 0 })),
+      prisma.locationNode.findMany({
+        orderBy: { level: "asc", path: "asc" },
+        select: { path: true, libelle: true, locationType: true, blocCode: true, equipementCode: true, groupeCode: true, level: true },
+      }).catch(() => []),
+      prisma.procedure.findMany({
+        select: { code: true, title: true, category: true, description: true, priority: true },
+      }).catch(() => []),
+      prisma.knowledgeItem.findMany({
+        select: { id: true, title: true, type: true, category: true, locationPath: true },
+      }).catch(() => []),
+      prisma.team.findMany({
+        select: { id: true, name: true },
+      }).catch(() => []),
+      prisma.mediaItem.findMany({
+        where: { locationPath: { not: null } },
+        select: { id: true, title: true, category: true, kind: true, mimeType: true, locationPath: true },
+      }).catch(() => []),
     ]);
 
-    const locationNodesRows = locationNodesResult.rows as LocationNodeRow[];
-    const proceduresRows = proceduresResult.rows as ProcedureRow[];
-    const knowledgeItemsRows = knowledgeItemsResult.rows as KnowledgeItemRow[];
-    const teamsRows = teamsResult.rows as TeamRow[];
-    const mediaItemsRows = mediaItemsResult.rows as MediaItemRow[];
+    const locationNodesRows = locationNodesResult as LocationNodeRow[];
+    const proceduresRows = proceduresResult as ProcedureRow[];
+    const knowledgeItemsRows = knowledgeItemsResult as KnowledgeItemRow[];
+    const teamsRows = teamsResult as TeamRow[];
+    const mediaItemsRows = mediaItemsResult as MediaItemRow[];
 
     const processedPaths = new Set<string>();
 
@@ -366,40 +287,40 @@ async function buildReconstructedTreeFromDb(): Promise<ApiTreeNode> {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const rootParam = searchParams.get("root") ?? "locale-db";
+  const rootParam = searchParams.get("root") ?? "registry";
   const target    = searchParams.get("path") ?? "";
   const read      = searchParams.get("read") === "true";
   const unified   = searchParams.get("unified") === "true";
 
-  // ── Mode unifié : retourne les deux arbres en une réponse ──────────────────
+  // ── Mode unifié : retourne les trois arbres en une réponse ──────────────────
   if (unified) {
-    const localeDbExists = fs.existsSync(LOCALE_DB_ROOT);
+    const localeDbExists = fs.existsSync(REGISTRY_ROOT);
     const registryExists = fs.existsSync(REGISTRY_ROOT);
-    const vecPaths = getVectorizedPaths();
+    const localeDbDirExists = fs.existsSync(LOCALE_DB_ROOT);
+    const vecPaths = new Set<string>();
 
     let localeDbTree: ApiTreeNode;
     let registryTree: ApiTreeNode;
+    let localeDbDirTree: ApiTreeNode;
     let source: string;
 
     if (localeDbExists || registryExists) {
       localeDbTree = localeDbExists
-        ? buildTree(LOCALE_DB_ROOT, "", vecPaths)
-        : { name: ".locale-db", path: "", kind: "directory", children: [] };
+        ? buildTree(REGISTRY_ROOT, "", vecPaths)
+        : { name: ".registry", path: "", kind: "directory", children: [] };
       registryTree = registryExists
         ? buildTree(REGISTRY_ROOT, "", new Set())
         : { name: ".registry", path: "", kind: "directory", children: [] };
       source = "disk";
     } else {
-      // Fallback Vercel hébergé : reconstruction de l'arborescence depuis la BDD (Neon / PostgreSQL)
       const reconstructed = await buildReconstructedTreeFromDb();
       localeDbTree = {
-        name: ".locale-db",
+        name: ".registry",
         path: "",
         kind: "directory",
         children: reconstructed.children ?? [],
       };
 
-      // Construction de l'arbre du registre depuis les éléments de la BDD
       const registryItems = (reconstructed.children ?? []).filter(
         (c) => c.name === "registry" || c.name === "procedures" || c.name === "bank"
       );
@@ -412,9 +333,21 @@ export async function GET(request: Request) {
       source = "db-reconstructed";
     }
 
+    if (localeDbDirExists) {
+      localeDbDirTree = buildTree(LOCALE_DB_ROOT, "", new Set());
+    } else {
+      localeDbDirTree = {
+        name: ".locale-db",
+        path: "",
+        kind: "directory",
+        children: [],
+      };
+    }
+
     return NextResponse.json({
       localeDb: localeDbTree,
       registry: registryTree,
+      localeDbDir: localeDbDirTree,
       vectorizedPaths: Array.from(vecPaths),
       source,
     });
@@ -422,7 +355,7 @@ export async function GET(request: Request) {
 
   // ── Lecture d'un seul répertoire ───────────────────────────────────────────
   const { root } = getRootInfo(rootParam);
-  const cache = rootParam === "registry" ? registryTreeCache : localDbTreeCache;
+  const cache = rootParam === "registry" ? registryTreeCache : registryTreeCache;
 
   try {
     if (read) {
@@ -454,7 +387,7 @@ export async function GET(request: Request) {
     if (cached) {
       return NextResponse.json({
         children: cached.children,
-        vectorizedPaths: Array.from(getVectorizedPaths()),
+        vectorizedPaths: Array.from(new Set<string>()),
         cached: true,
       });
     }
@@ -464,7 +397,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Répertoire introuvable" }, { status: 404 });
     }
 
-    const vecPaths = rootParam === "locale-db" ? getVectorizedPaths() : new Set<string>();
+    const vecPaths = rootParam === "registry" ? new Set<string>() : new Set<string>();
     const tree = buildTree(root, target, vecPaths);
     cache.set(cacheKey, tree);
 
@@ -484,9 +417,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const contentType = request.headers.get("content-type") ?? "";
   const { searchParams } = new URL(request.url);
-  const rootParam = searchParams.get("root") ?? "locale-db";
+  const rootParam = searchParams.get("root") ?? "registry";
   const { root } = getRootInfo(rootParam);
-  const cache = rootParam === "registry" ? registryTreeCache : localDbTreeCache;
+  const cache = rootParam === "registry" ? registryTreeCache : registryTreeCache;
 
   if (!fs.existsSync(root)) {
     return NextResponse.json({ error: `${rootParam} n'existe pas sur ce serveur` }, { status: 503 });
@@ -513,7 +446,7 @@ export async function POST(request: Request) {
     const body = await request.json() as { root?: string; path?: string; name?: string; kind?: string };
     const rootOverride = body.root ?? rootParam;
     const { root: r, lock: l } = getRootInfo(rootOverride);
-    const cacheToInvalidate = rootOverride === "registry" ? registryTreeCache : localDbTreeCache;
+    const cacheToInvalidate = rootOverride === "registry" ? registryTreeCache : registryTreeCache;
     const { path: target, name, kind } = body;
 
     if (!target || !name) {
@@ -541,10 +474,10 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
-  const rootParam = searchParams.get("root") ?? "locale-db";
+  const rootParam = searchParams.get("root") ?? "registry";
   const target    = searchParams.get("path");
   const { root, lock } = getRootInfo(rootParam);
-  const cache = rootParam === "registry" ? registryTreeCache : localDbTreeCache;
+  const cache = rootParam === "registry" ? registryTreeCache : registryTreeCache;
 
   if (!fs.existsSync(root)) {
     return NextResponse.json({ error: `${rootParam} n'existe pas sur ce serveur` }, { status: 503 });
@@ -573,9 +506,9 @@ export async function DELETE(request: Request) {
 
 export async function PUT(request: Request) {
   const body = await request.json() as { root?: string; path?: string; newName?: string };
-  const rootParam = body.root ?? "locale-db";
+  const rootParam = body.root ?? "registry";
   const { root, lock } = getRootInfo(rootParam);
-  const cache = rootParam === "registry" ? registryTreeCache : localDbTreeCache;
+  const cache = rootParam === "registry" ? registryTreeCache : registryTreeCache;
 
   if (!fs.existsSync(root)) {
     return NextResponse.json({ error: `${rootParam} n'existe pas sur ce serveur` }, { status: 503 });
@@ -602,9 +535,9 @@ export async function PUT(request: Request) {
 
 export async function PATCH(request: Request) {
   const body = await request.json() as { root?: string; path?: string; action?: string; content?: string };
-  const rootParam = body.root ?? "locale-db";
+  const rootParam = body.root ?? "registry";
   const { root, lock } = getRootInfo(rootParam);
-  const cache = rootParam === "registry" ? registryTreeCache : localDbTreeCache;
+  const cache = rootParam === "registry" ? registryTreeCache : registryTreeCache;
 
   if (!fs.existsSync(root)) {
     return NextResponse.json({ error: `${rootParam} n'existe pas sur ce serveur` }, { status: 503 });
@@ -629,9 +562,9 @@ export async function PATCH(request: Request) {
     if (body.action === "vectorize") {
       const stat = fs.statSync(fullPath);
       if (!stat.isFile()) return NextResponse.json({ error: "Cible non valide" }, { status: 400 });
-      const vectorDir = VECTOR_INDEX_DIR;
+      const vectorDir = REGISTRY_ROOT;
       fs.mkdirSync(vectorDir, { recursive: true });
-      const relPath = path.relative(LOCALE_DB_ROOT, fullPath);
+      const relPath = path.relative(REGISTRY_ROOT, fullPath);
       const hash = Buffer.from(relPath).toString("base64")
         .replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
       const payload = {

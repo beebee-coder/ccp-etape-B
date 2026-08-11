@@ -1,4 +1,5 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { createLogger } from "@/lib/logger";
 import type { Report, ReportPoint } from "@/lib/types/reports";
 
@@ -11,26 +12,18 @@ function generateId(): string {
 export async function getAll(): Promise<Report[]> {
   log.info("getAll: fetching all reports from database");
   try {
-    const result = await query<{
-      id: string;
-      date: string;
-      points: unknown;
-      created_at: string;
-      updated_at: string | null;
-    }>(
-      `SELECT id, date, points, created_at, updated_at
-       FROM reports
-       ORDER BY created_at DESC`
-    );
+    const reports = await prisma.report.findMany({
+      orderBy: { createdAt: "desc" },
+    });
 
-    log.debug("getAll: query succeeded", { rowCount: result.rowCount });
+    log.debug("getAll: query succeeded", { rowCount: reports.length });
 
-    return result.rows.map((row) => ({
+    return reports.map((row) => ({
       id: row.id,
       date: row.date,
-      points: (row.points as ReportPoint[]) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at ?? row.created_at,
+      points: (row.points as unknown as ReportPoint[]) ?? [],
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt ? row.updatedAt.toISOString() : row.createdAt.toISOString(),
     }));
   } catch (error) {
     log.error("getAll: failed to fetch reports", {
@@ -43,33 +36,23 @@ export async function getAll(): Promise<Report[]> {
 export async function getById(id: string): Promise<Report | undefined> {
   log.info("getById: fetching report", { id });
   try {
-    const result = await query<{
-      id: string;
-      date: string;
-      points: unknown;
-      created_at: string;
-      updated_at: string | null;
-    }>(
-      `SELECT id, date, points, created_at, updated_at
-       FROM reports
-       WHERE id = $1`,
-      [id]
-    );
+    const report = await prisma.report.findUnique({
+      where: { id },
+    });
 
-    if (result.rows.length === 0) {
+    if (!report) {
       log.warn("getById: report not found", { id });
       return undefined;
     }
 
-    const row = result.rows[0];
     log.debug("getById: report found", { id });
 
     return {
-      id: row.id,
-      date: row.date,
-      points: (row.points as ReportPoint[]) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at ?? row.created_at,
+      id: report.id,
+      date: report.date,
+      points: (report.points as unknown as ReportPoint[]) ?? [],
+      createdAt: report.createdAt.toISOString(),
+      updatedAt: report.updatedAt ? report.updatedAt.toISOString() : report.createdAt.toISOString(),
     };
   } catch (error) {
     log.error("getById: failed to fetch report", {
@@ -86,30 +69,23 @@ export async function create(
   log.info("create: inserting new report", { date: report.date, pointCount: report.points.length });
   try {
     const id = generateId();
-    const now = new Date().toISOString();
 
-    const result = await query<{
-      id: string;
-      date: string;
-      points: unknown;
-      created_at: string;
-      updated_at: string;
-    }>(
-      `INSERT INTO reports (id, date, points, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, date, points, created_at, updated_at`,
-      [id, report.date, JSON.stringify(report.points), now, now]
-    );
+    const created = await prisma.report.create({
+      data: {
+        id,
+        date: report.date,
+        points: report.points as unknown as Prisma.InputJsonValue,
+      },
+    });
 
-    const row = result.rows[0];
     log.info("create: report inserted successfully", { id });
 
     return {
-      id: row.id,
-      date: row.date,
-      points: (row.points as ReportPoint[]) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: created.id,
+      date: created.date,
+      points: (created.points as unknown as ReportPoint[]) ?? [],
+      createdAt: created.createdAt.toISOString(),
+      updatedAt: created.updatedAt ? created.updatedAt.toISOString() : created.createdAt.toISOString(),
     };
   } catch (error) {
     log.error("create: failed to insert report", {
@@ -125,49 +101,23 @@ export async function update(
 ): Promise<Report | undefined> {
   log.info("update: updating report", { id, fields: Object.keys(updates) });
   try {
-    const now = new Date().toISOString();
-    const setClauses: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = 1;
+    const data: Record<string, unknown> = {};
+    if (updates.date !== undefined) data.date = updates.date;
+    if (updates.points !== undefined) data.points = updates.points as unknown as Prisma.InputJsonValue;
 
-    if (updates.date !== undefined) {
-      setClauses.push(`date = $${paramIndex++}`);
-      values.push(updates.date);
-    }
-    if (updates.points !== undefined) {
-      setClauses.push(`points = $${paramIndex++}`);
-      values.push(JSON.stringify(updates.points));
-    }
+    const updated = await prisma.report.update({
+      where: { id },
+      data,
+    });
 
-    setClauses.push(`updated_at = $${paramIndex++}`);
-    values.push(now);
-    values.push(id);
-
-    const result = await query<{
-      id: string;
-      date: string;
-      points: unknown;
-      created_at: string;
-      updated_at: string;
-    }>(
-      `UPDATE reports SET ${setClauses.join(", ")} WHERE id = $${paramIndex} RETURNING id, date, points, created_at, updated_at`,
-      values
-    );
-
-    if (result.rows.length === 0) {
-      log.warn("update: report not found", { id });
-      return undefined;
-    }
-
-    const row = result.rows[0];
     log.info("update: report updated successfully", { id });
 
     return {
-      id: row.id,
-      date: row.date,
-      points: (row.points as ReportPoint[]) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: updated.id,
+      date: updated.date,
+      points: (updated.points as unknown as ReportPoint[]) ?? [],
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.updatedAt ? updated.updatedAt.toISOString() : updated.createdAt.toISOString(),
     };
   } catch (error) {
     log.error("update: failed to update report", {
@@ -181,24 +131,24 @@ export async function update(
 export async function remove(id: string): Promise<boolean> {
   log.info("remove: deleting report", { id });
   try {
-    const result = await query<{ id: string }>(
-      `DELETE FROM reports WHERE id = $1 RETURNING id`,
-      [id]
-    );
+    await prisma.report.delete({
+      where: { id },
+    });
 
-    const deleted = result.rows.length > 0;
-    if (deleted) {
-      log.info("remove: report deleted successfully", { id });
-    } else {
+    log.info("remove: report deleted successfully", { id });
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2025"
+    ) {
       log.warn("remove: report not found", { id });
+      return false;
     }
 
-    return deleted;
-  } catch (error) {
-    log.error("remove: failed to delete report", {
-      id,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    log.error("remove: failed to delete report", { id, error });
     throw error;
   }
 }

@@ -44,4 +44,3 @@ export class TreeCache {
 }
 
 export const registryTreeCache = new TreeCache(30_000);
-export const localDbTreeCache = new TreeCache(30_000);

@@ -25,6 +25,7 @@ const ROUTE_CONFIGS: Record<string, RateLimitConfig> = {
   procedures: { points: 10, windowMs: 60 * 1000 },
   "procedures-executions": { points: 30, windowMs: 60 * 1000 },
   "q-r": { points: 10, windowMs: 60 * 1000 },
+  "q-r-sync": { points: 20, windowMs: 60 * 1000 },
   "auth-login": { points: 5, windowMs: 60 * 1000 },
   "auth-refresh": { points: 10, windowMs: 60 * 1000 },
   "auth-me": { points: 30, windowMs: 60 * 1000 },

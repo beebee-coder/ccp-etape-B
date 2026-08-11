@@ -4,6 +4,7 @@ import { createLogger } from "@/lib/logger";
 import { CircuitBreaker } from "./circuit-breaker";
 import { searchRagDocuments, searchRagWithLocation, type RagDocument } from "./location-aware-rag";
 import { extractLocationFromQuery, formatLocation } from "@/lib/location/parser";
+import { prisma } from "@/lib/db";
 
 const log = createLogger({ module: "ai-providers" });
 
@@ -224,15 +225,15 @@ async function buildEnrichedContext(
 
 export async function getGuardrailRulesForPrompt(): Promise<string> {
   try {
-    const { query } = await import("@/lib/db");
-    const result = await query(
-      `SELECT section, rule FROM guardrail_rules WHERE is_active = true ORDER BY section ASC, created_at ASC`
-    );
-    const rows = result.rows as { section: string; rule: string }[];
-    if (rows.length === 0) return "Aucune garde-fou active.";
+    const rules = await prisma.guardrailRule.findMany({
+      where: { isActive: true },
+      orderBy: { section: "asc", createdAt: "asc" },
+    });
+
+    if (rules.length === 0) return "Aucune garde-fou active.";
 
     const grouped: Record<string, string[]> = {};
-    for (const r of rows) {
+    for (const r of rules) {
       if (!grouped[r.section]) grouped[r.section] = [];
       grouped[r.section].push(r.rule);
     }

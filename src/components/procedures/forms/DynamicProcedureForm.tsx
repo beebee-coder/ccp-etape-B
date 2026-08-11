@@ -346,16 +346,16 @@ export function DynamicProcedureForm() {
     log.info("handleValidateAndExport: validating before export", {
       code: procedure.metadata.code || "<no-code>",
     });
-    if (validate()) {
+    const valid = validate();
+    if (valid) {
       handleExportJson();
     } else {
       toast.error("Corrigez les erreurs avant d'exporter");
       log.warn("handleValidateAndExport: validation failed, export aborted", {
         code: procedure.metadata.code || "<no-code>",
-        errorCount: errors.length,
       });
     }
-  }, [validate, handleExportJson, errors, procedure]);
+  }, [validate, handleExportJson, procedure]);
 
   const completeness = getCompleteness(procedure.steps);
 

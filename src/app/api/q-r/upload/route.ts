@@ -47,7 +47,8 @@ export async function POST(request: Request) {
       directory,
       filePath,
       qaPairs.length,
-      authResult.user!.sub
+      authResult.user!.sub,
+      content
     );
 
     log.debug("POST /api/q-r/upload: file uploaded successfully", {

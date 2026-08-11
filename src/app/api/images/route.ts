@@ -14,7 +14,7 @@ const log = createLogger({ module: "api-images" });
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
-const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   return Promise.race([
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     Math.max(1, Number(url.searchParams.get("limit") ?? String(DEFAULT_LIMIT))),
   );
   const offset = (page - 1) * limit;
-  const metaOnly = url.searchParams.get("meta_only") === "true";
+  const metaOnly = url.searchParams.get("include_data_url") === "false";
 
   try {
     const [items, categories, stats] = await withTimeout(

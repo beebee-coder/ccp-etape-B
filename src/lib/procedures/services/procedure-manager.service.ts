@@ -2,10 +2,15 @@ import {
   ProcedureSchema,
   TProcedure,
   TStep,
+  validateProcedure,
 } from "@/lib/procedures/services/validator.service";
 import { createLogger } from "@/lib/logger";
 
 const DRAFT_STORAGE_KEY = "nexaflow-procedure-draft";
+const SYNC_DEBOUNCE_MS = 2000;
+const syncTimers = new Map<string, number>();
+const syncInProgress = new Map<string, Promise<boolean>>();
+const draftCache = new Map<string, TProcedure>();
 const log = createLogger({ module: "procedure-manager" });
 
 export function createEmptyProcedure(): TProcedure {
@@ -124,7 +129,11 @@ export function downloadJson(procedure: TProcedure, filename?: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename || `${procedure.metadata.code}.json`;
+  const safeCode = (procedure.metadata.code || "procedure")
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 50);
+  a.download = filename || `${safeCode}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -140,15 +149,27 @@ function isBrowser(): boolean {
 export function saveDraft(procedure: TProcedure): void {
   if (!isBrowser()) return;
   try {
+    const draftKey =
+      procedure.metadata.code.trim().length > 0
+        ? `${DRAFT_STORAGE_KEY}:${procedure.metadata.code}`
+        : DRAFT_STORAGE_KEY;
+
+    const cached = draftCache.get(draftKey);
+    if (cached && JSON.stringify(cached) === JSON.stringify(procedure)) {
+      return;
+    }
+
     const serialized = JSON.stringify(procedure);
-    window.localStorage.setItem(DRAFT_STORAGE_KEY, serialized);
+    window.localStorage.setItem(draftKey, serialized);
+    draftCache.set(draftKey, procedure);
     log.debug("saveDraft: draft saved to localStorage", {
-      code: procedure.metadata.code,
+      code: procedure.metadata.code || "<no-code>",
       stepCount: procedure.steps.length,
+      key: draftKey,
     });
   } catch (error) {
     log.error("saveDraft: failed to save draft to localStorage", {
-      code: procedure.metadata.code,
+      code: procedure.metadata.code || "<no-code>",
       error,
     });
   }
@@ -157,18 +178,56 @@ export function saveDraft(procedure: TProcedure): void {
 export function loadDraft(): TProcedure | null {
   if (!isBrowser()) return null;
   try {
-    const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) {
-      log.debug("loadDraft: no draft found in localStorage");
-      return null;
+    const cachedDrafts = Array.from(draftCache.values());
+    if (cachedDrafts.length > 0) {
+      for (const draft of cachedDrafts) {
+        try {
+          validateProcedure(draft);
+          log.info("loadDraft: draft loaded from memory cache", {
+            code: draft.metadata.code,
+            stepCount: draft.steps.length,
+          });
+          return draft;
+        } catch {
+          draftCache.delete(draft.metadata.code || DRAFT_STORAGE_KEY);
+        }
+      }
     }
-    const parsed = JSON.parse(raw) as unknown;
-    const draft = ProcedureSchema.parse(parsed);
-    log.info("loadDraft: draft loaded from localStorage", {
-      code: draft.metadata.code,
-      stepCount: draft.steps.length,
-    });
-    return draft;
+
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key || !key.startsWith(`${DRAFT_STORAGE_KEY}:`)) continue;
+      const candidateRaw = window.localStorage.getItem(key);
+      if (!candidateRaw) continue;
+      try {
+        const parsed = JSON.parse(candidateRaw) as unknown;
+        const draft = ProcedureSchema.parse(parsed);
+        draftCache.set(key, draft);
+        log.info("loadDraft: draft loaded from code-specific key", {
+          code: draft.metadata.code,
+          stepCount: draft.steps.length,
+          key,
+        });
+        return draft;
+      } catch {
+        continue;
+      }
+    }
+
+    const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      const draft = ProcedureSchema.parse(parsed);
+      draftCache.set(DRAFT_STORAGE_KEY, draft);
+      log.info("loadDraft: draft loaded from generic localStorage key", {
+        code: draft.metadata.code,
+        stepCount: draft.steps.length,
+      });
+      return draft;
+    }
+
+    log.debug("loadDraft: no draft found in localStorage");
+    return null;
   } catch (error) {
     log.warn("loadDraft: failed to parse localStorage draft", { error });
     return null;
@@ -178,8 +237,19 @@ export function loadDraft(): TProcedure | null {
 export function clearDraft(): void {
   if (!isBrowser()) return;
   try {
+    draftCache.clear();
     window.localStorage.removeItem(DRAFT_STORAGE_KEY);
-    log.debug("clearDraft: draft cleared from localStorage");
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith(`${DRAFT_STORAGE_KEY}:`)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+    log.debug("clearDraft: draft cleared from localStorage", {
+      clearedCount: keysToRemove.length + 1,
+    });
   } catch (error) {
     log.error("clearDraft: failed to clear localStorage draft", { error });
   }
@@ -193,22 +263,46 @@ export async function syncWithServer(procedure: TProcedure): Promise<boolean> {
     stepCount,
   });
 
-  try {
-    const { apiClient } = await import("@/lib/api/client");
-    await apiClient.post("/api/procedures", procedure);
-    log.info("syncWithServer: procedure synced to server successfully", {
+  const now = Date.now();
+  const lastTime = syncTimers.get(code) || 0;
+  if (now - lastTime < SYNC_DEBOUNCE_MS) {
+    log.debug("syncWithServer: debounced, too soon since last sync", {
       code,
-      stepCount,
-    });
-    return true;
-  } catch (error) {
-    log.error("syncWithServer: failed to sync procedure to server", {
-      code,
-      stepCount,
-      error,
+      elapsedMs: now - lastTime,
     });
     return false;
   }
+
+  const existing = syncInProgress.get(code);
+  if (existing) {
+    log.debug("syncWithServer: sync already in progress, awaiting existing promise", { code });
+    return existing;
+  }
+
+  const promise = (async (): Promise<boolean> => {
+    try {
+      const { apiClient } = await import("@/lib/api/client");
+      await apiClient.post("/api/procedures", procedure);
+      syncTimers.set(code, Date.now());
+      log.info("syncWithServer: procedure synced to server successfully", {
+        code,
+        stepCount,
+      });
+      return true;
+    } catch (error) {
+      log.error("syncWithServer: failed to sync procedure to server", {
+        code,
+        stepCount,
+        error,
+      });
+      return false;
+    } finally {
+      syncInProgress.delete(code);
+    }
+  })();
+
+  syncInProgress.set(code, promise);
+  return promise;
 }
 
 export async function loadFromServer(): Promise<TProcedure[]> {

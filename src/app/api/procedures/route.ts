@@ -47,6 +47,17 @@ export async function POST(request: Request) {
       procedureCode,
       error: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ error: "Invalid procedure" }, { status: 400 });
+
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      return NextResponse.json(
+        { error: "Une procédure avec ce code existe déjà." },
+        { status: 409 },
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Erreur lors de la sauvegarde de la procédure." },
+      { status: 500 },
+    );
   }
 }

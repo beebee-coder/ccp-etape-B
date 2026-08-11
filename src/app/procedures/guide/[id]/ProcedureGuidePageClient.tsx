@@ -7,6 +7,7 @@ import { apiClient } from "@/lib/api/client";
 import { TProcedure } from "@/lib/procedures/services/validator.service";
 import { ProcedureGuide } from "@/components/procedures/execution/ProcedureGuide";
 import { AlertTriangle, FileText } from "lucide-react";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 interface ProcedureGuidePageClientProps {
   id: string;
@@ -96,5 +97,9 @@ export function ProcedureGuidePageClient({ id }: ProcedureGuidePageClientProps) 
     );
   }
 
-  return <ProcedureGuide procedure={procedure} onClose={() => (window.location.href = "/guide-procedure")} />;
+  return (
+    <ErrorBoundary>
+      <ProcedureGuide procedure={procedure} onClose={() => (window.location.href = "/guide-procedure")} />
+    </ErrorBoundary>
+  );
 }

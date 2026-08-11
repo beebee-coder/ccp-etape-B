@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/api/auth";
 import { validateApiRequest } from "@/lib/api/handlers";
-import { createQAItem } from "@/lib/q-r/server-store";
+import { createQAItemsBatch } from "@/lib/q-r/server-store";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger({ module: "api-q-r-sync" });
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   const result = await validateApiRequest(request, {
     requireAuth: false,
     allowedContentTypes: ["application/json"],
-    rateLimiter: "q-r",
+    rateLimiter: "q-r-sync",
   });
   if (!result.ok) {
     log.warn("POST /api/q-r/sync: validation failed", { status: result.response.status });
@@ -33,26 +33,18 @@ export async function POST(request: Request) {
 
   try {
     log.debug("POST /api/q-r/sync: processing items", { count: items.length });
-    const synced = [];
-
-    for (const item of items) {
-      const created = await createQAItem(
-        { question: item.question, answer: item.answer },
-        authResult.user!.sub
-      );
-      synced.push({
-        id: created.id,
-        question: created.question,
-        answer: created.answer,
-        status: "synced" as const,
-      });
-    }
+    const synced = await createQAItemsBatch(items, authResult.user!.sub);
 
     log.debug("POST /api/q-r/sync: sync completed", { count: synced.length });
     return NextResponse.json({
       data: {
         message: `Synchronisation de ${synced.length} paire(s) Q/R réussie`,
-        synced,
+        synced: synced.map((item) => ({
+          id: item.id,
+          question: item.question,
+          answer: item.answer,
+          status: "synced" as const,
+        })),
       },
     });
   } catch (error) {

@@ -211,15 +211,17 @@ export default function ImagesPage() {
     });
   };
 
-  const MAX_FILE_SIZE = 100 * 1024 * 1024;
+  const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+  const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
   const handleFileSelect = async (file: File) => {
     if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
       toast.error("Format non supporté. Utilisez une image ou une vidéo.");
       return;
     }
-    if (file.size > MAX_FILE_SIZE) {
-      toast.error(`Fichier trop volumineux (max ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)} Mo)`);
+    const maxSize = file.type.startsWith("image/") ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE;
+    if (file.size > maxSize) {
+      toast.error(`Fichier trop volumineux (max ${(maxSize / 1024 / 1024).toFixed(0)} Mo)`);
       return;
     }
     const kind: MediaKind = file.type.startsWith("image/") ? "image" : "video";

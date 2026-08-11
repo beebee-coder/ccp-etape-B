@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkConnection } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger({ handler: "health" });
@@ -7,7 +7,13 @@ const log = createLogger({ handler: "health" });
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const dbConnected = await checkConnection();
+  let dbConnected = false;
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbConnected = true;
+  } catch {
+    dbConnected = false;
+  }
 
   const redisConfigured = Boolean(
     process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN

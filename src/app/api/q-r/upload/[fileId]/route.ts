@@ -31,8 +31,13 @@ export async function GET(
     try {
       content = await readFile(file.filePath, "utf-8");
     } catch {
-      log.error("GET /api/q-r/upload/[fileId]: file not found on disk", { fileId, filePath: file.filePath });
-      return NextResponse.json({ error: "Fichier introuvable sur le disque" }, { status: 404 });
+      if (file.content) {
+        log.warn("GET /api/q-r/upload/[fileId]: disk read failed, using DB fallback", { fileId, filePath: file.filePath });
+        content = file.content;
+      } else {
+        log.error("GET /api/q-r/upload/[fileId]: file not found on disk and no DB fallback", { fileId, filePath: file.filePath });
+        return NextResponse.json({ error: "Fichier introuvable sur le disque et aucune sauvegarde en base" }, { status: 404 });
+      }
     }
 
     const pairs = parseQrFileContent(content) as Array<{ question: string; answer: string }>;
