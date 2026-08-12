@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -19,6 +20,7 @@ import {
   GitBranch,
   Menu,
   LayoutPanelLeft,
+  X,
 } from "lucide-react";
 import { NexaFlowLogo } from "@/components/brand/nexaflow-logo";
 import { useSidebar } from "./sidebar-provider";
@@ -109,11 +111,15 @@ const navItems = [
 
 export function DashboardSidebar({
   role,
+  isMobileOpen,
+  onMobileClose,
 }: {
   role: "admin" | "chef-de-quart" | "chef-de-bloc" | "rondier";
+  isMobileOpen?: boolean;
+  onMobileClose?: () => void;
 }) {
   const pathname = usePathname();
-  const { collapsed, toggle } = useSidebar();
+  const { collapsed, toggle, isMobile } = useSidebar();
 
   const items = navItems.filter(
     (item) =>
@@ -131,13 +137,19 @@ export function DashboardSidebar({
       href !== "/rondier" &&
       pathname.startsWith(href));
 
-  return (
-    <aside
-      className={cn(
-        "relative flex h-full flex-col overflow-hidden transition-all duration-300",
-        collapsed ? "w-16" : "w-64",
-      )}
-    >
+  useEffect(() => {
+    if (isMobile && isMobileOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isMobile, isMobileOpen]);
+
+  const sidebarContent = (
+    <>
       {/* 3D Background with gradient layers */}
       <div className="absolute inset-0 bg-gradient-to-b from-sidebar via-sidebar to-sidebar/95" />
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-purple-500/5 pointer-events-none" />
@@ -182,29 +194,43 @@ export function DashboardSidebar({
         )}
 
         {/* Collapse toggle at the far right */}
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={
-            collapsed
-              ? "Développer la barre latérale"
-              : "Réduire la barre latérale"
-          }
-          title={collapsed ? "Développer" : "Réduire"}
-          className={cn(
-            "absolute top-3 z-10 flex h-6 w-6 items-center justify-center rounded-lg",
-            "border border-border/30 bg-background/60 text-sidebar-foreground/60",
-            "hover:border-primary/40 hover:text-primary hover:bg-background",
-            "transition-all duration-200 hover:scale-105",
-            collapsed ? "right-2" : "right-3",
-          )}
-        >
-          {collapsed ? (
-            <LayoutPanelLeft className="h-3.5 w-3.5" />
-          ) : (
-            <Menu className="h-3.5 w-3.5" />
-          )}
-        </button>
+        {!isMobile && (
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={
+              collapsed
+                ? "Développer la barre latérale"
+                : "Réduire la barre latérale"
+            }
+            title={collapsed ? "Développer" : "Réduire"}
+            className={cn(
+              "absolute top-3 z-10 flex h-6 w-6 items-center justify-center rounded-lg",
+              "border border-border/30 bg-background/60 text-sidebar-foreground/60",
+              "hover:border-primary/40 hover:text-primary hover:bg-background",
+              "transition-all duration-200 hover:scale-105",
+              collapsed ? "right-2" : "right-3",
+            )}
+          >
+            {collapsed ? (
+              <LayoutPanelLeft className="h-3.5 w-3.5" />
+            ) : (
+              <Menu className="h-3.5 w-3.5" />
+            )}
+          </button>
+        )}
+
+        {/* Mobile close button */}
+        {isMobile && onMobileClose && (
+          <button
+            type="button"
+            onClick={onMobileClose}
+            aria-label="Fermer le menu"
+            className="absolute top-3 right-3 z-10 flex h-6 w-6 items-center justify-center rounded-lg border border-border/30 bg-background/60 text-sidebar-foreground/60 hover:border-primary/40 hover:text-primary hover:bg-background transition-all duration-200 hover:scale-105"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
 
         {/* Header bottom separator */}
         <div className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
@@ -220,6 +246,7 @@ export function DashboardSidebar({
             <Link
               key={item.href}
               href={item.href}
+              onClick={isMobile ? onMobileClose : undefined}
               style={{ animationDelay: `${idx * 40}ms` }}
               className={cn(
                 "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium",
@@ -276,6 +303,41 @@ export function DashboardSidebar({
           );
         })}
       </nav>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        {/* Overlay backdrop */}
+        {isMobileOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
+            onClick={onMobileClose}
+            aria-hidden="true"
+          />
+        )}
+        {/* Mobile drawer */}
+        <aside
+          className={cn(
+            "fixed inset-y-0 left-0 z-50 w-64 transition-transform duration-300 ease-in-out",
+            isMobileOpen ? "translate-x-0" : "-translate-x-full",
+          )}
+        >
+          {sidebarContent}
+        </aside>
+      </>
+    );
+  }
+
+  return (
+    <aside
+      className={cn(
+        "relative flex h-full flex-col overflow-hidden transition-all duration-300",
+        collapsed ? "w-16" : "w-64",
+      )}
+    >
+      {sidebarContent}
     </aside>
   );
 }

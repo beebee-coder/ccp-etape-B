@@ -50,7 +50,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* ── Action buttons ── */}
-      <div className="mb-6 flex items-center justify-end gap-3">
+      <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
         <Button
           variant="outline"
           size="sm"
@@ -60,6 +60,7 @@ export default function AdminDashboard() {
           Exporter
         </Button>
         <Button
+          data-testid="refresh-admin"
           size="sm"
           onClick={() => alert("Données rafraîchies")}
           className="gap-1.5 rounded-xl border border-primary/30 bg-gradient-to-r from-primary to-purple-600 shadow-3d-sm text-white hover:-translate-y-0.5 hover:shadow-primary-glow active:translate-y-0 transition-all duration-200"
@@ -104,7 +105,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* ── Content grid ── */}
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Users table card ── */}
         <Card className="dashboard-card overflow-hidden">
           <div className="p-6 pb-4">

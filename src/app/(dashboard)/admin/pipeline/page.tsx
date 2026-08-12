@@ -311,7 +311,7 @@ export default function AdminPipelinePage() {
 
       <Card className="dashboard-card mb-6 overflow-hidden">
         <div className="p-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Badge
                 variant={
@@ -337,6 +337,7 @@ export default function AdminPipelinePage() {
             <div className="flex items-center gap-2">
               {logs.length > 0 && (
                 <Button
+                  data-testid="export-logs"
                   variant="outline"
                   size="sm"
                   onClick={exportLogs}
@@ -348,6 +349,7 @@ export default function AdminPipelinePage() {
               )}
               {status === "running" ? (
                 <Button
+                  data-testid="stop-pipeline"
                   variant="destructive"
                   size="sm"
                   onClick={stopPipeline}
@@ -358,6 +360,7 @@ export default function AdminPipelinePage() {
                 </Button>
               ) : (
                 <Button
+                  data-testid="start-pipeline"
                   size="sm"
                   onClick={startPipeline}
                   className={cn(

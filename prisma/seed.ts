@@ -129,11 +129,9 @@ export async function runSeed(): Promise<void> {
   console.log("🎉 Seed terminé");
 }
 
-if (require.main === module) {
-  runSeed()
-    .then(() => process.exit(0))
-    .catch((e) => {
-      console.error(e);
-      process.exit(1);
-    });
-}
+runSeed()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

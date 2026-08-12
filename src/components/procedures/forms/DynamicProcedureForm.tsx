@@ -403,6 +403,7 @@ export function DynamicProcedureForm() {
             {isImporting ? "Import..." : proceduresFR.actions.importJson}
           </Button>
           <Button
+            data-testid="save-procedure"
             variant="outline"
             size="sm"
             onClick={handleSaveDraft}
@@ -417,6 +418,7 @@ export function DynamicProcedureForm() {
             {isSaving ? "Sauvegarde..." : proceduresFR.actions.saveDraft}
           </Button>
           <Button
+            data-testid="export-procedure"
             size="sm"
             onClick={handleValidateAndExport}
             disabled={isSaving || isExporting || isImporting}

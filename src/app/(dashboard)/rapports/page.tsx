@@ -33,6 +33,7 @@ import {
   Mail,
   Send,
   Loader2,
+  Volume2,
 } from "lucide-react";
 
 interface ReportPoint {
@@ -383,6 +384,7 @@ export default function RapportsPage() {
 
       <div className="flex items-center gap-3">
         <Button
+          data-testid="new-report"
           onClick={() => setShowForm(!showForm)}
           variant={showForm ? "outline" : "default"}
           className={cn(
@@ -593,7 +595,7 @@ export default function RapportsPage() {
                 </div>
               ))}
 
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -606,10 +608,10 @@ export default function RapportsPage() {
                 </Button>
               </div>
 
-              <div className="flex items-center gap-3 pt-2">
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Button
+              type="submit"
+              disabled={isSubmitting}
                   className="gap-2 rounded-xl bg-gradient-to-r from-primary to-purple-600 border border-primary/30 text-white shadow-3d-sm hover:-translate-y-0.5 hover:shadow-primary-glow active:translate-y-0 transition-all duration-200 disabled:opacity-60"
                 >
                   {isSubmitting ? (
@@ -719,8 +721,24 @@ export default function RapportsPage() {
                         ))}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 sm:shrink-0">
+                    <div className="flex flex-wrap items-center gap-1 sm:shrink-0">
                       <Button
+                        data-testid="read-report"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-primary rounded-lg"
+                        onClick={() => {
+                          const text = report.points.map((p) => `Point: ${p.text}`).join(". ");
+                          const utterance = new SpeechSynthesisUtterance(text);
+                          utterance.lang = "fr-FR";
+                          window.speechSynthesis?.speak(utterance);
+                        }}
+                        title="Lire le rapport"
+                      >
+                        <Volume2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        data-testid="export-report"
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-primary rounded-lg"
@@ -730,6 +748,7 @@ export default function RapportsPage() {
                         <Download className="h-4 w-4" />
                       </Button>
                       <Button
+                        data-testid="send-report"
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-primary rounded-lg"

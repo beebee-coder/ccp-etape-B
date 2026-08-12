@@ -5,6 +5,7 @@ import {
 } from "@/lib/procedures/server-store";
 import { validateApiRequest } from "@/lib/api/handlers";
 import { createLogger } from "@/lib/logger";
+import { registryTreeCache } from "@/lib/api/tree-cache";
 
 const log = createLogger({ module: "api-procedures-guide-id" });
 
@@ -51,6 +52,7 @@ export async function DELETE(
 
   try {
     await deleteProcedure(id);
+    registryTreeCache.invalidate("tree:");
     log.info("DELETE /api/procedures/guide/[id]: procedure deleted", { id });
     return NextResponse.json({ data: { success: true } }, { status: 200 });
   } catch (error) {

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { LocaleDbInitializer } from "@/components/locale-db-initializer";
 import { VoiceGuideProvider } from "@/components/voice-guide";
+import { VoiceCommandPalette } from "@/components/voice-commands";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,7 @@ export default function RootLayout({
         <LocaleDbInitializer />
         <VoiceGuideProvider>
           {children}
+          <VoiceCommandPalette />
         </VoiceGuideProvider>
       </body>
     </html>

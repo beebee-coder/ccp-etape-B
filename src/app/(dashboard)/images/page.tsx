@@ -780,6 +780,7 @@ export default function ImagesPage() {
             </p>
           </div>
           <Button
+            data-testid="upload-image"
             onClick={() => setDialogOpen(true)}
             className="gap-2 rounded-xl bg-gradient-to-r from-primary to-purple-600 border border-primary/30 shadow-3d hover:-translate-y-0.5 hover:shadow-primary-glow transition-all duration-200 active:translate-y-0"
           >
@@ -790,7 +791,7 @@ export default function ImagesPage() {
 
         {/* ── Stats chips (glassmorphism) ── */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2.5 rounded-xl border border-primary/15 bg-primary/8 px-4 py-2.5 shadow-3d-sm backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d">
+          <div className="stat-card flex items-center gap-2.5 border-primary/15 bg-primary/8 px-4 py-2.5 shadow-3d-sm backdrop-blur-sm">
             <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/20">
               <ImageIcon className="h-3.5 w-3.5 text-primary" />
             </div>
@@ -799,7 +800,7 @@ export default function ImagesPage() {
             </span>
             <span className="text-xs text-muted-foreground">images</span>
           </div>
-          <div className="flex items-center gap-2.5 rounded-xl border border-violet-500/15 bg-violet-500/8 px-4 py-2.5 shadow-3d-sm backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d">
+          <div className="stat-card flex items-center gap-2.5 border-violet-500/15 bg-violet-500/8 px-4 py-2.5 shadow-3d-sm backdrop-blur-sm">
             <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-500/20">
               <Film className="h-3.5 w-3.5 text-violet-500" />
             </div>
@@ -808,7 +809,7 @@ export default function ImagesPage() {
             </span>
             <span className="text-xs text-muted-foreground">vidéos</span>
           </div>
-          <div className="flex items-center gap-2.5 rounded-xl border border-border/40 bg-muted/40 px-4 py-2.5 shadow-3d-sm backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d">
+          <div className="stat-card flex items-center gap-2.5 border-border/40 bg-muted/40 px-4 py-2.5 shadow-3d-sm backdrop-blur-sm">
             <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-muted">
               <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
@@ -852,6 +853,7 @@ export default function ImagesPage() {
               <div
                 key={i}
                 className="overflow-hidden rounded-2xl border border-border/40 bg-card/60 shadow-3d-sm"
+                style={{ animationDelay: `${i * 60}ms` }}
               >
                 <Skeleton className="aspect-square rounded-none" />
                 <div className="p-3 space-y-2">
@@ -874,13 +876,23 @@ export default function ImagesPage() {
                 ? "Essayez de modifier vos filtres ou votre recherche."
                 : "Ajoutez votre premier média en cliquant sur le bouton ci-dessous."}
             </p>
+            {!search && filterCategory === "Tous" && (
+              <Button
+                data-testid="upload-image-empty"
+                onClick={() => setDialogOpen(true)}
+                className="mt-4 gap-2 rounded-xl bg-gradient-to-r from-primary to-purple-600 border border-primary/30 shadow-3d-sm hover:-translate-y-0.5 hover:shadow-primary-glow transition-all duration-200 active:translate-y-0"
+              >
+                <Plus className="h-4 w-4" />
+                Ajouter un média
+              </Button>
+            )}
           </div>
         ) : (
           <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {filtered.map((item, idx) => (
               <div
                 key={item.id}
-                style={{ animationDelay: `${idx * 50}ms` }}
+                style={{ animationDelay: `${idx * 40}ms` }}
                 className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-3d-sm animate-slide-in-3d transition-all duration-300 hover:shadow-3d-lg hover:-translate-y-1.5 hover:border-primary/25"
               >
                 {/* Top accent bar */}
@@ -996,7 +1008,7 @@ export default function ImagesPage() {
         )}
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="sm:max-w-[560px] rounded-2xl border border-border/50 shadow-3d-lg">
+          <DialogContent className="sm:max-w-[640px] rounded-2xl border border-border/50 shadow-3d-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2.5">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-purple-500/10 border border-primary/20">
@@ -1037,6 +1049,7 @@ export default function ImagesPage() {
                         Importer
                       </Button>
                       <Button
+                        data-testid="camera-image"
                         type="button"
                         variant={sourceMode === "camera" ? "default" : "outline"}
                         size="sm"

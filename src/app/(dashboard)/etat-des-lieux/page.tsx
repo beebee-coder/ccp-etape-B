@@ -21,11 +21,13 @@ import {
   Film,
   Plus,
   FileUp,
+  Mic,
 } from "lucide-react";
 import { etatDesLieuxService } from "@/lib/etat-des-lieux/etat-des-lieux-service";
 import type { MediaAttachment, EtatDesLieuxReport } from "@/lib/etat-des-lieux/server-store";
 import { SpeechControls } from "@/components/ui/speech-controls";
 import type { ChangeEvent } from "react";
+import { useVoiceGuide } from "@/lib/voice-guide/orchestrator";
 
 type FormData = {
   title: string;
@@ -51,6 +53,7 @@ export default function EtatDesLieuxPage() {
   const [captureMode, setCaptureMode] = useState<CaptureMode>("idle");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewKind, setPreviewKind] = useState<"image" | "video" | null>(null);
+  const { activate: activateVoiceGuide, startGuidance: startVoiceGuidance } = useVoiceGuide();
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -325,58 +328,90 @@ export default function EtatDesLieuxPage() {
           "p-6"
         )}>
           {/* Card Header */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/10 border border-primary/15">
-              <Plus className="h-4 w-4 text-primary" />
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/10 border border-primary/15">
+                <Plus className="h-4 w-4 text-primary" />
+              </div>
+              <h2 className="text-lg font-semibold text-foreground">Nouveau rapport</h2>
             </div>
-            <h2 className="text-lg font-semibold text-foreground">Nouveau rapport</h2>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={async () => { await activateVoiceGuide(); setTimeout(() => startVoiceGuidance(), 300); }}
+              className="h-8 w-8 rounded-lg border border-transparent hover:bg-primary/10 hover:border-primary/20 text-muted-foreground hover:text-primary transition-all"
+              title="Guide vocal pour l'état des lieux"
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
           </div>
 
           <div className="space-y-5">
-            {/* Title field */}
-            <div className="space-y-2">
-              <Label htmlFor="title" className="text-sm font-medium text-foreground/80">Titre *</Label>
-              <Input
-                id="title"
-                value={formData.title}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, title: e.target.value }))
-                }
-                placeholder="Ex: Inspection secteur turbine"
-                className={cn(
-                  "bg-background/60 border-border/60",
-                  "focus:border-primary/50 focus:shadow-primary-glow",
-                  "transition-all duration-200 rounded-xl"
-                )}
-              />
-            </div>
+             {/* Title field */}
+             <div className="space-y-2">
+               <Label htmlFor="title" className="text-sm font-medium text-foreground/80">Titre *</Label>
+               <div className="relative">
+                 <Input
+                   id="title"
+                   value={formData.title}
+                   onChange={(e) =>
+                     setFormData((prev) => ({ ...prev, title: e.target.value }))
+                   }
+                   placeholder="Ex: Inspection secteur turbine"
+                   className={cn(
+                     "pr-9 bg-background/60 border-border/60",
+                     "focus:border-primary/50 focus:shadow-primary-glow",
+                     "transition-all duration-200 rounded-xl"
+                   )}
+                 />
+                 <Button
+                   type="button"
+                   variant="ghost"
+                   size="icon"
+                   className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-primary"
+                   title="Dictater le titre"
+                 >
+                   <Mic className="h-3.5 w-3.5" />
+                 </Button>
+               </div>
+             </div>
 
-            {/* Location field */}
-            <div className="space-y-2">
-              <Label htmlFor="location" className="text-sm font-medium text-foreground/80">Lieu de travail *</Label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary/50" />
-                <Input
-                  id="location"
-                  value={formData.location}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, location: e.target.value }))
-                  }
-                  placeholder="Ex: Salle des turbines, Bloc A"
-                  className={cn(
-                    "pl-9 bg-background/60 border-border/60",
-                    "focus:border-primary/50 focus:shadow-primary-glow",
-                    "transition-all duration-200 rounded-xl"
-                  )}
-                />
-              </div>
-            </div>
+             {/* Location field */}
+             <div className="space-y-2">
+               <Label htmlFor="location" className="text-sm font-medium text-foreground/80">Lieu de travail *</Label>
+               <div className="relative">
+                 <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary/50" />
+                 <Input
+                   id="location"
+                   value={formData.location}
+                   onChange={(e) =>
+                     setFormData((prev) => ({ ...prev, location: e.target.value }))
+                   }
+                   placeholder="Ex: Salle des turbines, Bloc A"
+                   className={cn(
+                     "pl-9 pr-9 bg-background/60 border-border/60",
+                     "focus:border-primary/50 focus:shadow-primary-glow",
+                     "transition-all duration-200 rounded-xl"
+                   )}
+                 />
+                 <Button
+                   type="button"
+                   variant="ghost"
+                   size="icon"
+                   className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-primary"
+                   title="Dictater le lieu"
+                 >
+                   <Mic className="h-3.5 w-3.5" />
+                 </Button>
+               </div>
+             </div>
 
             {/* Media section */}
             <div className="space-y-3">
               <Label className="text-sm font-medium text-foreground/80">Médias (photo et/ou vidéo) *</Label>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -393,6 +428,7 @@ export default function EtatDesLieuxPage() {
                   Importer
                 </Button>
                 <Button
+                  data-testid="camera-btn"
                   type="button"
                   variant={captureMode !== "idle" ? "default" : "outline"}
                   size="sm"
@@ -585,20 +621,21 @@ export default function EtatDesLieuxPage() {
             </div>
 
             {/* Submit button */}
-            <Button
-              onClick={handleSend}
-              disabled={sending}
-              className={cn(
-                "w-full gap-2 h-11 rounded-xl font-semibold",
-                "bg-gradient-to-r from-primary to-purple-600",
-                "border border-primary/30 shadow-3d",
-                "hover:-translate-y-0.5 hover:shadow-primary-glow",
-                "active:translate-y-0 active:shadow-3d-sm",
-                "transition-all duration-200",
-                "disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-3d"
-              )}
-              size="lg"
-            >
+             <Button
+               data-testid="send-etat"
+               onClick={handleSend}
+               disabled={sending}
+               className={cn(
+                 "w-full gap-2 h-11 rounded-xl font-semibold",
+                 "bg-gradient-to-r from-primary to-purple-600",
+                 "border border-primary/30 shadow-3d",
+                 "hover:-translate-y-0.5 hover:shadow-primary-glow",
+                 "active:translate-y-0 active:shadow-3d-sm",
+                 "transition-all duration-200",
+                 "disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-3d"
+               )}
+               size="lg"
+             >
               {sending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />

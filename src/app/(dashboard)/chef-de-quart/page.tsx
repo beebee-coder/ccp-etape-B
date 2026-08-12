@@ -41,7 +41,7 @@ export default function ChefDeQuartDashboard() {
       </div>
 
       {/* ── Stat cards ── */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
         {statCards.map((stat) => (
           <Card key={stat.label} className="stat-card">
             <div className="relative">
@@ -53,7 +53,7 @@ export default function ChefDeQuartDashboard() {
       </div>
 
       {/* ── Content grid ── */}
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Procedures card ── */}
         <Card className="dashboard-card p-6">
           <div className="flex items-center gap-2.5 mb-4">
@@ -110,7 +110,7 @@ export default function ChefDeQuartDashboard() {
       </div>
 
       {/* ── Create action ── */}
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex flex-col sm:flex-row sm:justify-end gap-3">
         <Link href="/creer-procedure">
           <Button
             size="sm"

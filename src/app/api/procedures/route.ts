@@ -3,6 +3,7 @@ import { getAllProcedures, saveProcedure } from "@/lib/procedures/server-store";
 import { ProcedureSchema } from "@/lib/procedures/services/validator.service";
 import { validateApiRequest } from "@/lib/api/handlers";
 import { createLogger } from "@/lib/logger";
+import { registryTreeCache } from "@/lib/api/tree-cache";
 
 const log = createLogger({ module: "api-procedures" });
 
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
 
   try {
     await saveProcedure(body);
+    registryTreeCache.invalidate("tree:");
     log.info("POST /api/procedures: procedure saved", { procedureCode });
     return NextResponse.json({ data: { success: true } }, { status: 201 });
   } catch (error) {

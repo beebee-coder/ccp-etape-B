@@ -116,7 +116,7 @@ async function buildReconstructedTreeFromDb(): Promise<ApiTreeNode> {
       mediaItemsResult,
     ] = await Promise.all([
       prisma.locationNode.findMany({
-        orderBy: { level: "asc", path: "asc" },
+        orderBy: [{ level: "asc" }, { path: "asc" }],
         select: { path: true, libelle: true, locationType: true, blocCode: true, equipementCode: true, groupeCode: true, level: true },
       }).catch(() => []),
       prisma.procedure.findMany({

@@ -82,7 +82,7 @@ export default function RondierDashboard() {
       </div>
 
       {/* ── Quick actions grid ── */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {quickActions.map((action) => {
           const Icon = action.icon;
           return (
@@ -112,7 +112,7 @@ export default function RondierDashboard() {
       </div>
 
       {/* ── Content grid ── */}
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Today's rounds card ── */}
         <Card className="dashboard-card p-6">
           <div className="flex items-center justify-between mb-4">
@@ -206,6 +206,7 @@ export default function RondierDashboard() {
                   </div>
                 </div>
                 <Button
+                  data-testid="report-incident"
                   variant="outline"
                   size="sm"
                   onClick={() => alert(`Signalement de: ${item.title}`)}

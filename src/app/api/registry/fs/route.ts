@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getProjectRoot } from "@/lib/project-root";
-import { registryTreeCache } from "@/lib/api/tree-cache";
+import { registryTreeCache, getCachedProcedures, setCachedProcedures } from "@/lib/api/tree-cache";
 import { withFileLock } from "@/lib/api/file-lock";
 import { prisma } from "@/lib/db";
 
@@ -10,33 +10,6 @@ const PROJECT_ROOT = getProjectRoot();
 const REGISTRY_ROOT = path.join(PROJECT_ROOT, ".registry");
 const REGISTRY_LOCK = path.join(REGISTRY_ROOT, ".registry.lock");
 const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
-const PROCEDURES_CACHE_TTL_MS = 30_000;
-
-type ProcedureRow = { code: string; title: string; category?: string; description?: string; priority?: string };
-
-const proceduresCache = new Map<string, { value: ProcedureRow[]; expiresAt: number }>();
-
-function getCachedProcedures(): ProcedureRow[] | null {
-  const entry = proceduresCache.get("all");
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    proceduresCache.delete("all");
-    return null;
-  }
-  return entry.value;
-}
-
-function setCachedProcedures(procedures: ProcedureRow[]): void {
-  proceduresCache.set("all", {
-    value: procedures,
-    expiresAt: Date.now() + PROCEDURES_CACHE_TTL_MS,
-  });
-}
-
-export function invalidateProceduresCache(): void {
-  proceduresCache.delete("all");
-  registryTreeCache.invalidate("tree:");
-}
 
 console.info("[API /api/registry/fs] init", {
   PROJECT_ROOT,
@@ -142,12 +115,12 @@ async function mergeDbProceduresIntoTree(
   tree: ApiTreeNode,
 ): Promise<ApiTreeNode> {
   try {
-    let procedures = getCachedProcedures();
+    let procedures: import("@/lib/api/tree-cache").ProcedureRow[] | null = getCachedProcedures();
     if (!procedures) {
       const raw = await prisma.procedure.findMany({
         select: { code: true, title: true, category: true, description: true, priority: true },
       });
-      procedures = raw.map((p) => ({
+      procedures = raw.map((p: { code: string; title: string; category?: string | null; description?: string | null; priority?: string | null }) => ({
         code: p.code,
         title: p.title,
         category: p.category ?? undefined,

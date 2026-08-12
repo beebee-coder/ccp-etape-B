@@ -8,7 +8,6 @@ import {
   MediaRequirementSchema,
   AlarmConfigSchema,
 } from "./services/validator.service";
-import { invalidateProceduresCache } from "@/app/api/registry/fs/route";
 
 const log = createLogger({ module: "server-store" });
 
@@ -358,8 +357,6 @@ export async function saveProcedure(procedure: TProcedure): Promise<void> {
       updated: stepsToUpdate.length,
     });
   });
-
-  invalidateProceduresCache();
 }
 
 export async function deleteProcedure(code: string): Promise<void> {
@@ -377,8 +374,6 @@ export async function deleteProcedure(code: string): Promise<void> {
     } else {
       log.warn("deleteProcedure: procedure not found for deletion", { code });
     }
-
-    invalidateProceduresCache();
   } catch (error) {
     log.error("deleteProcedure: failed to delete procedure", { code, error });
     throw error;

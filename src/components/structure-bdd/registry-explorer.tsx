@@ -16,6 +16,7 @@ import {
   ClipboardPaste,
   Undo,
   GripVertical,
+  Database,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -59,8 +60,13 @@ function buildDatabaseTreeNode(node: RegistryNode): DatabaseTreeNode {
 }
 
 type ModalMode = "create" | "rename" | null;
+type DataSource = "disk" | "db";
 
-export function RegistryExplorer() {
+interface RegistryExplorerProps {
+  source?: DataSource;
+}
+
+export function RegistryExplorer({ source = "disk" }: RegistryExplorerProps) {
   const [structure, setStructure] = useState<DatabaseStructure | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +92,8 @@ export function RegistryExplorer() {
   const [modalName, setModalName] = useState("");
   const [modalKind, setModalKind] = useState<"file" | "directory">("file");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [dataSource, setDataSource] = useState<DataSource>(source);
+  const isDbSource = dataSource === "db";
   const containerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -103,8 +111,10 @@ export function RegistryExplorer() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/registry/fs?t=${Date.now()}`);
+      const endpoint = dataSource === "db" ? "/api/registry/db" : "/api/registry/fs";
+      const res = await fetch(`${endpoint}?t=${Date.now()}`);
       console.info("[RegistryExplorer] API response", {
+        endpoint,
         status: res.status,
         ok: res.ok,
       });
@@ -119,7 +129,6 @@ export function RegistryExplorer() {
         debug: data.debug,
         childrenCount: data.children?.length ?? 0,
         childrenNames: data.children?.map((c) => c.name),
-        raw: data,
       });
       const nodes = (data.children ?? []).map(buildDatabaseTreeNode);
       setStructure({
@@ -138,7 +147,7 @@ export function RegistryExplorer() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dataSource]);
 
   useEffect(() => {
     loadStructure();
@@ -188,6 +197,14 @@ export function RegistryExplorer() {
 
   const handlePreview = async (node: DatabaseTreeNode) => {
     if (node.kind !== "document") return;
+    if (isDbSource) {
+      setPreview({
+        path: node.path,
+        content: "[Mode base de données : aperçu non disponible]",
+        name: node.name,
+      });
+      return;
+    }
     try {
       const res = await fetch(
         `/api/registry/fs?path=${encodeURIComponent(node.path)}&read=true&t=${Date.now()}`,
@@ -206,12 +223,20 @@ export function RegistryExplorer() {
 
   const handleEdit = () => {
     if (!preview) return;
+    if (isDbSource) {
+      toast.error("Modification non disponible en mode base de données");
+      return;
+    }
     setEditContent(preview.content);
     setEditingPreview(true);
   };
 
   const handleSave = async () => {
     if (!preview) return;
+    if (isDbSource) {
+      toast.error("Sauvegarde non disponible en mode base de données");
+      return;
+    }
     try {
       const res = await fetch(`/api/registry/fs?t=${Date.now()}`, {
         method: "PATCH",
@@ -255,6 +280,10 @@ export function RegistryExplorer() {
   };
 
   const handleClearAllContent = useCallback(async () => {
+    if (isDbSource) {
+      toast.error("Vidage non disponible en mode base de données");
+      return;
+    }
     if (!structure) return;
     if (!confirm("Vider le contenu de tous les fichiers ? Cette action est irréversible.")) return;
     const allFiles: DatabaseTreeNode[] = [];
@@ -288,9 +317,13 @@ export function RegistryExplorer() {
     } catch {
       toast.error("Erreur lors du vidage du contenu");
     }
-  }, [structure, preview]);
+  }, [structure, preview, isDbSource]);
 
   const handleDelete = async (nodePath: string) => {
+    if (isDbSource) {
+      toast.error("Suppression non disponible en mode base de données");
+      return;
+    }
     if (!confirm("Supprimer ce fichier/dossier ?")) return;
     try {
       const res = await fetch(
@@ -312,6 +345,10 @@ export function RegistryExplorer() {
   };
 
   const handleRename = async () => {
+    if (isDbSource) {
+      toast.error("Renommage non disponible en mode base de données");
+      return;
+    }
     if (!modal || !modalName.trim() || !modal.targetPath) return;
     try {
       const res = await fetch(`/api/registry/fs?t=${Date.now()}`, {
@@ -336,6 +373,10 @@ export function RegistryExplorer() {
   };
 
   const handleCreate = async () => {
+    if (isDbSource) {
+      toast.error("Création non disponible en mode base de données");
+      return;
+    }
     if (!modal || !modal.parentPath) return;
     try {
       if (modalKind === "file") {
@@ -437,6 +478,31 @@ export function RegistryExplorer() {
 
 
 
+  const toggleSource = () => {
+    setDataSource((prev) => (prev === "disk" ? "db" : "disk"));
+    setPreview(null);
+    setEditingPreview(false);
+    setModal(null);
+  };
+
+  const handleImportToDb = async () => {
+    try {
+      const res = await fetch("/api/registry/import", { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Erreur import" }));
+        throw new Error(err.error || "Erreur import");
+      }
+      const data = await res.json();
+      toast.success(data.message || "Import terminé");
+      setDataSource("db");
+      await loadStructure();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur lors de l'import";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
   return (
     <section className="relative isolate">
       <div className="relative mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -460,6 +526,33 @@ export function RegistryExplorer() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualiser
           </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleSource}
+            className={cn(
+              "h-8 rounded-xl border-border/60",
+              isDbSource
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                : "bg-card/60 hover:bg-primary/8 hover:border-primary/30 hover:text-primary"
+            )}
+          >
+            <Database className="h-4 w-4 mr-2" />
+            {isDbSource ? "Base de données" : "Disque"}
+          </Button>
+
+          {!isDbSource && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleImportToDb}
+              className="h-8 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Importer en base
+            </Button>
+          )}
         </div>
       </div>
 
@@ -495,14 +588,22 @@ export function RegistryExplorer() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 rounded-lg p-0"
-                  onClick={() =>
+                  className={cn(
+                    "h-7 w-7 rounded-lg p-0",
+                    isDbSource && "opacity-50 cursor-not-allowed"
+                  )}
+                  onClick={() => {
+                    if (isDbSource) {
+                      toast.error("Création non disponible en mode base de données");
+                      return;
+                    }
                     setModal({
                       mode: "create",
                       parentPath: "BDD web",
-                    })
-                  }
-                  title="Créer"
+                    });
+                  }}
+                  title={isDbSource ? "Créer (non disponible en mode BDD)" : "Créer"}
+                  disabled={isDbSource}
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
@@ -528,8 +629,8 @@ export function RegistryExplorer() {
                 highlightAncestors={highlightAncestors}
                 showDiff={false}
                 onPreview={handlePreview}
-                onDelete={handleDelete}
-                onRename={(path, currentName) => {
+                onDelete={isDbSource ? undefined : handleDelete}
+                onRename={isDbSource ? undefined : (path, currentName) => {
                   setModal({
                     mode: "rename",
                     targetPath: path,
@@ -537,7 +638,7 @@ export function RegistryExplorer() {
                   });
                   setModalName(currentName);
                 }}
-                onCreate={(parentPath) => {
+                onCreate={isDbSource ? undefined : (parentPath) => {
                   setModal({ mode: "create", parentPath });
                   setModalName("");
                   setModalKind("file");

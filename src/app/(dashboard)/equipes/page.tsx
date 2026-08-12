@@ -146,7 +146,7 @@ export default function EquipesPage() {
       )}
 
       {/* ── Teams grid ── */}
-      <div className="mt-8 grid gap-6 lg:grid-cols-3">
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {loading ? (
           <div className="lg:col-span-1 space-y-3">
             {[...Array(4)].map((_, i) => (

@@ -89,17 +89,6 @@ export function useVoiceGuide() {
     }
   }, [speechError]);
 
-  const activate = useCallback(async () => {
-    dispatch({ type: "ACTIVATE" });
-    await startListening();
-  }, [startListening]);
-
-  const deactivate = useCallback(() => {
-    stopListening();
-    stopSpeaking();
-    dispatch({ type: "DEACTIVATE" });
-  }, [stopListening, stopSpeaking]);
-
   const analyzeCurrentForm = useCallback((): FormDescriptor | null => {
     const detected = detectFormFields();
     if (detected.fields.length === 0) return null;
@@ -154,6 +143,20 @@ export function useVoiceGuide() {
     speak(guidance);
   }, [analyzeCurrentForm, speak]);
 
+  const deactivate = useCallback(() => {
+    stopListening();
+    stopSpeaking();
+    dispatch({ type: "DEACTIVATE" });
+  }, [stopListening, stopSpeaking]);
+
+  const activate = useCallback(async () => {
+    dispatch({ type: "ACTIVATE" });
+    await startListening();
+    setTimeout(() => {
+      startGuidance();
+    }, 300);
+  }, [startListening, startGuidance]);
+
   const handleTranscriptCommit = useCallback(async () => {
     if (!state.form || state.transcript.trim().length === 0) return;
 
@@ -162,6 +165,24 @@ export function useVoiceGuide() {
 
     const value = state.transcript.trim();
     dispatch({ type: "SET_PHASE", phase: "processing" });
+
+    if (isCorrectionCommand(value)) {
+      const currentValue = (currentField.element as HTMLInputElement | HTMLTextAreaElement)?.value || "";
+      const words = currentValue.trim().split(/\s+/);
+      const correctedValue = words.length > 1 ? words.slice(0, -1).join(" ") : "";
+      const filled = fillField(currentField.element as HTMLInputElement, correctedValue);
+      if (filled) {
+        dispatch({ type: "UPDATE_FIELD_VALUE", fieldId: currentField.id, value: correctedValue });
+      }
+      dispatch({ type: "SET_TRANSCRIPT", transcript: "" });
+      dispatch({ type: "SET_GUIDANCE", guidance: "Dernier mot supprimé. Vous pouvez continuer." });
+      dispatch({ type: "SET_PHASE", phase: "speaking" });
+      if (currentField.element) {
+        focusField(currentField.element as HTMLInputElement);
+      }
+      speak("Dernier mot supprimé. Vous pouvez continuer.");
+      return;
+    }
 
     const filled = fillField(currentField.element as HTMLInputElement, value);
     if (filled) {
@@ -316,4 +337,26 @@ function extractPageName(): string {
   return last
     .replace(/-/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function isCorrectionCommand(transcript: string): boolean {
+  const lower = transcript.toLowerCase().trim();
+  return [
+    "non corrige",
+    "non, corrige",
+    "non corrigez",
+    "non, corrigez",
+    "supprime le dernier mot",
+    "efface le dernier mot",
+    "retire le dernier mot",
+    "supprime",
+    "efface",
+    "retire",
+    "annule",
+    "annuler",
+    "pas ca",
+    "pas ça",
+    "non pas ca",
+    "non pas ça",
+  ].some((cmd) => lower === cmd || lower.startsWith(cmd + " ") || lower.startsWith(cmd + ","));
 }

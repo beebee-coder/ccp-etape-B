@@ -227,7 +227,7 @@ export async function getGuardrailRulesForPrompt(): Promise<string> {
   try {
     const rules = await prisma.guardrailRule.findMany({
       where: { isActive: true },
-      orderBy: { section: "asc", createdAt: "asc" },
+      orderBy: [{ section: "asc" }, { createdAt: "asc" }],
     });
 
     if (rules.length === 0) return "Aucune garde-fou active.";

@@ -1,8 +1,7 @@
 "use client";
 
-import { Database, Layers, HardDrive } from "lucide-react";
+import { Database, Layers } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { HolographicDatabaseExplorer } from "@/components/structure-bdd/holographic-database-explorer";
 import { RegistryExplorer } from "@/components/structure-bdd/registry-explorer";
 import { LocaleDbExplorer } from "@/components/structure-bdd/locale-db-explorer";
 
@@ -28,7 +27,7 @@ export default function StructureBDDPage() {
 
       {/* ── Tabs ── */}
       <Tabs defaultValue="schema" className="space-y-1">
-        <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-border/30 bg-background/80 pb-3 pt-1.5 backdrop-blur-sm">
+        <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-border/30 bg-background/80 pb-3 pt-1.5 backdrop-blur-sm overflow-x-auto">
           <TabsList className="inline-flex h-10 items-center gap-1 rounded-xl border border-border/60 bg-card/60 p-1 text-sm text-muted-foreground">
             <TabsTrigger
               value="schema"
@@ -37,32 +36,21 @@ export default function StructureBDDPage() {
               <Database className="h-4 w-4" />
               Schéma BDD
             </TabsTrigger>
-            <TabsTrigger
-              value="tree"
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-primary-glow"
-            >
-              <Layers className="h-4 w-4" />
-              BDD locale
-            </TabsTrigger>
-            <TabsTrigger
-              value="localedb"
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 data-[state=active]:bg-emerald-500/15 data-[state=active]:text-emerald-400 data-[state=active]:shadow-[0_0_8px_rgba(16,185,129,.3)]"
-            >
-              <HardDrive className="h-4 w-4" />
-              .locale-db
-            </TabsTrigger>
+          <TabsTrigger
+            value="tree"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-primary-glow"
+          >
+            <Layers className="h-4 w-4" />
+            BDD locale
+          </TabsTrigger>
           </TabsList>
         </div>
 
         <TabsContent value="schema" className="mt-0">
-          <RegistryExplorer />
+          <RegistryExplorer source="disk" />
         </TabsContent>
 
         <TabsContent value="tree" className="mt-0">
-          <HolographicDatabaseExplorer />
-        </TabsContent>
-
-        <TabsContent value="localedb" className="mt-0">
           <LocaleDbExplorer />
         </TabsContent>
       </Tabs>

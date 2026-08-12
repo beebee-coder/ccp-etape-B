@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardTopNav } from "@/components/dashboard/top-nav";
-import { SidebarProvider } from "@/components/dashboard/sidebar-provider";
+import { SidebarProvider, useSidebar } from "@/components/dashboard/sidebar-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Toaster } from "sonner";
@@ -38,15 +38,13 @@ function hasRolePrefix(pathname: string): boolean {
   return ROLE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function DashboardInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const stored = getStoredRole();
   const hideSidebar = pathname.startsWith("/actions-ia");
+  const { setIsMobile, mobileOpen, openMobile, closeMobile } =
+    useSidebar();
 
   const role: Role = hasRolePrefix(pathname)
     ? deriveRoleFromPath(pathname)
@@ -67,19 +65,48 @@ export default function DashboardLayout({
     }
   }, [pathname]);
 
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const handleChange = (e: MediaQueryListEvent | MediaQueryList) =>
+      setIsMobile(!e.matches);
+    handleChange(mql);
+    mql.addEventListener("change", handleChange);
+    return () => mql.removeEventListener("change", handleChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="flex h-screen overflow-hidden">
+      {!hideSidebar && mounted && (
+        <DashboardSidebar
+          role={role}
+          isMobileOpen={mobileOpen}
+          onMobileClose={closeMobile}
+        />
+      )}
+      <main
+        className={`flex flex-1 flex-col overflow-hidden ${hideSidebar ? "w-full" : ""}`}
+      >
+        <DashboardTopNav
+          showBackButton={hideSidebar}
+          onMenuClick={openMobile}
+        />
+        <div className="flex-1 overflow-y-auto">{children}</div>
+      </main>
+    </div>
+  );
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <ThemeProvider>
       <SidebarProvider>
         <ErrorBoundary>
-          <div className="flex h-screen overflow-hidden">
-            {!hideSidebar && mounted && <DashboardSidebar role={role} />}
-            <main
-              className={`flex flex-1 flex-col overflow-hidden ${hideSidebar ? "w-full" : ""}`}
-            >
-              <DashboardTopNav showBackButton={hideSidebar} />
-              <div className="flex-1 overflow-y-auto">{children}</div>
-            </main>
-          </div>
+          <DashboardInner>{children}</DashboardInner>
           <Toaster position="bottom-right" richColors />
         </ErrorBoundary>
       </SidebarProvider>

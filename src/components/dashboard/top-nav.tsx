@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bell, LogOut, User, Sun, Moon, Zap } from "lucide-react";
+import { ArrowLeft, Bell, LogOut, User, Sun, Moon, Zap, Menu } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,9 +10,13 @@ import { cn } from "@/lib/utils";
 
 interface DashboardTopNavProps {
   showBackButton?: boolean;
+  onMenuClick?: () => void;
 }
 
-export function DashboardTopNav({ showBackButton = false }: DashboardTopNavProps) {
+export function DashboardTopNav({
+  showBackButton = false,
+  onMenuClick,
+}: DashboardTopNavProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
 
@@ -41,6 +45,23 @@ export function DashboardTopNav({ showBackButton = false }: DashboardTopNavProps
           >
             <ArrowLeft className="h-4.5 w-4.5 text-foreground/70 group-hover:text-primary transition-colors" />
             <span className="sr-only">Retour</span>
+          </Button>
+        )}
+        {onMenuClick && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onMenuClick}
+            className={cn(
+              "lg:hidden h-9 w-9 rounded-xl border border-transparent",
+              "hover:bg-primary/10 hover:border-primary/20",
+              "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-3d-sm",
+              "active:translate-y-0 active:shadow-none group -ml-1"
+            )}
+            title="Menu"
+          >
+            <Menu className="h-4.5 w-4.5 text-foreground/70 group-hover:text-primary transition-colors" />
+            <span className="sr-only">Menu</span>
           </Button>
         )}
         <div className="flex items-center gap-2 rounded-xl bg-primary/8 border border-primary/15 px-3 py-1.5 shadow-3d-sm">

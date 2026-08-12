@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -23,6 +22,7 @@ import {
   Copy,
   Clock,
 } from "lucide-react";
+import { VoiceInput } from "@/components/ui/voice-input";
 
 import type {
   Meeting,
@@ -492,16 +492,12 @@ export default function VideoConferencePage() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden flex-col sm:flex-row">
         {/* ── Video Grid ── */}
         <div className="flex-1 flex flex-col">
           <div className="flex-1 p-4">
             <div
-              className="grid h-full gap-3 rounded-2xl border border-border/50 bg-muted/10 p-1"
-              style={{
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gridTemplateRows: "repeat(2, 1fr)",
-              }}
+              className="grid h-full gap-3 rounded-2xl border border-border/50 bg-muted/10 p-1 grid-cols-1 sm:grid-cols-2 grid-rows-[repeat(4,1fr)] sm:grid-rows-[repeat(2,1fr)]"
             >
               {participants.map((p) => (
                 <Card
@@ -527,7 +523,7 @@ export default function VideoConferencePage() {
                   )}
 
                   <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 justify-center">
                       <span className="text-xs font-medium text-white drop-shadow-md">
                         {p.name}
                       </span>
@@ -568,8 +564,9 @@ export default function VideoConferencePage() {
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
+                  data-testid="toggle-mic"
                   variant={isMuted ? "destructive" : "secondary"}
                   size="icon"
                   className="h-10 w-10 rounded-full border border-border/40"
@@ -584,6 +581,7 @@ export default function VideoConferencePage() {
                 </Button>
 
                 <Button
+                  data-testid="toggle-video"
                   variant={isVideoOn ? "secondary" : "destructive"}
                   size="icon"
                   className="h-10 w-10 rounded-full border border-border/40"
@@ -598,6 +596,7 @@ export default function VideoConferencePage() {
                 </Button>
 
                 <Button
+                  data-testid="toggle-screen"
                   variant={isScreenSharing ? "default" : "secondary"}
                   size="icon"
                   className="h-10 w-10 rounded-full border border-border/40"
@@ -612,6 +611,7 @@ export default function VideoConferencePage() {
                 </Button>
 
                 <Button
+                  data-testid="toggle-chat"
                   variant={showChat ? "default" : "secondary"}
                   size="icon"
                   className="h-10 w-10 rounded-full border border-border/40"
@@ -624,6 +624,7 @@ export default function VideoConferencePage() {
                 </Button>
 
                 <Button
+                  data-testid="toggle-participants"
                   variant={showParticipants ? "default" : "secondary"}
                   size="icon"
                   className="h-10 w-10 rounded-full border border-border/40"
@@ -638,6 +639,7 @@ export default function VideoConferencePage() {
                 </Button>
 
                 <Button
+                  data-testid="meeting-settings"
                   variant="secondary"
                   size="icon"
                   className="h-10 w-10 rounded-full border border-border/40"
@@ -650,6 +652,7 @@ export default function VideoConferencePage() {
                 </Button>
 
                 <Button
+                  data-testid="end-call"
                   variant="destructive"
                   size="icon"
                   className="h-10 w-10 rounded-full border border-border/40 bg-rose-500/20 hover:bg-rose-500/30"
@@ -665,7 +668,7 @@ export default function VideoConferencePage() {
 
         {/* ── Chat sidebar ── */}
         {showChat && (
-          <div className="w-80 border-l border-border/50 bg-card/80 backdrop-blur-sm flex flex-col">
+          <div className="w-full sm:w-80 border-l border-border/50 bg-card/80 backdrop-blur-sm flex flex-col shrink-0">
             <div className="border-b border-border/50 px-4 py-3">
               <h3 className="text-sm font-semibold text-foreground">
                 Chat de la réunion
@@ -700,23 +703,27 @@ export default function VideoConferencePage() {
 
             <div className="border-t border-border/50 p-3">
               <form
+                data-testid="meeting-chat-form"
                 className="flex gap-2"
                 onSubmit={(e) => {
                   e.preventDefault();
                   void handleSendChatMessage();
                 }}
               >
-                <Input
+                <VoiceInput
                   value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
+                  onChange={setNewMessage}
+                  onSend={handleSendChatMessage}
                   placeholder="Écrire un message..."
-                  className="h-9 text-sm bg-background/60 border-border/60 rounded-xl focus:border-primary/50 transition-all duration-200"
+                  disabled={isSaving}
+                  className="flex-1"
                 />
                 <Button
+                  data-testid="send-chat-message"
                   type="submit"
                   size="icon"
                   className="h-9 w-9 shrink-0 rounded-xl bg-gradient-to-r from-primary to-purple-600 border border-primary/30 shadow-3d-sm text-white hover:-translate-y-0.5 hover:shadow-primary-glow transition-all duration-200 active:translate-y-0"
-                  disabled={isSaving}
+                  disabled={isSaving || !newMessage.trim()}
                 >
                   <Send className="h-4 w-4" />
                 </Button>
@@ -727,7 +734,7 @@ export default function VideoConferencePage() {
 
         {/* ── Participants sidebar ── */}
         {showParticipants && (
-          <div className="w-72 border-l border-border/50 bg-card/80 backdrop-blur-sm flex flex-col">
+          <div className="w-full sm:w-72 border-l border-border/50 bg-card/80 backdrop-blur-sm flex flex-col shrink-0">
             <div className="border-b border-border/50 px-4 py-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">
                 Participants ({participants.length})

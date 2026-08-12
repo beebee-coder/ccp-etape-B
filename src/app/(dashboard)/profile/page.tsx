@@ -43,12 +43,12 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
         <Button
           size="sm"
           onClick={handleSave}
           disabled={saving}
-          className="gap-2 btn-primary-gradient"
+          className="gap-2 btn-primary-gradient w-full sm:w-auto"
         >
           {saving ? (
             <>
@@ -64,7 +64,7 @@ export default function ProfilePage() {
         </Button>
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-3">
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Profile card ── */}
         <Card className="dashboard-card p-6 lg:col-span-1">
           <div className="flex flex-col items-center text-center">

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deleteProcedure } from "@/lib/procedures/server-store";
 import { validateApiRequest } from "@/lib/api/handlers";
 import { createLogger } from "@/lib/logger";
+import { registryTreeCache } from "@/lib/api/tree-cache";
 
 const log = createLogger({ module: "api-procedures-code" });
 
@@ -16,6 +17,7 @@ export async function DELETE(
 
   try {
     await deleteProcedure(code);
+    registryTreeCache.invalidate("tree:");
     log.info("DELETE /api/procedures/[code]: procedure deleted", { code });
     return NextResponse.json({ data: { success: true } }, { status: 200 });
   } catch (error) {

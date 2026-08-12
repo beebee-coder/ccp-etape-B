@@ -591,15 +591,26 @@ export default function QAPage() {
                 >
                   Question
                 </label>
-                <Input
-                  id="question"
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  placeholder="Tapez votre question ici..."
-                  autoComplete="off"
-                  disabled={saving}
-                  className="bg-background/60 border-border/60 rounded-xl focus:border-primary/50 focus:shadow-primary-glow transition-all duration-200"
-                />
+                <div className="relative">
+                  <Input
+                    id="question"
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    placeholder="Tapez votre question ici..."
+                    autoComplete="off"
+                    disabled={saving}
+                    className="pr-9 bg-background/60 border-border/60 rounded-xl focus:border-primary/50 focus:shadow-primary-glow transition-all duration-200"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-primary"
+                    title="Dictater la question"
+                  >
+                    <Mic className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
               <div>
                 <label
@@ -608,15 +619,26 @@ export default function QAPage() {
                 >
                   Réponse
                 </label>
-                <Input
-                  id="answer"
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                  placeholder="Tapez la réponse correspondante..."
-                  autoComplete="off"
-                  disabled={saving}
-                  className="bg-background/60 border-border/60 rounded-xl focus:border-primary/50 focus:shadow-primary-glow transition-all duration-200"
-                />
+                <div className="relative">
+                  <Input
+                    id="answer"
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    placeholder="Tapez la réponse correspondante..."
+                    autoComplete="off"
+                    disabled={saving}
+                    className="pr-9 bg-background/60 border-border/60 rounded-xl focus:border-primary/50 focus:shadow-primary-glow transition-all duration-200"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-primary"
+                    title="Dictater la réponse"
+                  >
+                    <Mic className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
               <div className="flex gap-3 pt-1">
                 <Button
@@ -665,7 +687,7 @@ export default function QAPage() {
               </h2>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Input
                 ref={fileInputRef}
                 type="file"
@@ -778,6 +800,7 @@ export default function QAPage() {
             </div>
             <div className="flex items-center gap-2">
               <Button
+                data-testid="clear-qr"
                 type="button"
                 size="sm"
                 variant="outline"
@@ -789,6 +812,7 @@ export default function QAPage() {
                 Vider
               </Button>
               <Button
+                data-testid="send-qr"
                 size="sm"
                 className="btn-primary-gradient gap-1.5"
                 onClick={handleSend}

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 async function getGuardrailRules() {
   const rules = await prisma.guardrailRule.findMany({
-    orderBy: { section: "asc", createdAt: "asc" },
+    orderBy: [{ section: "asc" }, { createdAt: "asc" }],
   });
   return rules.map((rule) => ({
     id: rule.id,

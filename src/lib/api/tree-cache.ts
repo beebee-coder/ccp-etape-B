@@ -3,6 +3,14 @@ type CacheEntry<T> = {
   expiresAt: number;
 };
 
+export interface ProcedureRow {
+  code: string;
+  title: string;
+  category?: string;
+  description?: string;
+  priority?: string;
+}
+
 export class TreeCache {
   private cache = new Map<string, CacheEntry<unknown>>();
   private ttlMs: number;
@@ -44,3 +52,28 @@ export class TreeCache {
 }
 
 export const registryTreeCache = new TreeCache(30_000);
+
+const PROCEDURES_CACHE_TTL_MS = 30_000;
+const proceduresCache = new Map<string, { value: ProcedureRow[]; expiresAt: number }>();
+
+export function getCachedProcedures(): ProcedureRow[] | null {
+  const entry = proceduresCache.get("all");
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    proceduresCache.delete("all");
+    return null;
+  }
+  return entry.value;
+}
+
+export function setCachedProcedures(procedures: ProcedureRow[]): void {
+  proceduresCache.set("all", {
+    value: procedures,
+    expiresAt: Date.now() + PROCEDURES_CACHE_TTL_MS,
+  });
+}
+
+export function invalidateProceduresCache(): void {
+  proceduresCache.delete("all");
+  registryTreeCache.invalidate("tree:");
+}

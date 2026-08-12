@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { Mail, Phone, MapPin } from "lucide-react";
+import { Mail, Phone, MapPin, Mic } from "lucide-react";
+import { useVoiceGuide } from "@/lib/voice-guide/orchestrator";
 
 export default function ContactPage() {
+  const { activate: activateVoiceGuide, startGuidance: startVoiceGuidance } = useVoiceGuide();
   return (
     <section className="py-16 sm:py-24">
       <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
@@ -28,6 +30,22 @@ export default function ContactPage() {
         </div>
 
         <Card className="dashboard-card p-6 sm:p-8">
+          <div className="flex items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Formulaire de contact</h2>
+              <p className="text-sm text-muted-foreground">Notre équipe vous répondra sous 24h.</p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={async () => { await activateVoiceGuide(); setTimeout(() => startVoiceGuidance(), 300); }}
+              className="h-8 w-8 rounded-lg border border-transparent hover:bg-primary/10 hover:border-primary/20 text-muted-foreground hover:text-primary transition-all"
+              title="Guide vocal pour le contact"
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
+          </div>
           <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
             <div className="grid gap-5 sm:grid-cols-2">
               <div className="space-y-2">
